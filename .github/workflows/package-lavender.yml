@@ -156,7 +156,7 @@ jobs:
           kernel = Path("artifacts/verify/kernel").read_bytes()
           payload = Path("artifacts/verify/ramdisk").read_bytes()
           dtb = Path("artifacts/verify/dtb").read_bytes()
-          assert kernel[0x38:0x3c] == b"ARM\\x64", "shim is missing the ARM64 Image header"
+          assert kernel[0x38:0x3c] == b"ARMd", "shim is missing the ARM64 Image header"
           assert payload[:8] == b"LAVENDRX", "ramdisk does not contain a Lavender XNU payload"
           assert len(dtb) > 0, "stock DTB is missing"
           print(f"PASS: ARM64 shim={len(kernel)} bytes, LAVENDRX payload={len(payload)} bytes, DTB={len(dtb)} bytes")
