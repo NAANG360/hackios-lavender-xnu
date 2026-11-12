@@ -107,7 +107,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 index e58bad1..4444444 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -86,5 +86,13 @@
+@@ -86,3 +86,11 @@
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +    "   {"
 +    "     'IOClass'         = LavenderPlatformExpert;"
