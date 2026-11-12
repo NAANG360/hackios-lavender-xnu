@@ -72,25 +72,25 @@ jobs:
           python3 tools/extract_appended_fdt.py stock/unpacked/kernel --index 2 --compatible qcom,sdm660 --output stock/unpacked/dtb
           test -s stock/unpacked/dtb
           python3 - <<'PY' >> "$GITHUB_ENV"
-import os, re
-text = open("stock/unpacked/header.txt", encoding="utf-8").read()
-match = re.search(r"os_version: 0x([0-9a-fA-F]+)", text)
-value = int(match.group(1), 16) if match else 0
-major = (value >> 25) & 0x7f
-minor = (value >> 18) & 0x7f
-patch = (value >> 11) & 0x7f
-year = 2000 + ((value >> 4) & 0x7f)
-month = value & 0xf
-if 1 <= month <= 12:
-    os_version = f"{major}.{minor}.{patch}"
-    patch_level = f"{year}-{month:02d}"
-else:
-    os_version, patch_level = "15.0.0", "2025-03"
-with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-    env.write(f"OS_VERSION={os_version}\n")
-    env.write(f"OS_PATCH_LEVEL={patch_level}\n")
-print(f"Stock boot metadata: Android {os_version}, security patch {patch_level}")
-PY
+          import os, re
+          text = open("stock/unpacked/header.txt", encoding="utf-8").read()
+          match = re.search(r"os_version: 0x([0-9a-fA-F]+)", text)
+          value = int(match.group(1), 16) if match else 0
+          major = (value >> 25) & 0x7f
+          minor = (value >> 18) & 0x7f
+          patch = (value >> 11) & 0x7f
+          year = 2000 + ((value >> 4) & 0x7f)
+          month = value & 0xf
+          if 1 <= month <= 12:
+              os_version = f"{major}.{minor}.{patch}"
+              patch_level = f"{year}-{month:02d}"
+          else:
+              os_version, patch_level = "15.0.0", "2025-03"
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"OS_VERSION={os_version}\n")
+              env.write(f"OS_PATCH_LEVEL={patch_level}\n")
+          print(f"Stock boot metadata: Android {os_version}, security patch {patch_level}")
+          PY
 
       - name: Generate and validate Lavender Apple Device Tree
         run: |
