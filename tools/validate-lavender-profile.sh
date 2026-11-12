@@ -3,7 +3,7 @@ set -euo pipefail
 machine="${1:-LAVENDER}"
 patch="xnu/patches/0082-lavender-machine-profile.patch"
 cache_patch="xnu/patches/0083-lavender-cache-config.patch"
-expert_patch="xnu/patches/0084-lavender-platform-expert.patch"
+expert_patch="xnu/patches/0087-lavender-linker-and-platform-expert.patch"
 if [[ "$machine" != "LAVENDER" ]]; then
   echo "Machine profile validation skipped for $machine"
   exit 0
