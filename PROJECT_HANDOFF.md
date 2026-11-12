@@ -2,7 +2,7 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-12 (Asia/Kolkata)**  
+> Last consolidated: **2026-11-12 22:06 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
 > Active known branch: `ci/lavender-machine-profile`  
 > Latest verified CI head in the recorded run: `1842f223f3e3926710b9f53c86b586dfd9b62a99`
