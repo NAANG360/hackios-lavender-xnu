@@ -1,0 +1,26 @@
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -2180,17 +2180,17 @@
+ 	return dec;
+ }
+ 
+-#if defined(SWEET)
++#if defined(SWEET) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ /*
+- * sweet: arm_vm_init() calls this unconditionally; Apple's definition (it
+- * enters the PPL/monitor) ships only in the closed per-SoC library. There is
+- * no monitor on SWEET.
++ * sweet/lavender: arm_vm_init() calls this unconditionally; Apple's definition
++ * (it enters the PPL/monitor) ships only in the closed per-SoC library. These
++ * platforms have no Apple monitor, so the non-monitor implementation is a no-op.
+  */
+ void
+ ml_enable_monitor(void)
+ {
+ }
+-#endif /* SWEET */
++#endif /* SWEET || ARM64_BOARD_CONFIG_LAVENDER */
+ 
+ boolean_t
+ ml_get_timer_pending(void)
