@@ -1403,3 +1403,58 @@ Operational interpretation:
 - No successful Lavender XNU kernel has been produced or verified in the evidence inspected here.
 - The root-level handoff and agent discovery instructions already exist on both `main` and the Lavender working branch. Keep this file as the single canonical project handoff; do not create a second similarly named status file.
 - This session's work is documentation consolidation and state capture. It is not a code fix, build success, Mach-O verification, or physical-device boot.
+
+
+---
+
+## 21. Cross-session handoff revalidation — 2026-11-12 22:14 IST
+
+This addendum records the current session's final verification of the handoff and the directly re-inspected evidence.
+
+### Canonical file and discovery
+
+- The one authoritative handoff is this root-level file: `PROJECT_HANDOFF.md`.
+- It exists on both `ci/lavender-machine-profile` and `main`; both fetched copies had the same blob SHA before this addendum: `998d64de8069eefc60654377653e0fb2ea83853f`.
+- `AGENTS.md` on both branches explicitly instructs every new agent/session to read `PROJECT_HANDOFF.md` first.
+- Both root READMEs link to this handoff and warn that the inherited IOS-Sweet README material describes SWEET / SM7150, not Lavender.
+- Therefore do not create another competing project summary. The next session's entry sequence is: repository root -> `AGENTS.md` -> full `PROJECT_HANDOFF.md` -> inspect live branch HEAD and newest Actions run.
+
+### Directly rechecked hardware evidence
+
+The two conversation-uploaded hardware audits were re-read. They are not to be committed raw because they contain device-specific runtime identifiers. Sanitized facts reconfirmed:
+
+- Device: Redmi Note 7, codename `lavender`; SoC platform `sdm660`; Qualcomm hardware.
+- Android 15 / SDK 35 currently boots; running Linux kernel `4.19.325-NYXION-SUSFS`, AArch64, clang 19.0.0 / LLD 19.0.0.
+- Linux reports `MemTotal: 2,803,968 kB` (about 2.8 GiB usable on the 3 GB configuration).
+- Boot storage controller: `c0c4000.sdhci`.
+- Device-tree compatible strings include `qcom,sdm660-mtp`, `qcom,sdm660`, and `qcom,mtp`; this is a SoC/board discovery clue, not proof that all MTP wiring matches the retail phone.
+- Live panel boot argument identifies `qcom,mdss_dsi_nt36672a_tianma_fhdplus_video`; observed display resolution is 1080 × 2340.
+- Touch input is identified as `NVTCapacitiveTouchScreen`; exact controller address, IRQ, reset GPIO, regulators and protocol must be taken from the matching live DTB/DTBO and Lavender Linux source.
+- Interrupt evidence includes GICv3/MPM-GIC, architectural timer, SDHCI/MMC, KGSL, SMMU, MDSS, I²C/SPI/UART, camera, WLAN, modem/DSP and PMIC interrupt paths.
+- Memory is fragmented and includes reserved regions, persistent RAM and CMA. Do not assume one contiguous RAM span; derive the XNU map from the actual bootloader FDT and preserve every reserved region.
+
+### Directly rechecked CI evidence
+
+The failed build log for run `43198618602`, job `131115903232`, was fetched again. It confirms:
+
+```text
+.../xnu/iokit/KernelConfigTables.cpp
+:93:5: error: expected unqualified-id
+   93 |     "   {"
+      |     ^
+1 error generated.
+make[7]: *** [KernelConfigTables.cpo] Error 1
+```
+
+- The injected Lavender personality in `0087-lavender-linker-and-platform-expert.patch` remains the primary source-level suspect. Inspect the post-patch/generated table and its generator/source-of-truth before editing.
+- The allocator/atomic header material in this log includes macro-expansion notes and error-context fragments; this reinspection does not establish separate, independent fatal diagnostics there. Do not promote them to confirmed blockers without fresh direct compiler errors.
+- The failed run's `xnu-kernel` artifact `13935079884` (178,298 bytes; SHA-256 `58f19909065d9711fe5d213406ab2779537b2cdb18baeb6d51cffd18901009b4`) is not a kernel: the output directory contained KDK metadata only and the log says `kernel.*` did not exist.
+- The diagnostic `xnu-buildtree` artifact `13936585997` (22,350,351 bytes; SHA-256 `dc33aa55cd59eca652b656f02e9b46dbf31a744daa86f39fab00e7521544ebcf`) was uploaded and may be useful if it remains retained.
+- The workflow also could not find Xcode's private `Kernel.framework/.../PrivateHeaders/platform` path in the selected SDK. This is a separate packaging/build-tree issue, not the fatal syntax diagnostic.
+- The workflow is XNU 8796, DEVELOPMENT / ARM64 / LAVENDER, using the pinned `blacktop/darwin-xnu-build` commit `663906528d1cd5ea8fde7de6f16de73db9511549`, on `macos-15-intel` with Xcode 16.0 selection.
+
+### Continuation rule
+
+The immediate job is still to produce and statically verify a real ARM64 Mach-O XNU kernel for the physical SDM660 Lavender target. A profile check, successful generic build, emulator boot, build-tree artifact, or empty `xnu-kernel` artifact does not satisfy it. Continue using HakiOS/HackIOS, IOS-Sweet, and public Lavender/SDM660 sources with strict hardware-boundary discipline. Do not flash the phone; the first device experiment must remain reversible and RAM-only.
+
+This addendum records evidence and discoverability only. It does not claim that a source fix, successful build, verified kernel, or physical boot has occurred.
