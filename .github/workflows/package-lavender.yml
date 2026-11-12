@@ -1,0 +1,129 @@
+name: Package Lavender fastboot test image
+
+on:
+  workflow_dispatch:
+    inputs:
+      xnu_run_id:
+        description: Successful XNU workflow run ID containing the xnu-kernel artifact
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out matching source
+        uses: actions/checkout@v4
+
+      - name: Download XNU kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xnu-kernel
+          path: out
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.xnu_run_id }}
+
+      - name: Verify Lavender Mach-O kernel exists
+        run: |
+          set -euo pipefail
+          find out -maxdepth 2 -type f -printf '%p %s bytes\\n'
+          test -s out/kernel.development.lavender
+          file out/kernel.development.lavender
+
+      - name: Install AArch64 and Android image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mkbootimg
+
+      - name: Download and verify published Lavender OTA
+        env:
+          OTA_URL: https://github.com/NAANG360/Lucid-OS/releases/download/lucid-android15-lavender-build-4/LucidOS-Android15-lavender-build-4-experimental.zip
+          OTA_SHA256: d2b81388a57c685b82e3cb8f29da475f540dfcb9f5114003846d9337533d3219
+        run: |
+          set -euo pipefail
+          mkdir -p stock
+          curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 "$OTA_URL" -o stock/lucid-build4.zip
+          echo "$OTA_SHA256  stock/lucid-build4.zip" | sha256sum -c -
+
+      - name: Extract the exact stock boot image and DTB
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import shutil, zipfile
+          from pathlib import Path, PurePosixPath
+          archive = Path("stock/lucid-build4.zip")
+          with zipfile.ZipFile(archive) as z:
+              candidates = [n for n in z.namelist() if PurePosixPath(n).name == "boot.img"]
+              if len(candidates) != 1:
+                  raise SystemExit(f"expected exactly one boot.img in OTA, found: {candidates}")
+              member = candidates[0]
+              z.extract(member, "stock/extracted")
+              extracted = Path("stock/extracted") / member
+              shutil.copyfile(extracted, "stock/boot.img")
+              print(f"Extracted {member}: {Path('stock/boot.img').stat().st_size} bytes")
+          PY
+          python3 tools/unpack_bootv2.py stock/boot.img stock/unpacked
+          test -s stock/unpacked/dtb
+
+      - name: Generate and validate Lavender Apple Device Tree
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          python3 tools/mkadt-lavender.py artifacts/lavender.adt --check
+
+      - name: Build the Lavender XNU payload
+        run: |
+          set -euo pipefail
+          python3 tools/mkpayload.py out/kernel.development.lavender artifacts/lavender.adt artifacts/lavender-payload.bin \
+            --machine LAVENDER \
+            --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1'
+
+      - name: Build non-flashing fastboot boot image
+        env:
+          TARGET: lavender
+          DTB_PATH: stock/unpacked/dtb
+        run: |
+          set -euo pipefail
+          bash shim/build.sh artifacts/lavender-payload.bin
+          test -s shim/out/shim-boot.img
+
+      - name: Verify boot image structure and payload identity
+        run: |
+          set -euo pipefail
+          python3 tools/unpack_bootv2.py shim/out/shim-boot.img artifacts/verify
+          python3 - <<'PY'
+          from pathlib import Path
+          kernel = Path("artifacts/verify/kernel").read_bytes()
+          payload = Path("artifacts/verify/ramdisk").read_bytes()
+          dtb = Path("artifacts/verify/dtb").read_bytes()
+          assert kernel[0x38:0x3c] == b"ARM\\x64", "shim is missing the ARM64 Image header"
+          assert payload[:8] == b"LAVENDRX", "ramdisk does not contain a Lavender XNU payload"
+          assert len(dtb) > 0, "stock DTB is missing"
+          print(f"PASS: ARM64 shim={len(kernel)} bytes, LAVENDRX payload={len(payload)} bytes, DTB={len(dtb)} bytes")
+          PY
+          sha256sum shim/out/shim-boot.img artifacts/lavender-payload.bin artifacts/lavender.adt > artifacts/SHA256SUMS
+          {
+            echo "XNU workflow run: ${{ inputs.xnu_run_id }}"
+            echo "Source commit: ${{ github.sha }}"
+            echo "Boot mode: fastboot boot only; do not flash to a partition"
+            echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
+          } > artifacts/BUILD-MANIFEST.txt
+
+      - name: Upload Lavender fastboot test image
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavender-fastboot-boot-test
+          path: |
+            shim/out/shim-boot.img
+            artifacts/lavender-payload.bin
+            artifacts/lavender.adt
+            artifacts/SHA256SUMS
+            artifacts/BUILD-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 14
