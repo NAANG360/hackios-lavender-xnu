@@ -32,7 +32,7 @@ jobs:
       - name: Verify Lavender Mach-O kernel exists
         run: |
           set -euo pipefail
-          find out -maxdepth 2 -type f -printf '%p %s bytes\\n'
+          find out -maxdepth 2 -type f -printf '%p %s bytes\n'
           python3 - <<'PY'
           import os, struct
           from pathlib import Path
@@ -51,7 +51,7 @@ jobs:
           if selected is None:
               raise SystemExit("No 64-bit ARM Mach-O kernel found in xnu-kernel artifact")
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-              env.write(f"KERNEL_PATH={selected}\\n")
+              env.write(f"KERNEL_PATH={selected}\n")
           print(f"Selected ARM64 Mach-O kernel: {selected} ({selected.stat().st_size} bytes)")
           PY
 
