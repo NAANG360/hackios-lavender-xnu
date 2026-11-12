@@ -45,7 +45,7 @@ jobs:
               print(f"Extracted {member}: {Path('stock/boot.img').stat().st_size} bytes")
           PY
           python3 tools/unpack_bootv2.py stock/boot.img stock/unpacked
-          python3 tools/extract_appended_fdt.py stock/unpacked/kernel --index 2 --compatible qcom,sdm660 --output stock/unpacked/dtb
+          python3 tools/extract_appended_fdt.py stock/unpacked/kernel --index 0 --compatible qcom,sdm660 --model-contains 'SDM 660' --output stock/unpacked/dtb
           test -s stock/unpacked/dtb
           python3 - <<'PY' >> "$GITHUB_ENV"
           import os, re
