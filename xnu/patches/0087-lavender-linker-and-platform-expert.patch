@@ -107,7 +107,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 index e58bad1..4444444 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -80,6 +80,14 @@
+@@ -80,5 +80,13 @@
      "     'IOMatchCategory' = SweetBattery;"
      "   },"
  #endif
