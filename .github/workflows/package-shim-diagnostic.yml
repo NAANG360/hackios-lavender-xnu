@@ -71,7 +71,7 @@ jobs:
       - name: Build the Lavender pre-XNU diagnostic shim image
         env:
           TARGET: lavender
-          DTB_PATH: stock/unpacked/dtb
+          DTB_PATH: ../stock/unpacked/dtb
         run: |
           set -euo pipefail
           bash shim/build.sh
