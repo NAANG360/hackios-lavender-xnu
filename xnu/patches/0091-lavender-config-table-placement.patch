@@ -1,29 +1,26 @@
-diff --git a/iokit/Kernel/KernelConfigTables.cpp b/iokit/Kernel/KernelConfigTables.cpp
---- a/iokit/Kernel/KernelConfigTables.cpp
-+++ b/iokit/Kernel/KernelConfigTables.cpp
-@@ -82,18 +82,18 @@
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -83,12 +83,6 @@
      "     'IOMatchCategory' = SweetBattery;"
      "   },"
  #endif
-+#if defined(ARM64_BOARD_CONFIG_LAVENDER)
-+    "   {"
-+    "     'IOClass'         = LavenderPlatformExpert;"
-+    "     'IOProviderClass' = IOPlatformExpertDevice;"
-+    "     'IONameMatch'     = 'xiaomi,lavender';"
-+    "     'IOProbeScore'    = 10000:32;"
-+    "   },"
-+#endif
-     "   {"
-     "     'IOClass'         = IOPanicPlatform;"
-     "     'IOProviderClass' = IOPlatformExpertDevice;"
-     "     'IOProbeScore'    = 0:32;"
-     "   }"
-     ")";
--#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 -    "   {"
--    "     'IOClass'         = LavenderPlatformExpert;"
+-    "     'IOClass'         = IOPanicPlatform;"
 -    "     'IOProviderClass' = IOPlatformExpertDevice;"
--    "     'IONameMatch'     = 'xiaomi,lavender';"
--    "     'IOProbeScore'    = 10000:32;"
--    "   },"
--#endif
+-    "     'IOProbeScore'    = 0:32;"
+-    "   }"
+-    ")";
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+     "   {"
+     "     'IOClass'         = LavenderPlatformExpert;"
+@@ -97,3 +91,9 @@
+     "     'IOProbeScore'    = 10000:32;"
+     "   },"
+ #endif
++    "   {"
++    "     'IOClass'         = IOPanicPlatform;"
++    "     'IOProviderClass' = IOPlatformExpertDevice;"
++    "     'IOProbeScore'    = 0:32;"
++    "   }"
++    ")";
