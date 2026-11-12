@@ -1,0 +1,119 @@
+diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
+new file mode 100644
+index 0000000..876e185
+--- /dev/null
++++ b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
+@@ -0,0 +1,83 @@
++/*
++ * Minimal device-tree platform expert for Redmi Note 7 (lavender).
++ * It publishes the real CPU and device nodes; hardware services are supplied
++ * by separate Lavender-specific drivers.
++ */
++#include <pexpert/arm64/board_config.h>
++
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#include <IOKit/IOPlatformExpert.h>
++#include <IOKit/IODeviceTreeSupport.h>
++#include <IOKit/IOLib.h>
++
++class LavenderPlatformExpert : public IODTPlatformExpert {
++    OSDeclareDefaultStructors(LavenderPlatformExpert);
++
++public:
++    bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++    void processTopLevel(IORegistryEntry *root) APPLE_KEXT_OVERRIDE;
++    const char *deleteList(void) APPLE_KEXT_OVERRIDE;
++    const char *excludeList(void) APPLE_KEXT_OVERRIDE;
++    bool getTargetName(char *name, int maxLength) APPLE_KEXT_OVERRIDE;
++    bool getProductName(char *name, int maxLength) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(LavenderPlatformExpert, IODTPlatformExpert);
++
++bool
++LavenderPlatformExpert::start(IOService *provider)
++{
++    IOLog("LAVENDER: starting device-tree platform expert\n");
++    if (!IODTPlatformExpert::start(provider)) {
++        return false;
++    }
++    registerService();
++    IOLog("LAVENDER: platform expert registered\n");
++    return true;
++}
++
++const char *
++LavenderPlatformExpert::deleteList(void)
++{
++    return "()";
++}
++
++const char *
++LavenderPlatformExpert::excludeList(void)
++{
++    return "('chosen', 'defaults', 'cpus', 'options')";
++}
++
++void
++LavenderPlatformExpert::processTopLevel(IORegistryEntry *root)
++{
++    /* No Apple NVRAM controller is exposed. Publish the supplied CPU nodes
++     * and the actual Lavender device tree without inventing an /options node. */
++    IORegistryEntry *cpus = root->childFromPath("cpus", gIODTPlane);
++    if (cpus != NULL) {
++        createNubs(this, IODTFindMatchingEntries(cpus, kIODTExclusive, NULL));
++        cpus->release();
++    }
++    createNubs(this, IODTFindMatchingEntries(root, kIODTExclusive, excludeList()));
++}
++
++bool
++LavenderPlatformExpert::getTargetName(char *name, int maxLength)
++{
++    if (name == NULL || maxLength <= 0) {
++        return false;
++    }
++    strlcpy(name, "lavender", (size_t)maxLength);
++    return true;
++}
++
++bool
++LavenderPlatformExpert::getProductName(char *name, int maxLength)
++{
++    if (name == NULL || maxLength <= 0) {
++        return false;
++    }
++    strlcpy(name, "Redmi Note 7", (size_t)maxLength);
++    return true;
++}
++#endif /* ARM64_BOARD_CONFIG_LAVENDER */
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index e58bad1..4ec6997 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -34,6 +34,14 @@
+ 
+ const char * gIOKernelConfigTables =
+     "("
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++    "   {"
++    "     'IOClass'         = LavenderPlatformExpert;"
++    "     'IOProviderClass' = IOPlatformExpertDevice;"
++    "     'IONameMatch'     = 'xiaomi,lavender';"
++    "     'IOProbeScore'    = 10000:32;"
++    "   },"
++#endif
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
+     "   {"
+     "     'IOClass'         = SweetPlatformExpert;"
+diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+index 90cff06..accd0cd 100644
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -8,3 +8,6 @@ iokit/Kernel/arm/AppleARMSMP.cpp    					optional iokitcpp
+ 
+ # SWEET device-tree platform (empty translation unit on other boards)
+ iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
++
++# LAVENDER device-tree platform (separate from SWEET)
++iokit/Kernel/arm/LavenderPlatformExpert.cpp                         optional iokitcpp
