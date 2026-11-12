@@ -33,8 +33,27 @@ jobs:
         run: |
           set -euo pipefail
           find out -maxdepth 2 -type f -printf '%p %s bytes\\n'
-          test -s out/kernel.development.lavender
-          file out/kernel.development.lavender
+          python3 - <<'PY'
+          import os, struct
+          from pathlib import Path
+          candidates = sorted(
+              (p for p in Path("out").rglob("kernel.development*") if p.is_file() and p.stat().st_size > 100_000),
+              key=lambda p: (p.name != "kernel.development.lavender", str(p))
+          )
+          selected = None
+          for candidate in candidates:
+              header = candidate.read_bytes()[:8]
+              if len(header) >= 8:
+                  magic, cputype = struct.unpack("<II", header)
+                  if magic == 0xfeedfacf and cputype == 0x0100000c:
+                      selected = candidate.resolve()
+                      break
+          if selected is None:
+              raise SystemExit("No 64-bit ARM Mach-O kernel found in xnu-kernel artifact")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"KERNEL_PATH={selected}\\n")
+          print(f"Selected ARM64 Mach-O kernel: {selected} ({selected.stat().st_size} bytes)")
+          PY
 
       - name: Install AArch64 and Android image tools
         run: |
@@ -141,13 +160,14 @@ jobs:
           assert len(dtb) > 0, "stock DTB is missing"
           print(f"PASS: ARM64 shim={len(kernel)} bytes, LAVENDRX payload={len(payload)} bytes, DTB={len(dtb)} bytes")
           PY
-          sha256sum shim/out/shim-boot.img artifacts/lavender-payload.bin artifacts/lavender.adt > artifacts/SHA256SUMS
+          sha256sum "$KERNEL_PATH" shim/out/shim-boot.img artifacts/lavender-payload.bin artifacts/lavender.adt > artifacts/SHA256SUMS
           {
             echo "XNU workflow run: ${{ inputs.xnu_run_id }}"
             echo "Source commit: ${{ github.sha }}"
             echo "Boot mode: fastboot boot only; do not flash to a partition"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
             echo "Android boot metadata: ${OS_VERSION} / ${OS_PATCH_LEVEL}"
+            echo "Kernel: ${KERNEL_PATH}"
           } > artifacts/BUILD-MANIFEST.txt
 
       - name: Upload Lavender fastboot test image
