@@ -38,9 +38,12 @@ done
 # header's image_size (start.o, linked at 0) may be an absolute address.
 reloc_fail=0
 for obj in "${OBJECTS[@]}"; do
+  # start.S deliberately stores _end as an ABS64 image-size field in its
+  # header; all C objects must remain position-independent.
+  [[ "$obj" == "out/start.o" ]] && continue
   bad=$(aarch64-linux-gnu-readelf -r "$obj" | grep ABS64 || true)
   if [[ -n "$bad" ]]; then
-    echo "error: absolute relocation in $obj" >&2
+    echo "error: absolute relocation in C object $obj" >&2
     echo "$bad" >&2
     reloc_fail=1
   fi
