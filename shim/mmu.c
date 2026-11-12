@@ -83,6 +83,16 @@ int mmu_enable(struct mmu_info *info)
 	info->img_lo = img_lo;
 	info->img_hi = img_hi;
 	info->ttbr = pool;
+	info->n_l3 = 0;
+	info->sctlr_before = rsr("sctlr_el1");
+	info->sctlr_after = info->sctlr_before;
+
+	/* Do not program a 16K translation regime unless the live CPU reports
+	 * TGran16=1 (supported) or 2 (supported with LPA2). */
+	uint64_t mmfr0 = rsr("id_aa64mmfr0_el1");
+	uint64_t tgran16 = (mmfr0 >> 20) & 0xf;
+	if (tgran16 < 1 || tgran16 > 2)
+		return -2;
 	if (((img_hi - 1) >> BLK_SHIFT) - (img_lo >> BLK_SHIFT) > 1)
 		return -1;	/* only room for two L3 tables */
 
