@@ -697,3 +697,82 @@ The same job emitted warnings/notes involving `kalloc.h`, startup macro expansio
 - **Physical Lavender boot:** not attempted/verified in the project evidence recorded here.
 
 This status is deliberately evidence-based. Do not substitute an optimistic percentage for the concrete state above.
+
+
+---
+
+## 12. Session consolidation — 2026-11-12 22:06 IST
+
+This section records the latest cross-session review. It supplements the preceding handoff; it does not claim that a build fix or kernel was produced.
+
+### What was re-verified in this session
+
+- The root README already points new contributors to this file as the authoritative handoff. Keep that pointer at the top of README.
+- The known branch is `ci/lavender-machine-profile`; the recorded failing run's head remains `1842f223f3e3926710b9f53c86b586dfd9b62a99`. Re-fetch the branch tip before any subsequent write because the branch may have advanced.
+- `PROJECT_HANDOFF.md` already existed at repository root. This file is the one canonical handoff; do not create a competing handoff with a different name.
+- The workflow source was re-read. It selects `macos-15-intel`, explicitly selects Xcode 16.0, fetches `blacktop/darwin-xnu-build` at `663906528d1cd5ea8fde7de6f16de73db9511549`, validates the LAVENDER profile, then builds XNU 8796 in DEVELOPMENT / ARM64 / LAVENDER with `MAKEFLAGS=-k` by default.
+- The profile validator is explicit that it only checks a compile profile and patch syntax; it prints “compile profile only; not boot-ready.” It is not a build or boot test.
+
+### Full-log clarification: fatal errors versus macro expansion notes
+
+The complete recorded job log was queried again and filtered for compiler diagnostics.
+
+The confirmed fatal C++ diagnostic is still:
+
+```
+:93:5: error: expected unqualified-id
+   93 |     "   {"
+      |     ^
+1 error generated.
+make[7]: *** [KernelConfigTables.cpo] Error 1
+```
+
+It occurs while compiling `iokit/KernelConfigTables.cpp` and correlates with the conditional Lavender personality block added by `0087-lavender-linker-and-platform-expert.patch`. The exact cause is not yet proven. Inspect the source file's surrounding C++ syntax, how the XNU 8796 table is generated, and the post-patch result before changing it.
+
+The log also contains large numbers of notes and caret expansions through `osfmk/kern/kalloc.h`, `libkern/os/atomic_private.h`, and `atomic_private_impl.h`. In the extracted diagnostic output, these were macro-expansion context, not independently established fatal errors. Do not list them as separate confirmed blockers unless a future log contains a primary compiler `error:` diagnostic pointing to them.
+
+### Patch-series warnings observed in that run
+
+The patch driver logged skips/failures for these reference-era patches:
+
+- `0031-sweet-read-write-root.patch`: target `bsd/sweet_hfs/core/hfs_vfsutils.c` was absent.
+- `0041-sweet-hfs-link-notes.patch`: target `bsd/sweet_hfs/core/hfs_catalog.c` was absent.
+- `iobuffermemd_monterey.patch`: hunk failed at `iokit/Kernel/IOBufferMemoryDescriptor.cpp:332`.
+- `skywalk_sonoma.patch`: hunk failed at `bsd/skywalk/packet/os_packet.h:883`.
+- `syntax_checker_sonoma.patch`: hunk failed at `tools/lldbmacros/core/syntax_checker.py:1`.
+- `TrustCache.patch`: skipped because the TrustCache headers already existed in the source tree.
+
+These are patch compatibility/hygiene warnings. The log continued beyond them; they are not the confirmed `KernelConfigTables.cpp` fatal diagnostic. Audit whether each skipped patch is actually required for the Lavender target before changing the patch driver. Do not force-apply SWEET-only changes merely to make the log quiet.
+
+### Artifact and packaging confirmation
+
+- The `xnu-buildtree` artifact is a 22,350,351-byte diagnostic bundle (artifact ID `13936585997`, SHA-256 `dc33aa55cd59eca652b656f02e9b46dbf31a744daa86f39fab00e7521544ebcf`). It can help inspect the build tree but excludes object files and the final kernel.
+- The `xnu-kernel` artifact is 178,298 bytes (artifact ID `13935079884`, SHA-256 `58f19909065d9711fe5d213406ab2779537b2cdb18baeb6d51cffd18901009b4`). The uploaded directory held only `kdk-libs/` metadata; there was no `kernel.*` output. It is not a kernel.
+- The workflow's attempt to copy Xcode's private `Kernel.framework/.../PrivateHeaders/platform` directory failed because the expected path did not exist under the selected Xcode 16.0 / macOS 15 SDK. This is a separate packaging/build environment defect.
+- The final artifact step currently uses `if: always()`; therefore artifact existence alone is not a success signal. Harden the workflow so it fails if no expected kernel is present, and verify the Mach-O before naming/uploading an artifact as a kernel.
+
+### Reference-source discipline
+
+The user's explicit reference set is:
+1. **hackIOS / HakiOS** — use for XNU-on-Android architecture, loader/boot flow, device separation, RAM-only boot design and porting process. Treat other-device support as architectural reference, not SDM660 proof.
+2. **IOS-Sweet** — use for the XNU 8796/iOS 16-era workflow, shim, patch organization, diagnostics and staged bring-up. It targets Redmi Note 10 Pro / SWEET / SM7150, not Lavender.
+3. **Public Lavender and SDM660 documentation/source** — use for the actual board tree, device tree, kernel drivers, SoC registers, clocks, regulators, GPIOs, storage and panel/touch wiring. Prefer the matching device tree and kernel branch for the user's running firmware generation.
+4. **The two uploaded Lavender audits** — use as runtime evidence for this exact phone. They are not substitutes for the source DTS or bootloader FDT, and raw dumps must remain out of Git.
+
+### Explicit non-results
+
+As of this consolidation:
+- No verified XNU 8796 ARM64 Mach-O kernel for Lavender has been produced.
+- No verified XNU boot on the physical Redmi Note 7 has occurred.
+- No display, touch, storage or Darwin userspace subsystem has been demonstrated under XNU on this device.
+- No new source fix or successful build is recorded by this session.
+- No partition has been flashed by this work.
+
+### Immediate next action — do this before another full CI run
+
+1. Re-fetch current branch HEAD.
+2. Obtain and inspect artifact `13936585997` while it is still retained (recorded expiry: 2026-11-19 10:45:59 UTC). Find the actual patched/generated `iokit/KernelConfigTables.cpp` and the relevant generator inputs.
+3. Compare the table source before/after patch 0087. Determine whether the inserted `#if` is outside a valid adjacent-string-literal sequence, inside a raw/string literal, or applied to a generated output at the wrong stage.
+4. Fix the authoritative source/generator/personality registration mechanism. Add a targeted syntax check so the same defect is caught cheaply.
+5. Re-run the build. Do not proceed to hardware claims until a non-empty ARM64 Mach-O kernel exists and passes binary inspection.
+
