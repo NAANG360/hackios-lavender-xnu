@@ -108,7 +108,7 @@ jobs:
       - name: Build non-flashing fastboot boot image
         env:
           TARGET: lavender
-          DTB_PATH: stock/unpacked/dtb
+          DTB_PATH: ../stock/unpacked/dtb
         run: |
           set -euo pipefail
           bash shim/build.sh artifacts/lavender-payload.bin
