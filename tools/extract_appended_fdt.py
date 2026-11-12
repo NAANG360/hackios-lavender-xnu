@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Extract one appended Qualcomm FDT from an Android ARM64 kernel image.
 
-Lavender's stock boot image is header v0: the DTB is appended to the kernel,
-not stored in a boot-header-v2 DTB field. The live boot command line reports
-androidboot.dtb_idx=2, so the default selected table entry is index 2.
+The published Lavender Build 4 boot image is header v0: its DTB is appended
+to the kernel, not stored in a boot-header-v2 DTB field. This OTA contains one
+valid SDM660 MTP FDT, so the default selected entry is index 0.
 """
 import argparse
 import hashlib
@@ -98,8 +98,9 @@ def parse_fdt(blob, offset):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("kernel", type=Path)
-    parser.add_argument("--index", type=int, default=2, help="zero-based DTB table index (default: 2)")
+    parser.add_argument("--index", type=int, default=0, help="zero-based DTB table index (default: 0)")
     parser.add_argument("--compatible", default="qcom,sdm660", help="required root compatible string")
+    parser.add_argument("--model-contains", default="SDM 660", help="required substring in root model")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -132,6 +133,9 @@ def main():
         raise SystemExit(
             f"DTB[{args.index}] does not match {args.compatible!r}: {selected['compatible']}"
         )
+
+    if args.model_contains and args.model_contains not in selected["model"]:
+        raise SystemExit("DTB model mismatch: " + repr(selected["model"]))
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(blob[selected["offset"]:selected["offset"] + selected["size"]])
