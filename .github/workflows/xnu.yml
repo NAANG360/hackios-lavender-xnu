@@ -10,8 +10,12 @@ on:
         description: RELEASE / DEVELOPMENT / DEBUG
         default: DEVELOPMENT
       machine_config:
-        description: XNU MACHINE_CONFIG (SWEET is reference-only)
-        default: SWEET
+        description: Target machine profile (LAVENDER is the active bring-up target; SWEET is reference-only)
+        type: choice
+        options:
+          - LAVENDER
+          - SWEET
+        default: LAVENDER
       keep_going:
         description: make -k (collect all compile errors in one run)
         default: "true"
@@ -20,6 +24,7 @@ on:
     paths:
       - "xnu/patches/**"
       - ".github/workflows/xnu.yml"
+      - "tools/validate-lavender-profile.sh"
 
 # Each run receives a unique group so concurrent dispatches cannot cancel builds.
 concurrency:
@@ -31,7 +36,7 @@ env:
   DXB_SHA: 663906528d1cd5ea8fde7de6f16de73db9511549
   MACOS_VERSION: ${{ inputs.macos_version || '13.5' }}
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
-  MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
+  MACHINE_CONFIG: ${{ inputs.machine_config || 'LAVENDER' }}
 
 jobs:
   build:
@@ -60,10 +65,14 @@ jobs:
           git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
           git -C dxb checkout -q FETCH_HEAD
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
-          # libfirehose_kernel is arm64e-only upstream; the SWEET reference target is arm64.
+          # libfirehose_kernel is arm64e-only upstream; the reference and Lavender
+          # targets are plain arm64.
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
           grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
           ls dxb/patches
+
+      - name: Validate selected machine profile
+        run: bash tools/validate-lavender-profile.sh "$MACHINE_CONFIG"
 
       - name: Install build dependencies
         run: |
@@ -72,7 +81,7 @@ jobs:
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
 
-      - name: Build XNU 8796 reference kernel
+      - name: Build XNU 8796
         working-directory: dxb
         env:
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
