@@ -50,17 +50,17 @@ References:
 
 ## Current Lavender work
 
-- **0082** adds the provisional XNU machine profile: plain arm64, eight CPUs, two clusters/AMP and GICv3 identification.
+- **0082** adds the provisional XNU machine profile: plain arm64, eight CPUs, two clusters/AMP and GICv3 identification. **0083** sets the SDM660 64-byte I/D cache-line configuration. **0084** adds `LavenderPlatformExpert`, registers it for `xiaomi,lavender`, and publishes the CPU and platform device-tree nubs. These are source changes; successful compilation and runtime registration are not yet verified.
 - `tools/mkadt-lavender.py` builds a separate Apple Device Tree with the safe contiguous RAM aperture, the SDM660 GIC window, eight MPIDRs and the 1080 x 2340 framebuffer. Its `--check` mode validates those structures. It omits the optional iPhone10,3 `/product` node if `research/ipsw-x/d22ap.adt` is absent.
 - The shim now has a separate `TARGET=lavender` path: SDM660 GICR address, the two-cluster MPIDR table, bootloader framebuffer mapping across both 32 MiB blocks, PSCI reset (no unverified restart-reason/PSHOLD writes), no SWEET UFS probe, and a distinct `LAVENDRX` payload marker. The SWEET marker and build path remain supported.
 - `.github/workflows/lavender-shim.yml` cross-compiles the shim and validates the ADT. It produces a compile artifact only; it does not package a boot image or authorize flashing.
 
-**Neither the XNU machine profile nor the shim compile is a bootable Lavender kernel yet.** The 16 KiB page-size setting is provisional and must be checked against `ID_AA64MMFR0_EL1` before hardware boot. XNU still needs a Lavender platform expert, timer integration, framebuffer console/IOFramebuffer provider and CPU registration. No eMMC, NVT touch or recovery-key driver is implemented.
+**The current branch is not a bootable Lavender kernel yet.** The 16 KiB page-size setting is provisional and must be checked against `ID_AA64MMFR0_EL1` before hardware boot. `LavenderPlatformExpert` is now present in patch 0084, but its compilation and runtime registration are unverified. Remaining kernel work includes Lavender-specific GIC/timer integration, boot CPU registration, framebuffer console/IOFramebuffer provider, eMMC/SDHCI, NVT touch and recovery-key input. No Lavender eMMC, NVT touch or recovery-key driver is implemented.
 
 ## Hard blockers before a Lavender boot candidate
 
-1. Confirm the provisional GICD/GICR/PSCI references against the exact live vendor DT, then implement timer IRQ routing, GIC security ownership and exception setup.
-2. Port the XNU platform expert, boot CPU registration and framebuffer console; then build an IOMobileFramebuffer provider.
+1. Confirm the provisional GICD/GICR/PSCI references against the exact live vendor DT, then implement Lavender-specific timer IRQ routing, GIC security ownership and exception setup.
+2. Compile and validate patch 0084, register the boot CPU, and connect the bootloader framebuffer to an IOMobileFramebuffer provider.
 3. Implement eMMC/SDHCI at `c0c4000.sdhci`; do not reuse SWEET UFS.
 4. Implement/verify PMIC/volume-key input, NVT touch, clocks/resets and I2C/SPMI from the actual vendor source.
 5. Keep modem, ADSP/CDSP, secure/QSEE, WLAN and video firmware-dependent services explicitly unsupported until their interfaces are understood.
