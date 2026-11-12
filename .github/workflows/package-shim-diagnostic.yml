@@ -47,7 +47,7 @@ jobs:
           python3 tools/unpack_bootv2.py stock/boot.img stock/unpacked
           python3 tools/extract_appended_fdt.py stock/unpacked/kernel --index 0 --compatible qcom,sdm660 --model-contains 'SDM 660' --output stock/unpacked/dtb
           test -s stock/unpacked/dtb
-          python3 - <<'PY' >> "$GITHUB_ENV"
+          python3 - <<'PY'
           import os, re, sys
           text = open("stock/unpacked/header.txt", encoding="utf-8").read()
           match = re.search(r"os_version: 0x([0-9a-fA-F]+)", text)
