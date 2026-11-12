@@ -9,6 +9,7 @@ on:
       - "shim/**"
       - "tools/mkadt-lavender.py"
       - "tools/mkpayload.py"
+      - "tests/test_lavender_adt.py"
       - ".github/workflows/lavender-shim.yml"
 
 jobs:
@@ -27,6 +28,9 @@ jobs:
         run: |
           mkdir -p artifacts
           python3 tools/mkadt-lavender.py artifacts/lavender.adt --check
+
+      - name: Check Lavender ADT invariants
+        run: python3 tests/test_lavender_adt.py
 
       - name: Compile Lavender fastboot shim
         run: TARGET=lavender bash shim/build.sh --compile-only
