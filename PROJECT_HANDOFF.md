@@ -2,7 +2,7 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-12 22:13 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-12 22:15 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
 > Active known branch: `ci/lavender-machine-profile` (inspected tip `d595ae32a3013ae003b2d5ff5fafd83edabea7cd`)  
 > Latest verified failed CI head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`  
@@ -1486,3 +1486,51 @@ The root `README.md` links to this file. Both branches' `AGENTS.md` instructs ag
 - Never copy SWEET/SM7150 hardware constants into Lavender. Transfer build/boot methods, not another phone's MMIO, IRQ, memory, timer, storage, panel, touch or regulator details.
 - A build artifact is not a kernel until its contents are inspected and a real ARM64 Mach-O image is verified.
 - Preserve Android/recovery. The first hardware experiment is reversible and RAM-only; do not flash, erase or repartition boot-critical storage without explicit approval.
+
+---
+
+## 22. Live continuity update — 2026-11-12 22:13 IST
+
+This is a factual delta after the previous consolidation. Keep this canonical file as the sole project handoff; do not create a second summary.
+
+### Canonical file / discoverability rechecked
+
+- `PROJECT_HANDOFF.md` exists at the repository root on both `main` and `ci/lavender-machine-profile`.
+- Both copies were fetched and were byte-for-byte identical at blob SHA `244021d7f0ddcd6d6e391b2cee96761bcaf11970` immediately before this update.
+- The root README already points to `PROJECT_HANDOFF.md`; `AGENTS.md` also instructs new agents to read the handoff first. Therefore a new chat/agent opening the repository has a clear entry point.
+- Update this file in place after future work. Do not create a competing `HANDOFF.md`, `CONTEXT.md`, or similarly named summary.
+
+### Latest source/build state rechecked
+
+- The active engineering branch remains `ci/lavender-machine-profile`.
+- The newest source-changing build trigger currently visible is commit `9a76786a5934f38e0a2a3a1935bfac61f2c00dde` (`ci(lavender): validate config table insertion in platform patch`).
+- Workflow run `43259106099` (#84), job `131325274032`, was still **queued** at the time of this check. No logs or artifacts were available yet. A queued run is not a build result.
+- Run #84 is expected to exercise the current Lavender patch series, including `xnu/patches/0091-lavender-config-table-placement.patch`, which is present on the working branch.
+- Patch 0091 moves the Lavender IOKit personality block so that the final `IOPanicPlatform` personality and closing configuration-string tokens remain after the conditional block. This is a plausible correction for the previous `KernelConfigTables.cpp:93:5` syntax error, but it is **not verified until the queued run finishes and the actual compiler log is inspected**.
+- The current `tools/validate-lavender-profile.sh` no longer asserts that patch 0091 exists or is syntactically valid. The workflow copies `xnu/patches/*.patch` into the pinned build tooling, so the present file should still be staged; nevertheless, restore an explicit validator check for 0091 after the build experiment, so a future missing patch cannot pass preflight silently.
+- Patch 0087 itself still contains the original conditional Lavender personality insertion in `iokit/KernelConfigTables.cpp`; 0091 is a later placement/reordering patch layered on top. Confirm both patches apply in lexical order and inspect the resulting post-patch source in the build tree.
+
+### Latest known failure remains the baseline until run #84 completes
+
+- Run `43198618602`, job `131115903232`, failed during XNU 8796 `DEVELOPMENT / ARM64 / LAVENDER` compilation.
+- Confirmed fatal diagnostic: `KernelConfigTables.cpp:93:5: error: expected unqualified-id`, at the string literal `"   {"`; `make[7]` failed target `KernelConfigTables.cpo`.
+- The 178,298-byte artifact named `xnu-kernel` from that run is **not a kernel**; it contains KDK library metadata only and no `kernel.*` output. The 22,350,351-byte `xnu-buildtree` artifact is the useful diagnostic artifact, if it remains retained.
+- No verified ARM64 Mach-O kernel has been produced in the evidence inspected so far. Do not claim otherwise unless run #84 or a later run proves it.
+
+### Current continuation sequence
+
+1. Poll run `43259106099` until it reaches a terminal state; do not start an overlapping full build while this run is queued/running.
+2. If it fails, retrieve the full job log and extract every direct compiler/linker `error:` with surrounding lines. Check whether patch 0091 applied or was skipped; inspect the post-patch `KernelConfigTables.cpp` around the reported line.
+3. If the table error is gone, continue through all subsequent compile/link failures. Do not stop at the first successful object or at a successful preflight.
+4. If the build succeeds, inspect the artifact contents. Require an actual kernel image; verify it is ARM64 Mach-O and record file type, load/entry information, sections, symbols, relocations, unresolved dependencies and SHA-256.
+5. Update this handoff with the exact source commit, workflow/run/job IDs, artifact ID/name/size/digest, verification commands/results, and remaining blockers.
+6. Only after static kernel verification should the team prepare a reversible RAM-only boot path for the actual Lavender device. No flashing or repartitioning.
+
+### User's current instruction and what this update accomplished
+
+The user explicitly asked for all project knowledge to be consolidated into one Markdown file that a new chat session can discover and continue from. The intended canonical file is this repository-root `PROJECT_HANDOFF.md`, not a separate generated attachment. The user also reiterated that HakiOS/hackIOS, IOS-Sweet and public Lavender/SDM660 documentation must be used as references, with hardware-specific facts transferred only when verified for Lavender.
+
+This update synchronizes the top-level timestamp and records the newly observed patch 0091 / queued run #84 state on both branches. It is a documentation update only: **it does not fix XNU, complete run #84, produce a verified kernel, or boot the phone.**
+
+
+---
