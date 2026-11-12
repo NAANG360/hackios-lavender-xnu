@@ -107,7 +107,9 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 index e58bad1..4444444 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -80,5 +80,13 @@
+@@ -80,8 +80,16 @@
+     "     'IOClass'         = SweetBattery;"
+     "     'IOProviderClass' = IOResources;"
      "     'IOMatchCategory' = SweetBattery;"
      "   },"
  #endif
@@ -121,3 +123,4 @@ index e58bad1..4444444 100644
 +#endif
      "   {"
      "     'IOClass'         = IOPanicPlatform;"
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
