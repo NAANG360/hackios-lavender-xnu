@@ -36,8 +36,16 @@ for f in "${SOURCES[@]}"; do
 done
 # The image runs wherever ABL puts it with no relocation pass: only the
 # header's image_size (start.o, linked at 0) may be an absolute address.
-abs=$(for obj in "${OBJECTS[@]}"; do aarch64-linux-gnu-readelf -r "$obj"; done | grep -c ABS64 || true)
-[[ "$abs" == 0 ]] || { echo "error: $abs absolute relocations in C objects" >&2; exit 1; }
+reloc_fail=0
+for obj in "${OBJECTS[@]}"; do
+  bad=$(aarch64-linux-gnu-readelf -r "$obj" | grep ABS64 || true)
+  if [[ -n "$bad" ]]; then
+    echo "error: absolute relocation in $obj" >&2
+    echo "$bad" >&2
+    reloc_fail=1
+  fi
+done
+[[ "$reloc_fail" == 0 ]] || exit 1
 "$CC" "${CFLAGS[@]}" -static -T shim.ld -Wl,--build-id=none -Wl,--no-warn-rwx-segments -Wl,-N   "${OBJECTS[@]}" -o out/shim.elf
 "$OBJCOPY" -O binary out/shim.elf out/Image
 # ABL copies the file; pad to image_size so .bss/stacks exist as zeroed bytes.

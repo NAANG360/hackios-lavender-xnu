@@ -197,6 +197,7 @@ void secondary_main(uint64_t idx)
 	smc(PSCI_CPU_OFF, 0, 0, 0);
 }
 
+#ifndef TARGET_LAVENDER
 static void __attribute__((unused)) test_smp(void)
 {
 	stage = "smp";
@@ -229,6 +230,8 @@ static void __attribute__((unused)) test_smp(void)
 				 (uint32_t)sec_mpidr[i] | (sec_mpidr[i] ? 0 : 0xdead0000));
 	}
 }
+
+#endif /* !TARGET_LAVENDER: shim does not own Lavender SMP */
 
 /* ---- GIC + timer ---- */
 
