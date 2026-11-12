@@ -10,16 +10,23 @@
 #include "console.h"
 #include "mmu.h"
 #include "loader.h"
+#ifndef TARGET_LAVENDER
 #include "ufs.h"
+#endif
 
-#define IMEM_RESTART_REASON	0x146aa65cUL	/* qcom,msm-imem restart_reason@65c */
+#ifndef TARGET_LAVENDER
+#define IMEM_RESTART_REASON	0x146aa65cUL	/* SWEET restart_reason */
 #define RESTART_BOOTLOADER	0x77665500U
 #define PSHOLD			0x0c264000UL
-
 #define GICD_BASE		0x17a00000UL
 #define GICR_BASE		0x17a60000UL
 #define GICR_SIZE		0x100000UL
 #define GICR_PE_SIZE		0x20000UL
+#define VTIMER_INTID		19
+#define PTIMER_INTID		18
+#define SGI_INTID		1
+#define NR_CPUS			8
+#endif
 #define GICR_TYPER		0x08
 #define GICR_WAKER		0x14
 #define GICR_SGI		0x10000
@@ -30,9 +37,6 @@
 #define GICR_ISPENDR0		(GICR_SGI + 0x200)
 #define GICR_ISACTIVER0		(GICR_SGI + 0x300)
 #define GICR_ICFGR1		(GICR_SGI + 0xc04)
-#define VTIMER_INTID		19	/* DT: <GIC_PPI 3 ...>, not the usual 27 */
-#define PTIMER_INTID		18	/* DT: <GIC_PPI 2 ...> */
-#define SGI_INTID		1
 
 #define PSCI_VERSION		0x84000000UL
 #define PSCI_CPU_SUSPEND	0xc4000001UL
@@ -45,7 +49,9 @@
 #define PSCI_SYSTEM_RESET2	0xc4000012UL
 #define SMCCC_VERSION		0x80000000UL
 
+#ifndef NR_CPUS
 #define NR_CPUS			8
+#endif
 
 #define rsr(r) ({ uint64_t _v; __asm__ volatile("mrs %0, " r : "=r"(_v)); _v; })
 #define wsr(r, v) __asm__ volatile("msr " r ", %0" : : "r"((uint64_t)(v)))
@@ -106,10 +112,16 @@ static void __attribute__((noreturn)) reset(unsigned after_s)
 	con_skip();
 	con_str("RESET", after_s > 20 ? "in 40s" : "in 20s");
 	delay_ms(after_s * 1000);
+#ifdef TARGET_LAVENDER
+	/* Use the PSCI conduit declared by the public SDM660 DT; do not poke
+	 * unverified restart-reason or PSHOLD registers on Lavender. */
+	smc(PSCI_SYSTEM_RESET, 0, 0, 0);
+#else
 	wr32(IMEM_RESTART_REASON, RESTART_BOOTLOADER);
 	__asm__ volatile("dsb sy" ::: "memory");
 	smc(PSCI_SYSTEM_RESET, 0, 0, 0);
 	wr32(PSHOLD, 0);
+#endif
 	for (;;)
 		__asm__ volatile("wfe");
 }
@@ -130,8 +142,10 @@ static void irq_handler(void)
 		irq_other++;
 	if (id == VTIMER_INTID)
 		wsr("cntv_tval_el0", rsr("cntfrq_el0") / 100);	/* 10 ms */
+#ifdef PTIMER_INTID
 	else if (id == PTIMER_INTID)
 		wsr("cntp_tval_el0", rsr("cntfrq_el0") / 100);
+#endif
 	wsr("icc_eoir1_el1", iar);
 	isb();
 }
@@ -187,15 +201,28 @@ static void __attribute__((unused)) test_smp(void)
 {
 	stage = "smp";
 	uint64_t self = rsr("mpidr_el1") & 0xffffff;
+#ifdef TARGET_LAVENDER
+	static const uint64_t targets[NR_CPUS] = LAVENDER_CPU_MPIDRS;
+#else
+	uint64_t targets[NR_CPUS];
+	for (int i = 0; i < NR_CPUS; i++)
+		targets[i] = (uint64_t)i << 8;
+#endif
 	int64_t ret[NR_CPUS];
-
-	for (int i = 1; i < NR_CPUS; i++)
-		ret[i] = smc(PSCI_CPU_ON, (uint64_t)i << 8, (uintptr_t)secondary_entry, i);
+	for (int i = 0; i < NR_CPUS; i++) {
+		ret[i] = -1;
+		if ((targets[i] & 0xffffff) == self) {
+			ret[i] = 0;
+			sec_mpidr[i] = self | (1ULL << 63);
+			continue;
+		}
+		ret[i] = smc(PSCI_CPU_ON, targets[i], (uintptr_t)secondary_entry, i);
+	}
 	delay_ms(500);
-	for (int i = 1; i < NR_CPUS; i++) {
+	for (int i = 0; i < NR_CPUS; i++) {
 		char label[] = "CPU0";
 		label[3] = '0' + i;
-		if (((uint64_t)i << 8) == self)
+		if ((targets[i] & 0xffffff) == self)
 			con_str(label, "is boot cpu");
 		else
 			con_hex2(label, "ret=", (uint32_t)ret[i], "mpidr=",
@@ -238,10 +265,13 @@ static void irq_window(const char *label, uintptr_t r, int src)
 	if (src == VTIMER_INTID) {
 		wsr("cntv_tval_el0", f / 100);
 		wsr("cntv_ctl_el0", 1);
-	} else if (src == PTIMER_INTID) {
+	}
+#ifdef PTIMER_INTID
+	else if (src == PTIMER_INTID) {
 		wsr("cntp_tval_el0", f / 100);
 		wsr("cntp_ctl_el0", 1);
 	}
+#endif
 	isb();
 	/* sample state with IRQs still masked, after the first period */
 	uint64_t t = now() + f / 50;
@@ -250,7 +280,12 @@ static void irq_window(const char *label, uintptr_t r, int src)
 	if (src == SGI_INTID)
 		wsr("icc_sgi1r_el1", sgi_self(SGI_INTID));
 	isb();
-	ist = src == PTIMER_INTID ? rsr("cntp_ctl_el0") : rsr("cntv_ctl_el0");
+	if (src == VTIMER_INTID)
+		ist = rsr("cntv_ctl_el0");
+#ifdef PTIMER_INTID
+	else if (src == PTIMER_INTID)
+		ist = rsr("cntp_ctl_el0");
+#endif
 	pend = rd32(r + GICR_ISPENDR0);
 	act = rd32(r + GICR_ISACTIVER0);
 	isr = rsr("isr_el1");
@@ -269,7 +304,9 @@ static void irq_window(const char *label, uintptr_t r, int src)
 		}
 	__asm__ volatile("msr daifset, #2" ::: "memory");
 	wsr("cntv_ctl_el0", 0);
+#ifdef PTIMER_INTID
 	wsr("cntp_ctl_el0", 0);
+#endif
 	isb();
 
 	con_hex2(label, "irqs=", irq_count, "other=", irq_other);
@@ -319,7 +356,11 @@ static void test_gic(void)
 	uint32_t pri_before = rd32(r + GICR_IPRIORITYR + 16);	/* INTIDs 16..19 */
 	for (int id = 0; id < 32; id++)
 		wr8(r + GICR_IPRIORITYR + id, 0xa0);
-	wr32(r + GICR_ISENABLER0, (1U << VTIMER_INTID) | (1U << PTIMER_INTID) | (1U << SGI_INTID));
+	uint32_t enable_mask = (1U << VTIMER_INTID) | (1U << SGI_INTID);
+#ifdef PTIMER_INTID
+	enable_mask |= (1U << PTIMER_INTID);
+#endif
+	wr32(r + GICR_ISENABLER0, enable_mask);
 	con_hex2("ENABLE", "was=", en_before, "now=", rd32(r + GICR_ISENABLER0));
 	(void)grp;
 	(void)pri_before;
@@ -367,7 +408,8 @@ static uint64_t ticks_mem(void)
 
 static uint32_t to_us(uint64_t ticks)
 {
-	return ticks * 10 / 192;	/* 19.2 MHz */
+	uint64_t f = rsr("cntfrq_el0");
+	return f ? (uint32_t)(ticks * 1000000ULL / f) : 0;
 }
 
 void shim_main(uint64_t dtb)
@@ -377,20 +419,31 @@ void shim_main(uint64_t dtb)
 	/* An xnu payload in the ramdisk means: boot it (MMU stays off). */
 	stage = "loader";
 	con_clear(RED);
+	#ifdef TARGET_LAVENDER
+	con_str("SHIM", "lavender milestone 1: xnu loader");
+#else
 	con_str("SHIM", "sweet milestone 4: xnu loader");
+#endif
 	con_skip();
 	const char *why = loader_boot(dtb);
 	con_str("LOADER", why);
 	con_skip();
 
-	/* No payload: probe the internal UFS while the MMU is still off. */
+#ifdef TARGET_LAVENDER
+	/* The XNU payload is supplied in ABL's initrd. Storage is eMMC and is
+	 * intentionally not probed by this shim; XNU needs its own SDHCI driver. */
+	stage = "storage";
+	con_str("STORAGE", "eMMC probe deferred to XNU");
+	con_skip();
+#else
+	/* No payload: probe SWEET's internal UFS while the MMU is still off. */
 	stage = "ufs";
 	test_ufs();
 	con_skip();
-	/* Keep the probe results on screen (later tests clear it); reset after 3 min. */
 	con_str("UFS", "probe done, reset in ~3 min");
 	delay_ms(180000);
 	reset(20);
+#endif
 
 	stage = "fill off";
 	uint64_t fill_off = ticks_fill(RED);
@@ -405,7 +458,11 @@ void shim_main(uint64_t dtb)
 	if (rc)
 		con_clear(RED);
 
+	#ifdef TARGET_LAVENDER
+	con_str("SHIM", "lavender diagnostics");
+#else
 	con_str("SHIM", "sweet milestone 3");
+#endif
 	con_skip();
 	con_hex2("DTB", "at=", dtb, "magic=", dtb ? __builtin_bswap32(rd32(dtb)) : 0);
 	con_hex2("IMAGE", "lo=", mi.img_lo, "hi=", mi.img_hi);
@@ -429,6 +486,9 @@ void shim_main(uint64_t dtb)
 	con_hex2("PSCI", "ver=", smc(PSCI_VERSION, 0, 0, 0), "smccc=", smc(SMCCC_VERSION, 0, 0, 0));
 	con_skip();
 	test_gic();
+#ifdef TARGET_LAVENDER
+	test_smp();
+#endif
 
 	stage = "done";
 	reset(40);

@@ -1,7 +1,12 @@
 #pragma once
 #include <stdint.h>
 
+#ifdef TARGET_LAVENDER
+#include "platform_lavender.h"
+#else
 #define FB_PHYS	0x9c000000UL
+#define FB_SIZE	0x1700000UL
+#endif
 
 struct mmu_info {
 	uint64_t img_lo, img_hi, ttbr;

@@ -28,7 +28,7 @@ For a first safe bring-up, `tools/mkadt-lavender.py` therefore selects only the 
 - Reserve 1 MiB for the panic log at `0xea848000-0xea948000`
 - XNU `dram-size`: `0x4a448000` (about 1.1575 GiB), ending at the panic-log reservation
 
-The other three RAM windows remain unadvertised to XNU. This deliberately sacrifices memory capacity to avoid the reserved holes and Android/firmware allocations in those banks. A multi-bank allocator patch can reclaim them later. The bootloader framebuffer is in the separate `0x95000000-0x9fffffff` window and is mapped separately from XNU-managed RAM.
+The other three RAM windows remain unadvertised to XNU. This deliberately sacrifices memory capacity to avoid reserved holes and Android/firmware allocations in those banks. A multi-bank allocator patch can reclaim them later. The bootloader framebuffer is in the separate `0x95000000-0x9fffffff` window and is mapped separately from XNU-managed RAM.
 
 ## Public Lavender DT cross-check
 
@@ -48,23 +48,22 @@ References:
 - https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/qcom/sdm630.dtsi
 - XNU target source: https://github.com/apple-oss-distributions/xnu/tree/xnu-8796.141.3
 
-## Initial machine profile (0082)
+## Current Lavender work
 
-The Lavender-specific patch adds a distinct `LAVENDER` machine configuration, generic plain-arm64 code generation, an eight-CPU/two-cluster AMP profile, and GICv3 compile-time identification. The workflow defaults to `machine_config=LAVENDER` and runs a preflight guard against accidental SWEET driver reuse.
+- **0082** adds the provisional XNU machine profile: plain arm64, eight CPUs, two clusters/AMP and GICv3 identification.
+- `tools/mkadt-lavender.py` builds a separate Apple Device Tree with the safe contiguous RAM aperture, the SDM660 GIC window, eight MPIDRs and the 1080 x 2340 framebuffer. Its `--check` mode validates those structures. It omits the optional iPhone10,3 `/product` node if `research/ipsw-x/d22ap.adt` is absent.
+- The shim now has a separate `TARGET=lavender` path: SDM660 GICR address, the two-cluster MPIDR table, bootloader framebuffer mapping across both 32 MiB blocks, PSCI reset (no unverified restart-reason/PSHOLD writes), no SWEET UFS probe, and a distinct `LAVENDRX` payload marker. The SWEET marker and build path remain supported.
+- `.github/workflows/lavender-shim.yml` cross-compiles the shim and validates the ADT. It produces a compile artifact only; it does not package a boot image or authorize flashing.
 
-`tools/mkadt-lavender.py` is now a standalone ADT generator. Its `--check` mode validates the safe RAM aperture, all eight MPIDRs, the GIC register windows, and the framebuffer range. It deliberately emits no UFS/eMMC node. It warns and omits the iPhone10,3 `/product` node if the optional IPSW-derived `research/ipsw-x/d22ap.adt` file is absent.
-
-**The ADT and machine profile are not a bootable Lavender kernel yet.** The 16 KiB XNU page-size setting is provisional and must be checked against `ID_AA64MMFR0_EL1` before hardware boot. The shim still needs a Lavender platform profile and loader magic; XNU still needs Lavender platform expert, timer, framebuffer and CPU registration. No eMMC, NVT touch or recovery-key driver is implemented.
+**Neither the XNU machine profile nor the shim compile is a bootable Lavender kernel yet.** The 16 KiB page-size setting is provisional and must be checked against `ID_AA64MMFR0_EL1` before hardware boot. XNU still needs a Lavender platform expert, timer integration, framebuffer console/IOFramebuffer provider and CPU registration. No eMMC, NVT touch or recovery-key driver is implemented.
 
 ## Hard blockers before a Lavender boot candidate
 
-1. Verify 16 KiB translation granule support and implement Lavender MMU/page-table setup.
-2. Confirm the provisional GICD/GICR/PSCI references against the exact live vendor DT, then implement timer IRQ routing, GIC security ownership and exception setup.
-3. Port the fastboot shim to Lavender: GICR base, CPU MPIDR map, framebuffer aperture, no SWEET UFS probe, and a distinct payload signature.
-4. Implement a Lavender platform expert, boot CPU registration, framebuffer console and eventually an IOMobileFramebuffer provider.
-5. Implement eMMC/SDHCI at `c0c4000.sdhci`; do not reuse SWEET UFS.
-6. Implement/verify PMIC/volume-key input, NVT touch, clocks/resets and I2C/SPMI from the actual vendor source.
-7. Keep modem, ADSP/CDSP, secure/QSEE, WLAN and video firmware-dependent services explicitly unsupported until their interfaces are understood.
+1. Confirm the provisional GICD/GICR/PSCI references against the exact live vendor DT, then implement timer IRQ routing, GIC security ownership and exception setup.
+2. Port the XNU platform expert, boot CPU registration and framebuffer console; then build an IOMobileFramebuffer provider.
+3. Implement eMMC/SDHCI at `c0c4000.sdhci`; do not reuse SWEET UFS.
+4. Implement/verify PMIC/volume-key input, NVT touch, clocks/resets and I2C/SPMI from the actual vendor source.
+5. Keep modem, ADSP/CDSP, secure/QSEE, WLAN and video firmware-dependent services explicitly unsupported until their interfaces are understood.
 
 ## Recovery-key requirement
 
@@ -74,4 +73,4 @@ Treat this as a dedicated recovery-path feature, not a normal XNU panic/restart.
 
 ## CI classification
 
-A successful `MACHINE_CONFIG=SWEET` build proves only that the inherited XNU 8796 toolchain works. A successful `MACHINE_CONFIG=LAVENDER` compile proves only that the provisional Lavender machine profile compiles; neither is a bootable image or permission to flash. A dedicated Lavender runtime patch series is still required.
+A successful `MACHINE_CONFIG=SWEET` build proves only that the inherited XNU 8796 toolchain works. A successful `MACHINE_CONFIG=LAVENDER` compile proves only that the provisional machine profile compiles. A successful shim compile proves only that the standalone loader code compiles; it is not a boot image or a device boot. None of these artifacts should be flashed until the boot chain and runtime drivers are verified.

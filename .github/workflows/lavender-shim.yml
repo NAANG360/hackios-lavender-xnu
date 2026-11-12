@@ -1,0 +1,43 @@
+name: Lavender shim compile
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/lavender-machine-profile
+    paths:
+      - "shim/**"
+      - "tools/mkadt-lavender.py"
+      - "tools/mkpayload.py"
+      - ".github/workflows/lavender-shim.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AArch64 cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Generate and validate Lavender ADT
+        run: |
+          mkdir -p artifacts
+          python3 tools/mkadt-lavender.py artifacts/lavender.adt --check
+
+      - name: Compile Lavender fastboot shim
+        run: TARGET=lavender bash shim/build.sh --compile-only
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lavender-shim-compile
+          path: |
+            shim/out/Image
+            shim/out/shim.elf
+            shim/out/host.ppm
+            artifacts/lavender.adt
+          if-no-files-found: error
+          retention-days: 7
