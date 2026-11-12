@@ -1,9 +1,7 @@
 diff --git a/pexpert/pexpert/arm64/LAVENDER.h b/pexpert/pexpert/arm64/LAVENDER.h
 --- a/pexpert/pexpert/arm64/LAVENDER.h
 +++ b/pexpert/pexpert/arm64/LAVENDER.h
-@@ -29,6 +29,27 @@
- #define HAS_GIC_V3                1
- #define GIC_SPURIOUS_IRQ          1023
+@@ -1,3 +1,24 @@
  #define GICR_PE_SIZE              0x20000
 +
 +/* GICv3 register definitions shared by XNU's generic GICv3 interrupt path. */
@@ -26,6 +24,5 @@ diff --git a/pexpert/pexpert/arm64/LAVENDER.h b/pexpert/pexpert/arm64/LAVENDER.h
 +#define GICR_WAKER_CHILDRENASLEEP               0x4
 +#define ICC_CTLR_EOIMODE                        0x2
 +#define ICC_SRE_SRE                             0x1
- 
++
  #ifndef ASSEMBLER
- #define PLATFORM_PANIC_LOG_DISABLED
