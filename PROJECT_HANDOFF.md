@@ -4,7 +4,7 @@
 >
 > Last consolidated: **2026-11-12 22:18 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active engineering branch: `ci/lavender-machine-profile` (live tip at this update `8a27149e9c97b1963fba0d5cdbb1832f1efd789e`; this tip is documentation-only; re-resolve live HEAD before source writes)  
+> Active engineering branch: `ci/lavender-machine-profile` (always re-resolve live HEAD before source writes; latest CI source commit under investigation is `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`)  
 > Latest verified failed CI head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`  
 > Newest CI attempt observed: run `43259106099` (#84), queued at head `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`
 
