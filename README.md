@@ -1,3 +1,7 @@
+> **Lavender port notice:** This repository is being used for the Redmi Note 7 (lavender, Qualcomm SDM660) XNU port. Start with [AGENTS.md](AGENTS.md) and the authoritative [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md). The historical README content below is inherited from IOS-Sweet (Redmi Note 10 Pro / sweet, SM7150) and is reference material only; its device-specific facts and boot status do **not** describe Lavender.
+
+---
+
 # ios-sweet
 
 **Apple's iOS 16 running on a Redmi Note 10 Pro.**
