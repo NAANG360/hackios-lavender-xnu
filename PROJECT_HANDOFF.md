@@ -589,3 +589,111 @@ Other observations in the same run:
 7. If compilation succeeds, require a real ARM64 Mach-O kernel, inspect file type/architecture/load commands/entry/symbols/relocations and unresolved dependencies, then record SHA-256.
 8. Only after static verification prepare a RAM-only boot test. Never flash boot/recovery/vbmeta or repartition as part of this kernel milestone.
 
+---
+
+## 13. Repository discoverability and branch map — 2026-11-12
+
+### Canonical entry point
+
+The handoff is already present at the repository root as `PROJECT_HANDOFF.md`. The default-branch `README.md` begins with a Lavender-port notice linking to both `AGENTS.md` and this file. `AGENTS.md` explicitly tells every agent to read this handoff first. The `ci/lavender-machine-profile` README also points readers to it.
+
+At the time of this inspection, the `PROJECT_HANDOFF.md` blob was identical on `main` and `ci/lavender-machine-profile` (blob SHA `c00bb3fc9c675aac92c317fcc9986a21429e5ab0`). Keep both copies synchronized when updating the handoff. The intended new-session discovery path is:
+
+1. Open repository: https://github.com/NAANG360/hackios-lavender-xnu
+2. Read `AGENTS.md`.
+3. Read `PROJECT_HANDOFF.md` in full.
+4. Inspect current branch HEAD and latest Actions run before relying on this document's snapshot.
+
+### Branches visible in GitHub branch search
+
+The repository branch search returned these names on 2026-11-12:
+
+- `main`
+- `ci/lavender-machine-profile`
+- `ci/xnu-reference-no-cancel`
+- `port/lavender-platform-baseline`
+- `fix/lavender-config-table-placement`
+- `fix/lavender-kernel-config-table`
+- `fix/lavender-kernelconfig-compile`
+- `fix/lavender-kernelconfig-table-placement`
+- `fix/lavender-kernelconfigtables-build`
+- `fix/lavender-remove-invalid-kernel-config-table`
+
+**Important:** this is only a branch-name inventory. The contents, HEAD commits, ancestry, CI status and relative quality of all those fix branches were not established in this inspection. Do not assume the branch with the most promising name contains a correct fix. Before choosing a working branch, compare each candidate's commit history and diffs against `ci/lavender-machine-profile`, inspect its latest workflow and verify whether it removes, relocates or correctly regenerates the Lavender IOKit personality. Avoid losing any useful work by force-resetting or deleting branches.
+
+### Main branch versus the Lavender working branch
+
+- `main` still has the inherited SWEET workflow: default `MACHINE_CONFIG=SWEET`, `macos-14`, and `cancel-in-progress: true`. Do **not** dispatch the default-branch workflow expecting it to build Lavender.
+- `ci/lavender-machine-profile` has the Lavender workflow observed in this session: default `MACHINE_CONFIG=LAVENDER`, runner `macos-15-intel`, explicit Xcode 16.0 selection, Lavender profile preflight, and a concurrency group containing the run ID with `cancel-in-progress: false`.
+- Treat `ci/lavender-machine-profile` as the last confirmed Lavender build branch in this record, but inspect the fix branches before continuing because they may contain later experiments.
+- The `main` README banner and `AGENTS.md` make the handoff discoverable even when a new agent lands on the default branch. Preserve that entry-point link.
+
+---
+
+## 14. Additional project intent and user constraints from prior sessions
+
+These are project-specific requirements gathered across the user's earlier porting conversations. They are not hardware verification results.
+
+- The user wants an iOS/Darwin port on the actual Redmi Note 7, sometimes casually calling the project **LIOS** (“Lucid iOS”). The immediate goal is a working Lavender XNU kernel, not a polished UI.
+- The user repeatedly asked for a flashable/bootable image quickly, but also clarified that the first bring-up should be temporary/untethered so they can verify it before installation. Resolve this as: build and statically verify the kernel first; prepare a reversible RAM-only boot path next; do not flash or overwrite partitions without explicit permission.
+- The user asked whether an OrangeFox recovery-terminal script could eventually boot the system. Treat that as a later convenience wrapper around a verified loader/payload; it does not replace the need to establish the correct boot ABI and memory map.
+- The user explicitly said not to use an emulator as the target system or as evidence that the real phone works. A QEMU test is permissible only for isolated kernel logic and must be labelled as such.
+- The user wants actual source edits, CI runs, and artifacts rather than repeated promises to inspect or generic status reports. When an action cannot be completed, state exactly which tool/access/build limitation blocked it and preserve the next actionable step in this file.
+- The user wants the work to continue as an iterative diagnose → smallest justified patch → validation → CI build → artifact verification loop until a real XNU kernel is produced. No assistant can guarantee a CI process runs indefinitely after a session ends; leave durable commits, build logs, artifacts and updated handoff notes after each session.
+- The phone's power button is broken. Avoid recovery/boot instructions that require it; the user previously asked about volume-up + volume-down alternatives, but do not claim a key sequence is verified unless the current bootloader/recovery evidence confirms it.
+- The user previously suggested mining their separate Lucid-OS Android/Linux project for SDM660 driver knowledge. If that repository is explicitly in scope, use it as a **supplemental Linux hardware reference** for register layouts, device-tree nodes, regulators, clocks, GPIOs, panel/touch configuration and sequencing. Linux drivers are not XNU drivers; translate the hardware facts and implement the relevant XNU/IOKit interface rather than transplanting Linux code or assuming its APIs work.
+- Do not ask the user to repeat hardware information already present in the two uploaded audits or repository artifacts. Do not put raw audit dumps, device serials, calibration data, private firmware or proprietary iOS root files into Git.
+
+---
+
+## 15. Additional confirmed CI log observations
+
+The failed run's patch application log also reported these skips/failures before compilation:
+
+- `0031-sweet-read-write-root.patch` was skipped because `bsd/sweet_hfs/core/hfs_vfsutils.c` was absent.
+- `0041-sweet-hfs-link-notes.patch` was skipped because `bsd/sweet_hfs/core/hfs_catalog.c` was absent.
+- `iobuffermemd_monterey.patch` failed to apply at `iokit/Kernel/IOBufferMemoryDescriptor.cpp:332`.
+- `skywalk_sonoma.patch` failed to apply at `bsd/skywalk/packet/os_packet.h:883`.
+- `syntax_checker_sonoma.patch` failed to apply at `tools/lldbmacros/core/syntax_checker.py:1`.
+- `TrustCache.patch` was skipped because its `EXTERNAL_HEADERS/TrustCache/*.h` files already existed.
+- The workflow proceeded to apply alternative/other patches after those warnings and reached the XNU build.
+
+These are patch-series compatibility/hygiene findings, not the confirmed `KernelConfigTables.cpp:93` compiler failure. For each skipped patch, inspect the pinned XNU source and determine whether the intended change is already upstream, unnecessary, or genuinely missing. Do not blindly force-apply old Sweet/macOS patches to XNU 8796.
+
+The same job emitted warnings/notes involving `kalloc.h`, startup macro expansion and atomic headers. The extracted fatal compiler error in this run is the IOKit table error recorded in Section 5. Only promote another diagnostic to a blocker if a fresh log shows an actual `error:` that stops a compile/link target.
+
+---
+
+## 16. Session snapshot and immediate continuation — 2026-11-12
+
+### What was verified in this session
+
+- Confirmed that `PROJECT_HANDOFF.md` exists at the repository root and is linked from the default-branch README and `AGENTS.md`.
+- Confirmed the handoff file is also present on `ci/lavender-machine-profile`.
+- Confirmed the main branch's XNU workflow is still SWEET-default and should not be mistaken for the Lavender workflow.
+- Confirmed the Lavender working branch's workflow selects `LAVENDER`, runs on `macos-15-intel`, explicitly selects Xcode 16.0 and disables run cancellation through a run-specific concurrency key.
+- Confirmed the branch-name inventory in Section 13. The fix branches need comparison; their contents and HEAD SHAs remain unverified.
+- Re-fetched run `43198618602` / job `131115903232` logs. The job failed at the XNU build step; profile validation passed. The fatal diagnostic remains `KernelConfigTables.cpp:93:5: expected unqualified-id`.
+- Confirmed the failed run's nominal `xnu-kernel` artifact contains no kernel file. It is only a KDK metadata bundle and must not be used as a bootable image.
+- No source-code fix, successful kernel build, verified Mach-O kernel, or physical-device boot was produced by this session.
+
+### Immediate next actions (do these, do not restart from scratch)
+
+1. Inspect the branch candidates in Section 13. Determine their HEAD commits and compare their `0087`/KernelConfigTables changes. Select the best evidence-backed candidate without discarding existing work.
+2. Inspect the actual `xnu-buildtree` artifact (ID `13936585997`) while it remains available. Extract the post-patch `iokit/KernelConfigTables.cpp` around line 93 and the exact patch application result.
+3. Trace the XNU 8796 source-generation path for KernelConfigTables. Establish whether the table is generated from personality inputs and whether patch 0087 modifies a generated output or splits an invalid C++ initializer.
+4. Fix the source-of-truth personality registration mechanism. Preserve a valid Lavender platform-expert registration; do not simply delete the service or silence the compiler.
+5. Add a real compile/syntax validation for the affected translation unit and hard-fail artifact collection if the expected kernel output is absent.
+6. Dispatch the Lavender workflow only after a meaningful fix. Compare the next run's first fatal diagnostic with run 43198618602.
+7. Once the build succeeds, prove that the artifact is an ARM64 Mach-O kernel, inspect its load commands/entry/symbols/relocations and dependency closure, compute SHA-256, and update this file.
+8. Only then move to the RAM-only device boot chain. No flashing or destructive partition work.
+
+### Truthful status at this snapshot
+
+- **Working Lavender XNU kernel:** not yet produced.
+- **Static Lavender profile preflight:** passed in the recorded failed run.
+- **XNU compilation:** failed at the IOKit KernelConfigTables translation unit.
+- **Kernel artifact:** absent; the uploaded 178 KB artifact is not a kernel.
+- **Physical Lavender boot:** not attempted/verified in the project evidence recorded here.
+
+This status is deliberately evidence-based. Do not substitute an optimistic percentage for the concrete state above.
