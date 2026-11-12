@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       macos_version:
-        description: macOS release whose xnu to build (13.5 = xnu-8796, iOS 16 era)
+        description: macOS release whose XNU to build (13.5 = xnu-8796, iOS 16 era)
         default: "13.5"
       kernel_config:
         description: RELEASE / DEVELOPMENT / DEBUG
         default: DEVELOPMENT
       machine_config:
-        description: xnu MACHINE_CONFIG
+        description: XNU MACHINE_CONFIG (SWEET is reference-only)
         default: SWEET
       keep_going:
         description: make -k (collect all compile errors in one run)
@@ -21,7 +21,7 @@ on:
       - "xnu/patches/**"
       - ".github/workflows/xnu.yml"
 
-# Unique per run: prevents an unrelated queued dispatch from cancelling this build.
+# Each run receives a unique group so concurrent dispatches cannot cancel builds.
 concurrency:
   group: xnu-${{ github.ref }}-${{ github.run_id }}
   cancel-in-progress: false
@@ -35,38 +35,44 @@ env:
 
 jobs:
   build:
-    # macos-14 still ships Xcode 15.x: its iig matches the xnu-8796 IORPC ABI
-    # (Xcode 16's iig emits IORPC.kernelContent, which this xnu lacks)
-    runs-on: macos-14
+    # macos-14 was retired Nov 2 2026. macos-15-intel is the supported x64 successor.
+    # This image supplies Xcode 16.0; its iig ABI differs from Xcode 15, so this
+    # first pass intentionally captures the resulting XNU 8796 compatibility diagnostics.
+    runs-on: macos-15-intel
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch build script
+      - name: Inspect runner and select Xcode
         run: |
-          git init -q dxb
-          git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
-          git -C dxb checkout -q FETCH_HEAD
-          cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
-          # libfirehose_kernel is built arm64e-only; SWEET is plain arm64.
-          sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
-          grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
-          ls dxb/patches
-
-      - name: Dependencies and Xcode selection
-        run: |
-          brew install jq gum bash cmake ninja
-          printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
-          sudo chmod +x /usr/local/bin/xcodes
           sw_vers
           ls -d /Applications/Xcode*.app
-          XC=$(ls -d /Applications/Xcode_*.app | sort -V | head -1)
+          XC=/Applications/Xcode_16.0.app
+          test -d "$XC"
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           sudo xcode-select -s "$XC"
           xcodebuild -version
           xcrun --find iig
 
-      - name: Build XNU
+      - name: Fetch pinned XNU build tooling
+        run: |
+          git init -q dxb
+          git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
+          git -C dxb checkout -q FETCH_HEAD
+          cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
+          # libfirehose_kernel is arm64e-only upstream; the SWEET reference target is arm64.
+          sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
+          grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
+          ls dxb/patches
+
+      - name: Install build dependencies
+        run: |
+          brew install jq gum bash cmake ninja
+          # darwin-xnu-build checks for xcodes; Xcode is selected explicitly above.
+          printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
+          sudo chmod +x /usr/local/bin/xcodes
+
+      - name: Build XNU 8796 reference kernel
         working-directory: dxb
         env:
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
