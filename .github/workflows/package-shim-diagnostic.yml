@@ -99,8 +99,8 @@ jobs:
           kernel = Path("artifacts/verify/kernel").read_bytes()
           ramdisk = Path("artifacts/verify/ramdisk").read_bytes()
           dtb = Path("artifacts/verify/dtb").read_bytes()
-          assert kernel[0x38:0x3c] == b"ARM\\x64", "shim is missing the ARM64 Image header"
-          assert ramdisk[:2] == b"\\x1f\\x8b", "diagnostic ramdisk is not gzip-compressed cpio"
+          assert kernel[0x38:0x3c] == b"ARMd", "shim is missing the ARM64 Image header"
+          assert ramdisk[:2] == bytes.fromhex("1f8b"), "diagnostic ramdisk is not gzip-compressed cpio"
           assert len(dtb) > 0, "stock DTB is missing"
           print(f"PASS: ARM64 shim={len(kernel)} bytes, diagnostic ramdisk={len(ramdisk)} bytes, DTB={len(dtb)} bytes")
           PY
