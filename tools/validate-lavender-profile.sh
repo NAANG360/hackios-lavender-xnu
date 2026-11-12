@@ -27,6 +27,7 @@ grep -q '#define MMU_I_CLINE 6' "$cache_patch"
 grep -q '#define MMU_CLINE[[:space:]]*6' "$cache_patch"
 grep -q 'LavenderPlatformExpert' "$expert_patch"
 grep -q 'IONameMatch.*xiaomi,lavender' "$expert_patch"
+git apply --numstat "$config_table_fix" >/dev/null
 if grep -Eiq 'SWEET_VTIMER_INTID|sweet_touch_init|sweet_keys_init|sweet_ufs' "$patch"; then
   echo "ERROR: SWEET-specific runtime code leaked into the Lavender profile" >&2
   exit 1
