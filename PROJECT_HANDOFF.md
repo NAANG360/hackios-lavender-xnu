@@ -4,7 +4,7 @@
 >
 > Last consolidated: **2026-11-12 22:18 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active engineering branch: `ci/lavender-machine-profile` (last recorded inspected tip `d595ae32a3013ae003b2d5ff5fafd83edabea7cd`; re-resolve live HEAD before source writes)  
+> Active engineering branch: `ci/lavender-machine-profile` (live tip at this update `8a27149e9c97b1963fba0d5cdbb1832f1efd789e`; this tip is documentation-only; re-resolve live HEAD before source writes)  
 > Latest verified failed CI head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`  
 > Newest CI attempt observed: run `43259106099` (#84), queued at head `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`
 
@@ -1682,3 +1682,104 @@ Start by:
 7. verifying the actual kernel artifact before reporting success.
 
 **Truthful state remains:** no verified Lavender XNU Mach-O kernel and no physical-device XNU boot have been demonstrated in the evidence recorded here. Do not claim otherwise.
+
+
+---
+
+## 23. Live handoff refresh — 2026-11-12 22:17 IST
+
+This update responds to the user's explicit request that **all project knowledge be kept in one Markdown file that a new chat can discover and continue from**. This file remains the sole canonical project memory. No second handoff file is to be created.
+
+### 23.1 Exact user goal — preserve this distinction
+
+- Immediate deliverable: a **real, buildable ARM64 XNU 8796 kernel configured for Redmi Note 7 / Lavender / SDM660**.
+- Larger target: native Darwin/iOS on the physical Lavender device, with the user's intended **iOS 16.5 userspace** and the real boot chain `launchd → backboardd → SpringBoard`.
+- The user does **not** want a themed Android ROM, a mock SpringBoard, or an iOS-looking launcher. A UI mock is not a project milestone.
+- Target display is the actual 1080 × 2340 panel and actual NVT multitouch hardware. These are hardware bring-up requirements, not evidence that XNU support exists yet.
+- GPU/Adreno 512 acceleration is explicitly later. First achieve a real kernel, then early boot/CPU/memory/interrupts, then display/touch and userspace.
+- IOS-Sweet's iPhone X iOS 16.7.16 userland is a reference project's demonstrated payload, **not a silent replacement for the user's iOS 16.5 target**. Record any deliberate userland-version change explicitly.
+
+### 23.2 Boot / safety / interaction constraints
+
+- The user requested an **untethered initial trial** before a later installation. Do not silently equate a host-triggered `fastboot boot` with “untethered”: it is temporary and non-flashing, but it is still initiated from a host. Work out a device-local, reversible trial route if untethered operation is required.
+- Preserve the installed Android system and the working recovery path. Do not erase userdata, repartition, flash boot/recovery/vbmeta, or touch modem/persist/calibration partitions during kernel bring-up.
+- Permanent installation is only considered after a successful trial and explicit user approval.
+- OrangeFox/recovery-terminal handoff was mentioned as a later convenience, after the kernel/boot chain exists; it is not a substitute for compiling XNU.
+- The phone's physical power button is broken. Do not give a procedure that depends on pressing it. The user previously asked for volume-up + volume-down recovery/reboot handling; this has not been verified as a universal recovery key combination, so check the actual recovery's documented behavior before relying on it.
+- Do not repeatedly ask the user to run commands or collect data already present in the uploaded hardware audits, repository, CI logs, or artifacts.
+- The user wants actual source changes and iterative CI/build work, not promises or status-only responses. Keep polling an active run and continue with a new evidence-based fix after a failure. GitHub Actions has finite runner timeouts/queues; do not claim one process can run forever or continue after a session ends without a durable automation.
+- QEMU may be used for narrow kernel-development experiments only. It is never acceptance evidence for Lavender and must not replace the real device target.
+
+### 23.3 Live repository pointers at this update
+
+- Repository: https://github.com/NAANG360/hackios-lavender-xnu
+- Default branch: `main`; live head observed: `0873d30ea70ae959b41edc422b4d3a59da7b9c59`.
+- Engineering branch: `ci/lavender-machine-profile`; live head observed: `8a27149e9c97b1963fba0d5cdbb1832f1efd789e`.
+- Both live branch refs had the exact same `PROJECT_HANDOFF.md` content/blob immediately before this update: `c4485905a4e5153161ced35db1aaac4c5fd9af7c`.
+- The two observed branch-tip commits above are documentation synchronization commits; do not mistake them for new kernel fixes.
+- Repository metadata identifies this repository as a public fork of `dipa-studio/ios-sweet`. GitHub's repository description still says Redmi Note 10 Pro / `sweet` / SM7150; that metadata is stale for the active Lavender port. The root README begins with a Lavender-port notice, and `AGENTS.md` tells agents to read this handoff first.
+- New-chat entry path: repository root → `AGENTS.md` → this entire `PROJECT_HANDOFF.md` → refresh live branch HEAD and newest Actions run → continue from Section 23.4. Do not start by reading the inherited Sweet README as if it describes Lavender.
+
+### 23.4 Fresh CI state — run #84 remains queued
+
+At this inspection, GitHub's run API still reported:
+
+| Field | Value |
+|---|---|
+| Workflow | `xnu` |
+| Run number / ID | #84 / `43259106099` |
+| Branch | `ci/lavender-machine-profile` |
+| Source commit | `9a76786a5934f38e0a2a3a1935bfac61f2c00dde` |
+| Commit title | `ci(lavender): validate config table insertion in platform patch` |
+| Job ID | `131325274032` |
+| Status | **queued** |
+| Conclusion | none |
+| Job logs | not available |
+| Artifacts | none listed |
+
+A queued run is neither a pass nor a failure. Re-query this run before starting another full build. The run is associated with the engineering branch; its source SHA predates the documentation-only branch tip above.
+
+The source commit `9a76786...` changes only `tools/validate-lavender-profile.sh`: it removes the explicit required-file and `git apply --numstat` validation for `0091-lavender-config-table-placement.patch`. It does not change patch 0087 or patch 0091. The workflow copies `xnu/patches/*.patch` into the pinned build-tool patch directory, so 0091 is eligible for application, but the validator no longer proves that it exists or parses. **Restore explicit validation of 0091 after inspecting the run result.**
+
+Patch 0091, fetched from the current engineering branch at this update (blob `61a0d542857095eeae4146138fbac9be97d01797`), moves the trailing `IOPanicPlatform` personality and closing configuration-string tokens after the conditional Lavender personality. This is a plausible correction for the earlier C++ string-table placement error, but it is not proven until the run log and post-patch source are inspected.
+
+### 23.5 Confirmed failed baseline — exact facts from run #43198618602
+
+- Run: `43198618602`; job: `131115903232`; branch: `ci/lavender-machine-profile`; source head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`.
+- The job passed checkout, Xcode selection, pinned build-tool fetch, Lavender profile preflight, and dependency installation. The XNU 8796 build step failed.
+- The confirmed fatal diagnostic was `iokit/KernelConfigTables.cpp:93:5: error: expected unqualified-id`, pointing at the inserted C++ string literal `"   {"`. The failure occurred while building `KernelConfigTables.cpo`.
+- The most relevant source is `xnu/patches/0087-lavender-linker-and-platform-expert.patch`, which inserts the conditional Lavender IOKit personality into `iokit/KernelConfigTables.cpp`. Inspect the complete post-patch source and the XNU 8796 table-generation path; do not patch a generated output blindly or remove the Lavender platform expert merely to silence the compiler.
+- The same run's patch driver skipped/failed several inherited SWEET-era patches:
+  - `0031-sweet-read-write-root.patch`: target `bsd/sweet_hfs/core/hfs_vfsutils.c` absent.
+  - `0041-sweet-hfs-link-notes.patch`: target `bsd/sweet_hfs/core/hfs_catalog.c` absent.
+  - `iobuffermemd_monterey.patch`: failed at `iokit/Kernel/IOBufferMemoryDescriptor.cpp:332`.
+  - `skywalk_sonoma.patch`: failed at `bsd/skywalk/packet/os_packet.h:883`.
+  - `syntax_checker_sonoma.patch`: failed at `tools/lldbmacros/core/syntax_checker.py:1`.
+  - `TrustCache.patch`: files already existed under `EXTERNAL_HEADERS/TrustCache/`.
+- These patch warnings are not the confirmed fatal compiler error. Determine whether each intended change is already upstream, obsolete, or needed; do not force old patches onto XNU 8796 without source comparison.
+- The log also reports the Xcode SDK path `.../Kernel.framework/.../PrivateHeaders/platform` missing during build-tree packaging. Treat this as a separate packaging/build-environment issue.
+- The job log is approximately 48.9 MB. Filter primary compiler/linker diagnostics rather than dumping all macro-expansion notes. In that run, `kalloc.h` and `atomic_private*.h` references were largely macro-expansion notes, not independently confirmed fatal errors.
+
+### 23.6 Artifact truth — the failed run produced no kernel
+
+- `xnu-buildtree`: artifact ID `13936585997`, 22,350,351 bytes, SHA-256 `dc33aa55cd59eca652b656f02e9b46dbf31a744daa86f39fab00e7521544ebcf`; it is the useful diagnostic artifact, subject to its retention window.
+- `xnu-kernel`: artifact ID `13935079884`, 178,298 bytes, SHA-256 `58f19909065d9711fe5d213406ab2779537b2cdb18baeb6d51cffd18901009b4`. It contains KDK library metadata only; the output directory had no `kernel.*` file, and the log says `shasum: kernel.*: No such file or directory`.
+- Therefore no real ARM64 Mach-O kernel has been established. Do not call the 178 KB artifact a kernel, boot image, or usable output.
+- Fix artifact collection so a missing expected kernel fails the workflow. Upload the kernel artifact only after a non-empty expected kernel file exists; then inspect its Mach-O file type, CPU type/subtype, load commands/entry, segments, symbols, relocations and unresolved dependencies, and record SHA-256.
+
+### 23.7 Next-session execution checklist
+
+1. Poll run `43259106099` / job `131325274032`; it was still queued at the last check. Do not infer its result from the commit title.
+2. Confirm current branch HEAD again. Compare the run source SHA with the live engineering branch before treating its result as validation of current code.
+3. When the run finishes, retrieve the full job log and artifacts. Extract primary compiler/linker errors with surrounding lines; inspect whether patch 0091 applied and inspect the post-patch `KernelConfigTables.cpp` around the previous line-93 location.
+4. If the same syntax failure remains, trace how XNU 8796 creates `KernelConfigTables.cpp` and move the Lavender personality to the correct source-of-truth input/registration point. Do not just remove the personality or alter generated files.
+5. Re-add validator checks for patch 0091 and any other required Lavender patch. Keep static preflight distinct from compilation.
+6. Continue through later compile and link errors until the workflow produces a real kernel. Harden the output step so it fails if the kernel is missing.
+7. Verify the resulting ARM64 Mach-O kernel and its dependencies; attach exact commit/run/job/artifact/hash and verification evidence here.
+8. Only after static verification, design the user's requested untethered/reversible trial boot. Preserve Android and recovery. No destructive flash or repartition without explicit approval.
+
+### 23.8 What this refresh did and did not do
+
+- Revalidated the root README/AGENTS discovery path, canonical handoff blob on both branches, live branch heads, run #84 metadata, run #431986 job log/artifacts, and patch 0091.
+- Added the user's explicit iOS 16.5 userspace goal and no-mock-Android requirement to the handoff.
+- This is a **documentation-only** update. It does not fix the compiler error, start or complete run #84, produce a kernel, verify a Mach-O image, or boot the phone.
