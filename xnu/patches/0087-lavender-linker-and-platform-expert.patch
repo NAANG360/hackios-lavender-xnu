@@ -117,7 +117,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 +    "   {"
 +    "     'IOClass'         = LavenderPlatformExpert;"
 +    "     'IOProviderClass' = IOPlatformExpertDevice;"
-+    "     'IONameMatch'     = 'xiaomi,lavender';"
++    "     'IONameMatch'     = 'qcom,sdm660-mtp';"
 +    "     'IOProbeScore'    = 10000:32;"
 +    "   },"
 +#endif
