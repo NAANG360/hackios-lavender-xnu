@@ -80,5 +80,5 @@ else
 fi
 DTB_PATH="${DTB_PATH:-../dtb/boot_unpacked/dtb}"
 [[ -f "$DTB_PATH" ]] || { echo "missing DTB: $DTB_PATH (set DTB_PATH to a stock Lavender DTB)" >&2; exit 1; }
-python3 ../tools/mkbootimg_v2.py --header_version 2 --kernel out/Image --ramdisk out/ramdisk.bin   --dtb "$DTB_PATH" --base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000   --tags_offset 0x100 --dtb_offset 0x1f00000 --pagesize 4096   --os_version "$OS_VERSION" --os_patch_level "$OS_PATCH_LEVEL"   --cmdline "console=null" -o out/shim-boot.img
+mkbootimg --header_version 2 --kernel out/Image --ramdisk out/ramdisk.bin   --dtb "$DTB_PATH" --base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000   --tags_offset 0x100 --dtb_offset 0x1f00000 --pagesize 4096   --os_version "$OS_VERSION" --os_patch_level "$OS_PATCH_LEVEL"   --cmdline "console=null" -o out/shim-boot.img
 ls -l out/Image out/shim-boot.img
