@@ -2,9 +2,9 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-12 22:15 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-12 22:16 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active known branch: `ci/lavender-machine-profile` (inspected tip `d595ae32a3013ae003b2d5ff5fafd83edabea7cd`)  
+> Active engineering branch: `ci/lavender-machine-profile` (last recorded inspected tip `d595ae32a3013ae003b2d5ff5fafd83edabea7cd`; re-resolve live HEAD before source writes)  
 > Latest verified failed CI head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`  
 > Newest CI attempt observed: run `43259106099` (#84), queued at head `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`
 
@@ -1534,3 +1534,83 @@ This update synchronizes the top-level timestamp and records the newly observed 
 
 
 ---
+
+
+---
+
+## 22. Cross-session master snapshot — 2026-11-12 22:16 IST
+
+This is the latest direct revalidation of the repository entry points and the queued CI attempt. It supplements, rather than replaces, the historical engineering record above.
+
+### 22.1 The one canonical project memory is in place
+
+- Canonical file: **`PROJECT_HANDOFF.md` at the repository root** of https://github.com/NAANG360/hackios-lavender-xnu.
+- Do not create a second competing project-summary Markdown file. This document already contains the mission, user constraints, sanitized hardware audit, machine-profile design, XNU patch history, build workflow, CI failures, artifact truth, reference projects, branch inventory, and continuation sequence.
+- The current `README.md` on both `main` and `ci/lavender-machine-profile` starts with a Lavender-port notice and links to `AGENTS.md` and/or this handoff. The current `AGENTS.md` on both branches explicitly says **read `PROJECT_HANDOFF.md` first**.
+- Verified entry-point file blobs during this inspection:
+  - `README.md` / `main`: `871b224d73bf680d9561279b62e012ac9f24b7da`
+  - `README.md` / `ci/lavender-machine-profile`: `1ca868709f64a83598e5867bec1587259ea4c618`
+  - `AGENTS.md` / `main`: `28f0e100d23185c2b6530e214fdb3937fb61222a`
+  - `AGENTS.md` / `ci/lavender-machine-profile`: `73159e440ef275cb13103699e1d253383fcf6cc8`
+- Immediately before this update, GitHub returned the same `PROJECT_HANDOFF.md` blob on both branches: `9d91a48367895060fb5ef08ceefa19f53ddb346a`. The two copies had the same 1,537 lines and the same line content. This update is being applied to both branch refs so either entry point remains current.
+- New-session discovery path: open the repository root → read `AGENTS.md` → read this entire `PROJECT_HANDOFF.md` → inspect the live branch HEAD and newest Actions run before touching source.
+
+### 22.2 Latest CI attempt rechecked
+
+At 2026-11-12 22:16 IST, workflow run **`43259106099` (#84)** was still **queued**:
+
+- Job ID: `131325274032`
+- Run source commit: `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`
+- Commit title: `ci(lavender): validate config table insertion in platform patch`
+- Job status: `queued`, conclusion: none
+- Job steps/logs: not yet available
+- Artifacts: none listed
+
+A queued job is not evidence of compilation. Do not dispatch a duplicate full build until this attempt reaches a terminal state and its log/artifacts have been inspected.
+
+**Branch association caution:** the connector did not expose the workflow run's branch field in the job result. Fetching `README.md` and `AGENTS.md` at the exact run source commit `9a76786...` returned the older SWEET-only versions, while the live `main` and `ci/lavender-machine-profile` refs now contain Lavender discovery notices. Therefore do not assume from the commit message alone that run #84 is testing the current integration-branch tip. Resolve the run's actual branch/ref from the Actions run metadata when available.
+
+### 22.3 Exact patch/validator state at run commit 9a76786
+
+The commit diff for `9a76786a5934f38e0a2a3a1935bfac61f2c00dde` changes only `tools/validate-lavender-profile.sh`:
+
+- It removes the `table_patch="xnu/patches/0091-lavender-config-table-placement.patch"` variable.
+- It removes the `test -s "$table_patch"` check.
+- It removes patch 0091 from the validator's `git apply --numstat` loop.
+
+The commit does **not** modify patch 0087 or patch 0091.
+
+Directly fetched at that commit:
+
+| File | Blob SHA | Observation |
+|---|---|---|
+| `xnu/patches/0087-lavender-linker-and-platform-expert.patch` | `12643c858539069eaad4dc1a65efb1242f643634` | Still inserts the conditional Lavender personality into `iokit/KernelConfigTables.cpp`; this is the patch associated with the previous line-93 compiler error |
+| `xnu/patches/0091-lavender-config-table-placement.patch` | `61a0d542857095eeae4146138fbac9be97d01797` | Exists; moves the `IOPanicPlatform` string entries/closing tokens after the conditional Lavender personality block, apparently keeping the personality inside the shared configuration string |
+| `tools/validate-lavender-profile.sh` | `785439a44ddffd23c6e93be6d4e8e40cf2478698` | No longer asserts patch 0091 exists or validates its patch syntax |
+
+The workflow's wildcard staging command copies `xnu/patches/*.patch` into the pinned build-tool patch directory, so patch 0091 is eligible to be staged even though the profile validator no longer checks it. Whether the patch driver actually applies 0091 successfully in run #84 is **not known until the job log is available**.
+
+Engineering interpretation:
+- Patch 0091 is a plausible source-level correction to the previous malformed C++ configuration-string placement.
+- The validator change in 9a767 is not itself proof that the compiler problem is fixed.
+- When the run completes, inspect the patch-application output and the exact post-patch `KernelConfigTables.cpp`; restore an explicit required-patch/syntax check for 0091 once its application behavior is confirmed.
+- If the same compiler error remains, fix the source-of-truth patch/generation mechanism rather than deleting the Lavender platform expert or editing a generated build artifact.
+
+### 22.4 Current honest engineering state
+
+- The last fully inspected completed build remains run `43198618602`, job `131115903232`, which failed at `KernelConfigTables.cpp:93:5: expected unqualified-id`.
+- The `xnu-kernel` artifact from that failed run is not a kernel: it contains KDK library metadata only, with no `kernel.*` file. Its exact ID/hash and the diagnostic build-tree artifact are recorded above.
+- No successful Lavender XNU compile, verified ARM64 Mach-O kernel, RAM-only device boot, display, touch, Darwin userspace, or SpringBoard boot is established by the evidence currently in this handoff.
+- This update is documentation and discoverability work only. It does not fix XNU, complete run #84, produce a kernel, or boot the phone.
+
+### 22.5 Next session: execute, do not restart the investigation
+
+1. Read `AGENTS.md` and this file; do not ask the user to repeat the device identity, audit facts, target, or reference projects.
+2. Inspect current refs and determine the actual branch/ref of run #84. Poll run `43259106099` / job `131325274032`; retrieve logs and artifacts as soon as available.
+3. Compare the run's source commit and branch tip. If run #84 is not the current integration branch, do not treat its result as validation of the integration branch.
+4. Confirm whether patches 0087 and 0091 apply in lexical order and inspect the resulting `KernelConfigTables.cpp` around the previous line-93 location.
+5. If compilation proceeds past that point, continue from every direct compiler/linker error until the build either produces a kernel or exposes the next concrete blocker.
+6. Harden artifact collection so a missing kernel is a hard failure. Require a real ARM64 Mach-O kernel and inspect its file type, architecture, load commands/entry, sections, symbols, relocations, and unresolved dependencies.
+7. Record the exact source commit, workflow run/job, logs, artifact ID, SHA-256 and verification. Only then move to a reversible RAM-only boot experiment on the actual Lavender device.
+
+The user's explicit project requirement remains: keep iterating toward a working XNU kernel for the physical SDM660 Lavender target, using HakiOS/hackIOS, IOS-Sweet and public Lavender/SDM660 documentation as complementary references. Do not substitute an emulator result or a generic ARM64 build for that deliverable.
