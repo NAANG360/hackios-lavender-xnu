@@ -115,7 +115,7 @@ index 90cff06..accd0cd 100644
  # SWEET device-tree platform (empty translation unit on other boards)
  iokit/Kernel/arm/SweetPlatformExpert.cpp                         optional iokitcpp
  
-+iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
+ iokit/Kernel/arm/SweetCPU.cpp                                    optional iokitcpp
 +
 +# LAVENDER device-tree platform (separate from SWEET)
 +iokit/Kernel/arm/LavenderPlatformExpert.cpp                         optional iokitcpp
