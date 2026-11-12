@@ -4,6 +4,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 TARGET="${TARGET:-sweet}"
+if [[ "$TARGET" == "lavender" ]]; then
+  OS_VERSION="${OS_VERSION:-15.0.0}"
+  OS_PATCH_LEVEL="${OS_PATCH_LEVEL:-2025-03}"
+else
+  OS_VERSION="${OS_VERSION:-17.0.0}"
+  OS_PATCH_LEVEL="${OS_PATCH_LEVEL:-2035-06}"
+fi
 COMPILE_ONLY=0
 PAYLOAD=""
 while [[ $# -gt 0 ]]; do
@@ -73,5 +80,5 @@ else
 fi
 DTB_PATH="${DTB_PATH:-../dtb/boot_unpacked/dtb}"
 [[ -f "$DTB_PATH" ]] || { echo "missing DTB: $DTB_PATH (set DTB_PATH to a stock Lavender DTB)" >&2; exit 1; }
-mkbootimg --header_version 2 --kernel out/Image --ramdisk out/ramdisk.bin   --dtb "$DTB_PATH" --base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000   --tags_offset 0x100 --dtb_offset 0x1f00000 --pagesize 4096   --os_version 17.0.0 --os_patch_level 2035-06   --cmdline "console=null" -o out/shim-boot.img
+mkbootimg --header_version 2 --kernel out/Image --ramdisk out/ramdisk.bin   --dtb "$DTB_PATH" --base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000   --tags_offset 0x100 --dtb_offset 0x1f00000 --pagesize 4096   --os_version "$OS_VERSION" --os_patch_level "$OS_PATCH_LEVEL"   --cmdline "console=null" -o out/shim-boot.img
 ls -l out/Image out/shim-boot.img
