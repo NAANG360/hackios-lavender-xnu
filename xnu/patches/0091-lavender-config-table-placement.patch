@@ -5,6 +5,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
      "     'IOMatchCategory' = SweetBattery;"
      "   },"
  #endif
++/* Keep the Lavender personality inside the shared IOKit configuration string. */
 -    "   {"
 -    "     'IOClass'         = IOPanicPlatform;"
 -    "     'IOProviderClass' = IOPlatformExpertDevice;"
