@@ -14,7 +14,7 @@ new file mode 100644
 index 0000000..2222222
 --- /dev/null
 +++ b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,81 @@
 +/*
 + * Minimal device-tree platform expert for Redmi Note 7 (lavender).
 + * It publishes the real CPU and device nodes; hardware services are supplied
