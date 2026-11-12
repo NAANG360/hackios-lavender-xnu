@@ -37,6 +37,9 @@ TIMEBASE = 19200000
 FB, FB_SIZE = 0x9D400000, 0x23FF000
 FB_W, FB_H, FB_STRIDE = 1080, 2340, 1080 * 4
 
+# Live boot device: Qualcomm SDHCI v5 eMMC at c0c4000.sdhci.
+EMMC, EMMC_SIZE = 0x0C0C4000, 0x1000
+
 # Mainline sdm630.dtsi CPU map: two clusters, four Aff0 values each.
 # The boot CPU is represented by logical CPU 0 (MPIDR 0x100) in this ADT.
 CPU_MPIDRS = (0x100, 0x101, 0x102, 0x103, 0x000, 0x001, 0x002, 0x003)
@@ -150,6 +153,16 @@ def build(seed=None, product_tree=D22AP_ADT):
             ('canvas-width', u32(FB_W)),
             ('canvas-height', u32(FB_H)),
         ]),
+        node('emmc', [
+            ph(),
+            ('device_type', cstr('block')),
+            ('compatible', cstr('qcom,sdm630-sdhci') + cstr('qcom,sdhci-msm-v5')),
+            # arm-io is translated from SOC_BASE; this is the child-relative offset.
+            ('reg', u64(EMMC - SOC_BASE, EMMC_SIZE)),
+            ('reg-names', cstr('hc_mem')),
+            ('bus-width', u32(8)),
+            ('non-removable', b''),
+        ]),
     ])
 
     fbcon = node('lavender-fbcon', [
@@ -207,6 +220,10 @@ def check(blob):
     fb_reg = struct.unpack('<2Q', next(v for n, _, v in fb.props if n == 'reg'))
     assert fb_reg == (FB, FB_SIZE)
     assert FB + FB_SIZE <= 0xA0000000
+    emmc = next(c for c in arm_io.children if c.name == 'emmc')
+    emmc_reg = struct.unpack('<2Q', next(v for n, _, v in emmc.props if n == 'reg'))
+    assert emmc_reg == (EMMC - SOC_BASE, EMMC_SIZE)
+    assert b'qcom,sdhci-msm-v5' in next(v for n, _, v in emmc.props if n == 'compatible')
     return base, size, regs, fb_reg
 
 
