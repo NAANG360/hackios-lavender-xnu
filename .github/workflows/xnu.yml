@@ -44,7 +44,7 @@ jobs:
     # This image supplies Xcode 16.0; its iig ABI differs from Xcode 15, so this
     # first pass intentionally captures the resulting XNU 8796 compatibility diagnostics.
     runs-on: macos-15-intel
-    timeout-minutes: 120
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
