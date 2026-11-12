@@ -1065,3 +1065,55 @@ The root `README.md` on `main` points readers to both `AGENTS.md` and `PROJECT_H
   `86684dc1c03488080ee8d4077bf472b3e4ba3eb2`.
 
 These are documentation-only commits. They do not contain an XNU source fix and do not change the failed kernel-build status. Keep the working branch and default branch histories distinct; this synchronization did not merge the Lavender source branch into main.
+
+
+---
+
+## 18. Canonical handoff verification and source snapshot — 2026-11-12 22:09 IST
+
+This update was made after the user explicitly requested that all project knowledge be consolidated into one Markdown file that a new chat/agent can discover without relying on the prior conversation.
+
+### One canonical file — no competing summaries
+
+- **Canonical path:** repository root, PROJECT_HANDOFF.md.
+- **Working branch:** ci/lavender-machine-profile.
+- The working-branch copy fetched immediately before this update was 911 lines / 67,911 characters (before this appended section), blob SHA a14517c0bed5003b5d8f0c7459ad197ea2114641.
+- The default-branch copy was older: 832 lines, blob SHA acbfccf85319ac8f833184d818e628c42250d3bf.
+- The default-branch README points to both AGENTS.md and PROJECT_HANDOFF.md. The working-branch README points directly to PROJECT_HANDOFF.md. AGENTS.md exists on both branches and explicitly instructs agents to read this handoff first.
+- The working-branch AGENTS.md states that the SWEET-derived README/NOTES must not be treated as Lavender hardware facts, requires current branch/run inspection at session start, prohibits unsupported build/boot claims, and requires this handoff to be updated after meaningful milestones.
+- This update synchronizes the newer working-branch handoff content to main as well, so a session that opens the repository's default branch does not begin from the older 832-line copy. Keep both copies identical until the project deliberately changes its default-branch strategy.
+- Do not create another "master summary", "context", or "handoff" Markdown file. Update this one.
+
+### Exact source-file snapshot fetched from the working branch
+
+The following are Git blob SHAs returned by GitHub when the files were fetched during this session. They identify file contents, not commit SHAs:
+
+| File | Blob SHA |
+|---|---|
+| .github/workflows/xnu.yml | 8bf0c956cfc61d904fd2a7e400c40a0dd34197c9 |
+| tools/validate-lavender-profile.sh | 785439a44ddffd23c6e93be6d4e8e40cf2478698 |
+| xnu/patches/0082-lavender-machine-profile.patch | 5e9c62a589da6ed06f9a9e158eaa8317afe6cb0e |
+| xnu/patches/0083-lavender-cache-config.patch | ac2d2e0a799276439fb5e24b68102e0b16b33849 |
+| xnu/patches/0085-lavender-gic-register-definitions.patch | 203873e015c1d133369d25c702fe5514c4e666e4 |
+| xnu/patches/0087-lavender-linker-and-platform-expert.patch | 12643c858539069eaad4dc1a65efb1242f643634 |
+| xnu/patches/0088-lavender-config-groups.patch | 8157db427bff9e698de3a837c1e4f6f7907ca5a1 |
+| xnu/patches/0089-lavender-exclude-sweet-sampler.patch | 155aec566d2e65a1619d1a65a1d4af426694c71b |
+| xnu/patches/0090-lavender-no-apple-monitor.patch | c5ffdb9cd32de30c55a31f1772eb240c6e1ef267 |
+
+Before editing any of these, fetch the latest file and blob SHA again. The table is a snapshot, not a license to overwrite later changes.
+
+### Confirmed references and their boundaries
+
+The reference identities were rechecked through GitHub during this session:
+
+- HakiOS / older HackIOS name: https://github.com/oosexgang/hakios-xnu-kernel. Its README describes XNU 8796.121.2 on Android phones, a separate loader, device-specific drivers/configuration, and RAM-resident boot that returns to Android after reboot. The README's documented primary phone is POCO X5 Pro / redwood / Snapdragon 778G-class hardware, not SDM660. Use its architecture and porting methodology, not its hardware constants.
+- IOS-Sweet: https://github.com/dipa-studio/ios-sweet. Its README describes Redmi Note 10 Pro / sweet / SM7150 / Snapdragon 732G and an iOS 16.7.16 userspace reaching SpringBoard. Use its XNU 8796, shim, IOKit, diagnostics, and staged bring-up lessons; never assume its UFS, Goodix, CPU, panel, memory, or PMIC details match Lavender.
+- Lavender public device sources and Qualcomm SDM660 product documentation are listed in Section 7. Prefer the exact Lavender device tree and matching kernel source over generic SoC marketing pages or the qcom,sdm660-mtp compatible alone.
+
+### What has and has not changed
+
+- This update consolidates and synchronizes documentation only.
+- It does **not** fix the KernelConfigTables.cpp:93:5 compiler error.
+- It does **not** make the failed 178 KB xnu-kernel artifact usable; that artifact contains no kernel image.
+- It does **not** produce a verified ARM64 Mach-O kernel, dispatch a new build, or boot the physical phone.
+- The immediate engineering blocker and next actions remain those in Sections 5, 13, 15, and 17. A new session should continue from the artifact/patch-0087 investigation rather than repeat the hardware audit or restart the project.
