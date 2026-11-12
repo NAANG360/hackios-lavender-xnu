@@ -2,7 +2,7 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-12 22:10 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-12 22:12 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
 > Active known branch: `ci/lavender-machine-profile`  
 > Latest verified CI head in the recorded run: `1842f223f3e3926710b9f53c86b586dfd9b62a99`
@@ -1040,3 +1040,28 @@ A new session should execute this sequence rather than restarting the conversati
 - Reconfirmed the 0087 table insertion and the GIC/config patch contents.
 - Consolidated the direct compiler failure, patch-drift warnings and false-positive kernel artifact into this handoff.
 - **No source fix, successful build, kernel artifact, or physical boot was produced by this documentation update.** The next session must continue with the source-level fix and build, not mistake this handoff commit for engineering completion.
+
+
+---
+
+## 19. Canonical handoff synchronization — 2026-11-12 22:12 IST
+
+### Repository entry points
+
+The repository now has two intentionally complementary entry points:
+
+1. `AGENTS.md` — short operational instructions for coding agents. It says to read this handoff first, inspect current branch/CI state, use HakiOS + IOS-Sweet + public Lavender/SDM660 references, avoid cross-device hardware assumptions, preserve the Android recovery path, and update this file after meaningful work.
+2. `PROJECT_HANDOFF.md` — the detailed project memory: mission, hardware audit, user constraints, branch history, patch series, CI failures, artifact truth, references, and continuation steps.
+
+The root `README.md` on `main` points readers to both `AGENTS.md` and `PROJECT_HANDOFF.md`. The README on the working branch also points to the handoff. A new session should open the repository and read `AGENTS.md` followed by this complete file before acting.
+
+### Verified documentation commits
+
+- Working branch `ci/lavender-machine-profile`: `68859476d83718c689b752b0aac4d709cd795747`
+  - Message: `docs: consolidate Lavender XNU project handoff and latest CI evidence`
+- Default branch `main`: `6f3cf9eab8ccb6cb7b74553cdf33840743442fad`
+  - Message: `docs: sync canonical Lavender XNU handoff to main`
+- After synchronization, the fetched `PROJECT_HANDOFF.md` blob SHA is identical on both branches:
+  `86684dc1c03488080ee8d4077bf472b3e4ba3eb2`.
+
+These are documentation-only commits. They do not contain an XNU source fix and do not change the failed kernel-build status. Keep the working branch and default branch histories distinct; this synchronization did not merge the Lavender source branch into main.
