@@ -1,0 +1,14 @@
+diff --git a/bsd/dev/sweet_sample.c b/bsd/dev/sweet_sample.c
+--- a/bsd/dev/sweet_sample.c
++++ b/bsd/dev/sweet_sample.c
+@@ -1,3 +1,4 @@
++#if defined(ARM64_BOARD_CONFIG_SWEET)
+ /*
+  * SWEET process sampler: where is a daemon stuck?
+  *
+@@ -86,3 +87,5 @@
+ 		thread_deallocate(thread);
+ 	}
+ }
++
++#endif /* ARM64_BOARD_CONFIG_SWEET */
