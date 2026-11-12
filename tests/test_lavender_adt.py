@@ -42,10 +42,21 @@ def run():
     assert len(cpu.children) == 8
     ids = [struct.unpack("<I", props(n)["reg"])[0] for n in cpu.children]
     assert len(set(ids)) == 8
-    assert set(ids) == set(mod.CPU_MPIDRS)
+    assert tuple(ids) == mod.CPU_MPIDRS
+    assert ids[0] == 0x000  # actual Build 4 FDT's cpu@0 is Linux cpu0
     assert b"qcom,sdm660" in props(parsed)["compatible"]
     assert b"xiaomi,lavender" in props(parsed)["compatible"]
-    print("PASS: Lavender ADT memory, panic log, framebuffer, CPU and identity checks")
+    arm_io = child(parsed, "arm-io")
+    i2c = child(arm_io, "i2c0")
+    touch = child(i2c, "novatek-touchscreen")
+    tp = props(touch)
+    assert struct.unpack("<I", tp["reg"])[0] == 0x62
+    assert struct.unpack("<I", tp["lavender,irq-gpio-number"])[0] == 67
+    assert struct.unpack("<I", tp["lavender,reset-gpio-number"])[0] == 66
+    emmc = props(child(arm_io, "emmc"))
+    assert len(emmc["reg"]) == 48  # three 64-bit address/size windows
+    assert b"qcom,sdhci-msm-cqe" in emmc["compatible"]
+    print("PASS: Lavender ADT memory, framebuffer, CPU order, eMMC and NVT touch checks")
 
 if __name__ == "__main__":
     run()
