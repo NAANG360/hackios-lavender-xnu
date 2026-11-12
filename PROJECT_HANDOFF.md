@@ -2,7 +2,7 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-12 22:16 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-12 22:18 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
 > Active engineering branch: `ci/lavender-machine-profile` (last recorded inspected tip `d595ae32a3013ae003b2d5ff5fafd83edabea7cd`; re-resolve live HEAD before source writes)  
 > Latest verified failed CI head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`  
@@ -1614,3 +1614,71 @@ Engineering interpretation:
 7. Record the exact source commit, workflow run/job, logs, artifact ID, SHA-256 and verification. Only then move to a reversible RAM-only boot experiment on the actual Lavender device.
 
 The user's explicit project requirement remains: keep iterating toward a working XNU kernel for the physical SDM660 Lavender target, using HakiOS/hackIOS, IOS-Sweet and public Lavender/SDM660 documentation as complementary references. Do not substitute an emulator result or a generic ARM64 build for that deliverable.
+
+
+---
+
+## 17. Session update — 2026-11-12 22:18 IST
+
+### Canonical handoff location confirmed
+
+The requested single Markdown handoff already exists at the repository root as `PROJECT_HANDOFF.md`. It is the canonical project record, not a second competing summary. Its discoverability is wired into:
+- the repository-root `README.md`, which directs readers to `AGENTS.md` and `PROJECT_HANDOFF.md`;
+- `AGENTS.md`, which explicitly instructs every new agent/session to read this handoff first;
+- the working branch README, which also points to this file.
+
+At this inspection, the root `PROJECT_HANDOFF.md` blob was the same on `main` and `ci/lavender-machine-profile` (blob SHA before this update: `c4485905a4e5153161ced35db1aaac4c5fd9af7c`). This update is being synchronized to both branches so a new session starting from the default branch can discover the same current context.
+
+**Do not create another handoff file.** Continue to update this one canonical document after meaningful work.
+
+### User's explicit instruction reaffirmed
+
+The user has now explicitly requested that all accumulated project knowledge be consolidated into one Markdown file that a new chat/session can discover and continue from. They also reiterated that the engineering reference set must include:
+1. hackIOS / HakiOS;
+2. IOS-Sweet;
+3. public Lavender / SDM660 documentation and kernel sources.
+
+The reference roles and transfer boundaries are recorded in Sections 7 and 12. In short: HakiOS supplies modern XNU-on-Android port architecture and boot/loader methodology; IOS-Sweet supplies XNU 8796 / iOS 16-era implementation and staged bring-up lessons; Lavender/SDM660 sources supply the actual target hardware facts. Never copy another device's hardware constants into Lavender without device-specific evidence.
+
+The user expects actual repository work, builds, and evidence—not another promise or generic plan. When tools permit, perform the next concrete action, preserve the result in Git, and update this handoff. If a connector/build operation fails, record the exact limitation rather than implying work happened.
+
+### Latest workflow observation
+
+A newer Lavender workflow run was already present:
+- Run: `43259106099` (run #84)
+- Recorded run head from the previous repository inspection: `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`
+- Job observed in GitHub Actions: `131325274032`, job name `build`
+- State at the time checked: **queued** (not yet completed; no result or new compiler diagnostics available in this observation).
+
+Re-check this run before acting. Do not infer success or failure from a queued job. If it has completed, fetch its exact logs and artifacts; if it is still queued/running, wait/check later rather than dispatching redundant identical work. The workflow's run-specific concurrency group is designed not to cancel concurrent builds.
+
+### Re-confirmed previous fatal build evidence
+
+The previous failed run `43198618602`, job `131115903232`, was fetched again. Its fatal compiler output is:
+
+```
+:93:5: error: expected unqualified-id
+   93 |     "   {"
+      |     ^
+1 error generated.
+make[7]: *** [KernelConfigTables.cpo] Error 1
+```
+
+The build was compiling `iokit/KernelConfigTables.cpp`. The diagnostic still correlates with the conditional Lavender IOKit personality block introduced by `xnu/patches/0087-lavender-linker-and-platform-expert.patch`. The root cause has not been proven; the next engineer must inspect the exact post-patch/generated source and its generation mechanism before changing it.
+
+The same log contains extensive macro-expansion notes through `kalloc.h`, `atomic_private.h`, and `atomic_private_impl.h`; these are not to be promoted to independent fatal blockers without a primary compiler `error:` diagnostic. Patch skips and the missing Xcode private platform-header copy remain separate hygiene/packaging issues as detailed above.
+
+The failed run's 178,298-byte `xnu-kernel` artifact still contained no `kernel.*` file; it was KDK metadata only. The 22,350,351-byte `xnu-buildtree` artifact is the useful diagnostic bundle. Neither artifact proves a bootable or compiled Lavender kernel.
+
+### Exact next-session instruction
+
+Start by:
+1. reading this file and `AGENTS.md`;
+2. checking current HEAD for `ci/lavender-machine-profile` and the latest state of run `43259106099`;
+3. comparing the candidate fix branches listed in Section 13 before choosing a branch;
+4. inspecting the post-patch/generated `KernelConfigTables.cpp` around the failing line and fixing the source-of-truth mechanism;
+5. making a small, reviewable commit and running the Lavender workflow;
+6. hard-failing the kernel artifact job if the expected ARM64 Mach-O kernel is absent;
+7. verifying the actual kernel artifact before reporting success.
+
+**Truthful state remains:** no verified Lavender XNU Mach-O kernel and no physical-device XNU boot have been demonstrated in the evidence recorded here. Do not claim otherwise.
