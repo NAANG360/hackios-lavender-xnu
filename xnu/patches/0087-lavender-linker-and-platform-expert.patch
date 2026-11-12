@@ -107,14 +107,16 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 index e58bad1..4444444 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -86,3 +86,11 @@
+@@ -35,6 +35,14 @@
+ const char * gIOKernelConfigTables =
+     "("
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +    "   {"
 +    "     'IOClass'         = LavenderPlatformExpert;"
 +    "     'IOProviderClass' = IOPlatformExpertDevice;"
 +    "     'IONameMatch'     = 'xiaomi,lavender';"
 +    "     'IOProbeScore'    = 10000:32;"
-+    "   },"
++    "   }"
 +#endif
      "   {"
      "     'IOClass'         = IOPanicPlatform;"
