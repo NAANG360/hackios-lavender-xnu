@@ -1449,3 +1449,40 @@ This is a factual delta after the previous consolidation. Keep this canonical fi
 The user explicitly asked for all project knowledge to be consolidated into one Markdown file that a new chat session can discover and continue from. The intended canonical file is this repository-root `PROJECT_HANDOFF.md`, not a separate generated attachment. The user also reiterated that HakiOS/hackIOS, IOS-Sweet and public Lavender/SDM660 documentation must be used as references, with hardware-specific facts transferred only when verified for Lavender.
 
 This update synchronizes the top-level timestamp and records the newly observed patch 0091 / queued run #84 state on both branches. It is a documentation update only: **it does not fix XNU, complete run #84, produce a verified kernel, or boot the phone.**
+
+
+---
+
+## 22. Canonical project memory — revalidated 2026-11-12 22:15 IST
+
+### One-file rule and fresh-session discovery
+
+This repository-root `PROJECT_HANDOFF.md` is the one canonical memory for the entire Lavender XNU port. It intentionally consolidates the project's goal, device constraints, uploaded hardware-audit findings, source/reference map, XNU patch design, build workflow, exact CI failures, artifacts, boot strategy, user requirements, and the next-session checklist.
+
+A new session must start here:
+
+1. Open https://github.com/NAANG360/hackios-lavender-xnu
+2. Read `AGENTS.md`.
+3. Read this entire `PROJECT_HANDOFF.md`.
+4. Inspect the live tip of `ci/lavender-machine-profile`, all relevant `fix/*` candidates, and the newest GitHub Actions run before changing source.
+5. Continue the next action in the latest dated section; do not restart the audit or assume a queued run passed.
+
+The root `README.md` links to this file. Both branches' `AGENTS.md` instructs agents to read it first. Do not create another competing `HANDOFF.md`, `CONTEXT.md`, or project-summary file. Keep this file updated after each meaningful source edit, CI attempt, artifact inspection, or device test.
+
+### Evidence and status reaffirmed in this session
+
+- Re-read the two uploaded Lavender audits. Keep the raw dumps out of Git; use the sanitized hardware facts already captured in Section 3 and the dated addenda.
+- Re-fetched the source workflow, Lavender profile validator, machine/config/platform-expert patches, failed workflow job log, job artifacts, README and agent instructions.
+- The confirmed failed baseline remains run `43198618602`, job `131115903232`, source head `1842f223f3e3926710b9f53c86b586dfd9b62a99`. Its direct fatal diagnostic is `KernelConfigTables.cpp:93:5: error: expected unqualified-id` at the injected `"   {"` string literal.
+- The failed run's `xnu-kernel` artifact `13935079884` is not a kernel: the workflow output contained KDK metadata only and no `kernel.*` image. The `xnu-buildtree` artifact `13936585997` is the useful diagnostic artifact if still retained.
+- The newer run `43259106099` (#84), job `131325274032`, and patch `0091-lavender-config-table-placement.patch` are documented in Section 21. Its queued state at the last inspection was not a success result; re-poll it before deciding the next fix.
+- The current user instruction is to keep iterating toward a real, statically verified ARM64 XNU kernel for SDM660 Lavender and to use HakiOS/HackIOS, IOS-Sweet, and public Lavender/SDM660 documentation. The project remains a real-device target; emulator results are not acceptance evidence.
+- No new source fix, successful kernel build, ARM64 Mach-O verification, or physical-device boot was performed by this documentation consolidation.
+
+### Important continuity guardrails
+
+- Treat every branch SHA, queued run, artifact ID and build result as a timestamped snapshot. Refresh before acting.
+- Distinguish observed facts, source-backed facts, hypotheses, and unverified assumptions.
+- Never copy SWEET/SM7150 hardware constants into Lavender. Transfer build/boot methods, not another phone's MMIO, IRQ, memory, timer, storage, panel, touch or regulator details.
+- A build artifact is not a kernel until its contents are inspected and a real ARM64 Mach-O image is verified.
+- Preserve Android/recovery. The first hardware experiment is reversible and RAM-only; do not flash, erase or repartition boot-critical storage without explicit approval.
