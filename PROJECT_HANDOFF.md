@@ -2,7 +2,7 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-12 22:14 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-12 22:15 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
 > Active known branch: `ci/lavender-machine-profile` (inspected tip `d595ae32a3013ae003b2d5ff5fafd83edabea7cd`)  
 > Latest verified failed CI head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`  
@@ -1365,3 +1365,41 @@ The canonical references and their intended use are in Section 7:
 - Re-read the working-branch workflow, Lavender validator, current machine-profile/config/GIC/platform-expert patches, branch inventory and failed job log.
 - Reconfirmed the fatal table compile error and that the purported kernel artifact contains no kernel.
 - This is a documentation/handoff update only. **No source fix, new successful build, verified kernel, or physical-device boot was produced in this session.**
+
+
+---
+
+## 17. Latest user instruction and session snapshot — 2026-11-12 22:15 IST
+
+### User's explicit continuation requirement
+
+The user has explicitly instructed the engineering agent to keep iterating until a working XNU kernel for the SDM660 target is obtained, and to use **hackIOS/HakiOS, IOS-Sweet, and public Lavender/SDM660 documentation** as the reference set. This is an engineering objective, not permission to claim that an unattended process can run forever.
+
+Operational interpretation:
+- Continue with durable diagnose → source-level fix → targeted validation → full CI build → artifact inspection cycles.
+- A CI run is bounded by the workflow's `timeout-minutes: 120`; it cannot be made literally infinite. The workflow's run-specific concurrency key and `cancel-in-progress: false` prevent a later run from cancelling an earlier one, but they do not remove the per-job timeout.
+- Do not repeatedly rerun unchanged code. Each new run should test a specific source-backed hypothesis or a committed fix.
+- If a session ends, leave the repository, CI logs/artifacts, and this file in a state that another session can resume without asking the user to repeat known facts.
+- The user's requested end state remains a real, statically verified ARM64 XNU kernel for Lavender/SDM660. Do not substitute a generic arm64 kernel, emulator result, profile preflight, or artifact directory.
+
+### Latest run observed during this session
+
+- Workflow run: `43259106099` (run #84 per repository handoff metadata).
+- Job ID: `131325274032`.
+- At the time of this inspection, the job status returned by GitHub was **queued**, with no conclusion and no job steps/logs yet.
+- The handoff metadata associates this queued attempt with commit `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`. Treat that as the queued run's source commit, not proof of the current branch HEAD.
+- No artifacts were listed for this queued run at inspection time.
+- The last fully inspected failed run remains `43198618602`, job `131115903232`, source commit `1842f223f3e3926710b9f53c86b586dfd9b62a99`, with the confirmed `KernelConfigTables.cpp:93:5 expected unqualified-id` compile failure and no kernel output.
+- Re-check run #84's status, job logs, and artifacts before relying on this snapshot. If it fails, capture its *new* first fatal diagnostic; if it succeeds, verify the artifact itself before calling it a kernel.
+
+### Additional public Lavender source discovered
+
+- [SDM660-Project/device_xiaomi_lavender](https://github.com/SDM660-Project/device_xiaomi_lavender) is another public Lavender device-tree source describing a 4.19-kernel device configuration. Its repository metadata identifies Lavender, SDM660 / Snapdragon 660, Adreno 512, 3/4/6 GB LPDDR4X variants, eMMC 5.1 and 2340×1080 display.
+- Use this as an additional device-tree cross-reference, alongside OrangeFox's Lavender tree and the 4.19 kernel source already listed above. It is not proof that its DT files exactly match the user's current Android 15 / 4.19.325 runtime tree. Record the exact branch/commit and compare against the uploaded live audit before importing hardware facts.
+- Qualcomm's [SDM660 product specification](https://www.qualcomm.com/processors/application-processors/products/sdm660) describes Kryo 260, two clusters, Adreno 512, LPDDR4/4x, and platform-level support for both eMMC 5.1 and UFS 2.1. That is SoC capability information only. The user's audit specifically reports the Lavender boot storage controller as `c0c4000.sdhci`; do not infer that this phone uses UFS.
+
+### Current honest status
+
+- No successful Lavender XNU kernel has been produced or verified in the evidence inspected here.
+- The root-level handoff and agent discovery instructions already exist on both `main` and the Lavender working branch. Keep this file as the single canonical project handoff; do not create a second similarly named status file.
+- This session's work is documentation consolidation and state capture. It is not a code fix, build success, Mach-O verification, or physical-device boot.
