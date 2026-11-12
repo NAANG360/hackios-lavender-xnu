@@ -488,3 +488,104 @@ At the start of each new session:
 - Failed build job: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43198618602/job/131115903232
 - Build-tree artifact: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43198618602/artifacts/13936585997
 - **Not-a-kernel** output artifact (diagnostic only): https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43198618602/artifacts/13935079884
+
+
+---
+
+## 12. Consolidated continuation notes — 2026-11-12 22:10 IST
+
+This section records the latest session's additional verified findings and clarifies the reference-source strategy. The sections above remain the primary engineering handoff.
+
+### User's project intent, in plain terms
+
+The user wants a real XNU kernel port for the physical Redmi Note 7 / Lavender (SDM660), with the kernel as the immediate deliverable. The broader project is an iOS/Darwin-on-Lavender experiment (the user has casually referred to it as LIOS / “Lucid iOS”). The current priority is **kernel compilation and static verification first**. Do not spend time on SpringBoard, polish, GPU, or a full iOS root filesystem until the kernel artifact exists and is verified.
+
+The user has explicitly asked that engineering use all three reference families:
+1. hackIOS / HakiOS;
+2. IOS-Sweet;
+3. public Lavender and SDM660 device/kernel documentation.
+
+Treat these as complementary evidence sources, not as interchangeable hardware targets.
+
+### Reference-source findings and transfer boundaries
+
+**HakiOS / hackIOS**
+- Repository: https://github.com/oosexgang/hakios-xnu-kernel
+- Porting guide: https://github.com/oosexgang/hakios-xnu-kernel/blob/main/docs/porting/index.md
+- The porting guide's useful method is to start with the phone's own FDT/device tree and firmware, establish a bootable ARM64/Qualcomm boot chain, then add device services/drivers one at a time.
+- Its documented Qualcomm device examples are not SDM660 Lavender. Use its architecture, loader, boot-from-RAM, device-description and staged-porting methods. Do not import device-specific MMIO addresses, PSCI details, IRQs, panel data or driver assumptions without Lavender evidence.
+
+**IOS-Sweet**
+- Repository: https://github.com/dipa-studio/ios-sweet
+- It is a separate Redmi Note 10 Pro port (sweet, SM7150 / Snapdragon 732G), using XNU 8796 / iOS 16-era components.
+- Its public README documents a shim → XNU → storage/root → Darwin userspace chain, and its NOTES record concrete lessons about GICv3, timers, PSCI, MMU, framebuffer diagnostics, generated Apple Device Tree, touch and software rendering.
+- Its engineering notes are valuable for XNU-specific mechanics and failure analysis. The Sweet hardware constants are **not** Lavender constants. In particular, do not copy Sweet's Kryo 470 / A55-A76 CPU map, UFS assumptions, RAM layout, timer/IRQ assignments, touch controller, panel, regulators or MMIO addresses.
+- The Lavender branch's root README and NOTES are inherited Sweet documentation. They are useful reference material only; they are not a record that Sweet code or drivers have been ported successfully to Lavender. This file is the canonical Lavender status.
+
+**Public Lavender / SDM660 material**
+- Xiaomi SDM660 common platform tree: https://github.com/xiaomi-sdm660/android_device_xiaomi_sdm660-common
+- Xiaomi Lavender device tree: https://github.com/xiaomi-sdm660/android_device_xiaomi_lavender
+- Alternative Lavender device tree: https://github.com/ParsimoniousLavender/device_xiaomi_lavender
+- Alternative SDM660 common tree: https://github.com/ParsimoniousLavender/device_xiaomi_sdm660-common
+- Public SDM660 device/kernel source index: https://github.com/Device-Tree-for-Redmi-Note-7-lavender
+- Xiaomi open-source kernel collection (contains lavender-p-oss and lavender-q-oss source releases): https://github.com/MiCode/Xiaomi_Kernel_OpenSource
+- Qualcomm's SDM660 specification: https://www.qualcomm.com/processors/application-processors/products/sdm660
+- OrangeFox Lavender device tree and its cited 4.19 kernel source: https://gitlab.com/OrangeFox/device/lavender and https://github.com/pix106/android_kernel_xiaomi_southwest-4.19/tree/main-dynamic
+- These sources describe different kernel generations (4.4, 4.19, Android P/Q and newer downstream forks). Record the exact branch/commit and firmware generation for every fact imported. The currently running Android 15 kernel in the audit is 4.19.325-NYXION-SUSFS; that does not make an old Android P/Q DTS or vendor tree identical to the current device's live FDT.
+
+### Additional device-audit details worth retaining
+
+From the 2026-11-12 uploaded audit files:
+- The final sanitized kernel command line identifies the Tianma panel as qcom,mdss_dsi_nt36672a_tianma_fhdplus_video.
+- Touch input is exposed as NVTCapacitiveTouchScreen; the audit reports 10 multitouch slots, X 0–1079, Y 0–2339 and pressure 0–1000.
+- The live device tree identifies the model as Qualcomm SDM 660 PM660 + PM660L MTP F7A overlay and compatibles qcom,sdm660-mtp, qcom,sdm660, qcom,mtp.
+- The boot controller is c0c4000.sdhci; do not infer a UFS storage controller from Snapdragon family-level capabilities.
+- Linux exposes 8 logical CPUs / two clusters, GICv3-related interrupts, KGSL/Adreno, MDSS, SMMU and Qualcomm peripheral interrupts. The audit is Linux runtime evidence; it is not proof that XNU has drivers for any of them.
+- Raw audit files remain conversation attachments. Do not commit them; they contain device-specific runtime and identifier material. Keep only sanitized technical facts in Git.
+
+### Latest CI run — exact verified state
+
+Run: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43198618602  
+Job: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43198618602/job/131115903232  
+Branch: ci/lavender-machine-profile  
+Run head: 1842f223f3e3926710b9f53c86b586dfd9b62a99  
+Workflow file blob at inspection: 8bf0c956cfc61d904fd2a7e400c40a0dd34197c9  
+Result: **job conclusion = failure**.
+
+The job steps show:
+- checkout, Xcode selection, pinned build-tool fetch, profile validation and dependency install succeeded;
+- profile preflight succeeded;
+- the XNU 8796 build failed;
+- packaging and artifact upload steps ran because they use if: always().
+
+The workflow is configured for macos-15-intel, explicitly selects Xcode 16.0, fetches blacktop/darwin-xnu-build at 663906528d1cd5ea8fde7de6f16de73db9511549, and defaults to DEVELOPMENT / ARM64 / LAVENDER. keep_going defaults to true (make -k) so the build can surface more than one independent compile failure. Its concurrency group includes the run ID and cancel-in-progress: false, so a later run should not cancel an earlier run merely because it targets the same ref.
+
+Confirmed fatal diagnostic:
+```
+:93:5: error: expected unqualified-id
+   93 |     "   {"
+      |     ^
+1 error generated.
+make[7]: *** [KernelConfigTables.cpo] Error 1
+```
+This is the first concrete blocker to fix. It is in the IOKit personality table compilation path and correlates with the Lavender personality injection in patch 0087-lavender-linker-and-platform-expert.patch. Inspect the exact post-patch/generated file and the XNU table-generation mechanism before changing it. Do not blindly remove the platform expert or replace it with a fake registration.
+
+Other observations in the same run:
+- the patch driver skipped iobuffermemd_monterey.patch and skywalk_sonoma.patch because hunks did not apply to this XNU source; TrustCache.patch was skipped because its files already existed. These are patch-series hygiene issues to review, but they are not the confirmed line-93 fatal error.
+- the Xcode SDK copy of Kernel.framework/.../PrivateHeaders/platform failed because the path was absent. This is a separate build-tree packaging issue.
+- the build exited with code 2.
+- xnu-buildtree artifact ID 13936585997, 22,350,351 bytes, SHA-256 dc33aa55cd59eca652b656f02e9b46dbf31a744daa86f39fab00e7521544ebcf.
+- xnu-kernel artifact ID 13935079884, 178,298 bytes, SHA-256 58f19909065d9711fe5d213406ab2779537b2cdb18baeb6d51cffd18901009b4. The workflow's out/ directory contained only kdk-libs/ inspection metadata; there was no kernel.* output, and shasum reported no matching kernel file. **This artifact is not a kernel.**
+- The workflow should be hardened so the kernel artifact step fails if the expected kernel file is missing or invalid. Do not let if: always() turn an empty output directory into a seemingly successful kernel artifact.
+
+### Concrete next actions for the next engineering session
+
+1. Re-read this file, inspect current branch HEAD and latest workflow run. The recorded head above is historical, not guaranteed to be today's branch tip.
+2. Download/read the xnu-buildtree artifact if still available and inspect the generated iokit/KernelConfigTables.cpp around line 93. Compare the upstream XNU 8796 source, post-patch source and any generator input.
+3. Fetch the current 0087 patch and identify exactly how the personality block enters KernelConfigTables.cpp. Correct the source-of-truth mechanism, not a generated build output.
+4. Re-run a focused syntax/compile check for the affected IOKit table before a full Actions build if the build environment permits.
+5. Review patch application skips and the Xcode 16 / XNU 8796 compatibility path, but keep the primary fatal error isolated.
+6. Run one full CI build after a real change. Keep the log and compare the first fatal diagnostic against this run.
+7. If compilation succeeds, require a real ARM64 Mach-O kernel, inspect file type/architecture/load commands/entry/symbols/relocations and unresolved dependencies, then record SHA-256.
+8. Only after static verification prepare a RAM-only boot test. Never flash boot/recovery/vbmeta or repartition as part of this kernel milestone.
+
