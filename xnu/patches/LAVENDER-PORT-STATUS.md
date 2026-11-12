@@ -16,9 +16,23 @@ This fork is a separate XNU 8796 build-workbench. The upstream port targets Redm
 - Live tree compatibles: `qcom,sdm660-mtp`, `qcom,sdm660`, `qcom,mtp`
 - Interrupt report identifies GICv3/MPM-GIC controllers; eight CPUs are exposed
 
+## Memory aperture decision
+
+XNU 8796's inspected `arm_vm_init()` consumes `boot_args.physBase` and `boot_args.memSize` as one contiguous physical aperture. Its physical-aperture setup then maps the remaining memory from `topOfKernelData` to the end of that aperture. It does not consume the four Linux RAM banks as a generic list.
+
+For a first safe bring-up, `tools/mkadt-lavender.py` therefore selects only the fourth contiguous RAM bank and excludes the first reserved carve-out:
+
+- Physical base: `0xa0400000`
+- Safe bank end: `0xea948000`
+- Total safe span: `0x4a548000`
+- Reserve 1 MiB for the panic log at `0xea848000-0xea948000`
+- XNU `dram-size`: `0x4a448000` (about 1.1575 GiB), ending at the panic-log reservation
+
+The other three RAM windows remain unadvertised to XNU. This deliberately sacrifices memory capacity to avoid the reserved holes and Android/firmware allocations in those banks. A multi-bank allocator patch can reclaim them later. The bootloader framebuffer is in the separate `0x95000000-0x9fffffff` window and is mapped separately from XNU-managed RAM.
+
 ## Public Lavender DT cross-check
 
-The mainline Linux device tree is a useful independent reference, but it is **not** a substitute for the live vendor tree:
+The mainline Linux device tree is a useful independent reference, but it is **not** a replacement for the live vendor tree:
 
 - `sdm660-xiaomi-lavender.dts` identifies Xiaomi Redmi Note 7 and declares a bootloader-provided simple framebuffer at physical `0x9d400000`, 1080 x 2340, 32-bit stride 4320, format `a8r8g8b8`. It reserves a 0x23ff000 framebuffer region. This is the preferred first display path: consume the bootloader framebuffer rather than bring up MDSS panel power immediately. Verify the actual base at boot before mapping it.
 - `sdm630.dtsi` (included by `sdm660.dtsi`) declares GICv3 GICD at `0x17a00000` (0x10000 bytes), GICR at `0x17b00000` (0x100000 bytes), redistributor stride 0x20000, and eight redistributor frames.
@@ -38,15 +52,17 @@ References:
 
 The Lavender-specific patch adds a distinct `LAVENDER` machine configuration, generic plain-arm64 code generation, an eight-CPU/two-cluster AMP profile, and GICv3 compile-time identification. The workflow defaults to `machine_config=LAVENDER` and runs a preflight guard against accidental SWEET driver reuse.
 
-**This is a compile-time profile scaffold, not a bootable Lavender kernel.** The 16 KiB XNU page-size setting is provisional for the iOS 16 userspace target and must be checked against `ID_AA64MMFR0_EL1` before any hardware boot attempt. No Lavender timer INTID/routing, GIC security-group setup, multi-bank allocator map, SDHCI, framebuffer driver, PMIC, NVT touch, or recovery-key driver is implemented by 0082.
+`tools/mkadt-lavender.py` is now a standalone ADT generator. Its `--check` mode validates the safe RAM aperture, all eight MPIDRs, the GIC register windows, and the framebuffer range. It deliberately emits no UFS/eMMC node. It warns and omits the iPhone10,3 `/product` node if the optional IPSW-derived `research/ipsw-x/d22ap.adt` file is absent.
+
+**The ADT and machine profile are not a bootable Lavender kernel yet.** The 16 KiB XNU page-size setting is provisional and must be checked against `ID_AA64MMFR0_EL1` before hardware boot. The shim still needs a Lavender platform profile and loader magic; XNU still needs Lavender platform expert, timer, framebuffer and CPU registration. No eMMC, NVT touch or recovery-key driver is implemented.
 
 ## Hard blockers before a Lavender boot candidate
 
 1. Verify 16 KiB translation granule support and implement Lavender MMU/page-table setup.
-2. Model non-contiguous DDR banks and Qualcomm reserved-memory carve-outs. XNU's boot_args memory contract must be reconciled with the four observed banks; do not invent a flat memory range.
-3. Implement the eMMC/SDHCI path at `c0c4000.sdhci`; do not reuse SWEET UFS.
-4. Reconcile the public GICD/GICR/PSCI reference with the exact live vendor DT, then implement timer PPI/IRQ routing, GIC security ownership, PSCI and exception setup.
-5. Reuse the bootloader simple framebuffer first if its physical address and format are confirmed; implement the Lavender MDSS/panel driver only if the handoff cannot be retained.
+2. Confirm the provisional GICD/GICR/PSCI references against the exact live vendor DT, then implement timer IRQ routing, GIC security ownership and exception setup.
+3. Port the fastboot shim to Lavender: GICR base, CPU MPIDR map, framebuffer aperture, no SWEET UFS probe, and a distinct payload signature.
+4. Implement a Lavender platform expert, boot CPU registration, framebuffer console and eventually an IOMobileFramebuffer provider.
+5. Implement eMMC/SDHCI at `c0c4000.sdhci`; do not reuse SWEET UFS.
 6. Implement/verify PMIC/volume-key input, NVT touch, clocks/resets and I2C/SPMI from the actual vendor source.
 7. Keep modem, ADSP/CDSP, secure/QSEE, WLAN and video firmware-dependent services explicitly unsupported until their interfaces are understood.
 
@@ -54,7 +70,7 @@ The Lavender-specific patch adds a distinct `LAVENDER` machine configuration, ge
 
 Requested behaviour: **Volume Up + Volume Down together should reboot to Recovery**, without relying on the broken Power button.
 
-Treat this as a dedicated recovery-path feature, not a normal XNU panic/restart. The key chord must be debounced and detected in a stage that can safely select the existing recovery image or set the platform's one-shot recovery boot request. Do not write misc/BCB or alter boot partitions until its exact bootloader-message format and a non-destructive recovery route are verified. This feature is not implemented by the reference build.
+Treat this as a dedicated recovery-path feature, not a normal XNU panic/restart. The key chord must be debounced and detected in a stage that can safely select the existing recovery image or set the platform's one-shot recovery boot request. Do not write misc/BCB or alter boot partitions until its exact bootloader-message format and a non-destructive recovery route are verified. This feature is not implemented.
 
 ## CI classification
 
