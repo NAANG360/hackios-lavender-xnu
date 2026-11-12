@@ -106,9 +106,7 @@ index 90cff06..3333333 100644
 diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -83,6 +83,14 @@
-     "     'IOMatchCategory' = SweetBattery;"
-     "   },"
+@@ -85,7 +85,15 @@
  #endif
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +    "   {"
@@ -121,3 +119,6 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
      "   {"
      "     'IOClass'         = IOPanicPlatform;"
      "     'IOProviderClass' = IOPlatformExpertDevice;"
+     "     'IOProbeScore'    = 0:32;"
+     "   }"
+     ")";
