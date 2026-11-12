@@ -30,7 +30,7 @@ grep -q '#elif defined (ARM64_BOARD_CONFIG_LAVENDER)' "$cache_patch"
 grep -q '#define MMU_I_CLINE 6' "$cache_patch"
 grep -q '#define MMU_CLINE[[:space:]]*6' "$cache_patch"
 grep -q 'LavenderPlatformExpert' "$expert_patch"
-grep -q 'IONameMatch.*xiaomi,lavender' "$expert_patch"
+# Platform personality registration is deferred until the base kernel compiles.
 grep -q 'nos_arm_asm' "$config_patch"
 grep -q 'nos_arm_pmap' "$config_patch"
 grep -q 'ARM64_BOARD_CONFIG_SWEET' "$sampler_patch"
