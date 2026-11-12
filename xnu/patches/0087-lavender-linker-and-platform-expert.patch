@@ -107,7 +107,7 @@ diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 index e58bad1..4444444 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -35,6 +35,14 @@
+@@ -35,5 +35,13 @@
  const char * gIOKernelConfigTables =
      "("
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
