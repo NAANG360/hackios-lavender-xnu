@@ -1,0 +1,29 @@
+diff --git a/iokit/Kernel/KernelConfigTables.cpp b/iokit/Kernel/KernelConfigTables.cpp
+--- a/iokit/Kernel/KernelConfigTables.cpp
++++ b/iokit/Kernel/KernelConfigTables.cpp
+@@ -82,18 +82,18 @@
+     "     'IOMatchCategory' = SweetBattery;"
+     "   },"
+ #endif
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++    "   {"
++    "     'IOClass'         = LavenderPlatformExpert;"
++    "     'IOProviderClass' = IOPlatformExpertDevice;"
++    "     'IONameMatch'     = 'xiaomi,lavender';"
++    "     'IOProbeScore'    = 10000:32;"
++    "   },"
++#endif
+     "   {"
+     "     'IOClass'         = IOPanicPlatform;"
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+     "     'IOProbeScore'    = 0:32;"
+     "   }"
+     ")";
+-#if defined(ARM64_BOARD_CONFIG_LAVENDER)
+-    "   {"
+-    "     'IOClass'         = LavenderPlatformExpert;"
+-    "     'IOProviderClass' = IOPlatformExpertDevice;"
+-    "     'IONameMatch'     = 'xiaomi,lavender';"
+-    "     'IOProbeScore'    = 10000:32;"
+-    "   },"
+-#endif
