@@ -1,0 +1,16 @@
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -88,7 +88,6 @@
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+     "     'IOProbeScore'    = 0:32;"
+     "   }"
+-    ")";
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+     "   {"
+     "     'IOClass'         = LavenderPlatformExpert;"
+@@ -97,3 +96,4 @@
+     "     'IOProbeScore'    = 10000:32;"
+     "   },"
+ #endif
++    ")";
