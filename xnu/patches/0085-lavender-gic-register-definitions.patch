@@ -1,7 +1,7 @@
 diff --git a/pexpert/pexpert/arm64/LAVENDER.h b/pexpert/pexpert/arm64/LAVENDER.h
 --- a/pexpert/pexpert/arm64/LAVENDER.h
 +++ b/pexpert/pexpert/arm64/LAVENDER.h
-@@ -29,5 +29,25 @@
+@@ -29,6 +29,27 @@
  #define HAS_GIC_V3                1
  #define GIC_SPURIOUS_IRQ          1023
  #define GICR_PE_SIZE              0x20000
