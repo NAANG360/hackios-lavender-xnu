@@ -17,7 +17,7 @@ jobs:
       - name: Install AArch64 and Android image tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu cpio
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu cpio device-tree-compiler
 
       - name: Install AOSP mkbootimg with GKI support
         run: |
@@ -60,6 +60,13 @@ jobs:
           python3 tools/unpack_bootv2.py stock/boot.img stock/unpacked
           python3 tools/extract_appended_fdt.py stock/unpacked/kernel --index 0 --compatible qcom,sdm660 --model-contains 'SDM 660' --output stock/unpacked/dtb
           test -s stock/unpacked/dtb
+
+      - name: Inspect raw ARM architected timer interrupt specifiers
+        run: |
+          set -euo pipefail
+          dtc -I dtb -O dts stock/unpacked/dtb -o stock/unpacked/lavender.dts
+          grep -n -B 4 -A 12 'arm,armv8-timer' stock/unpacked/lavender.dts || true
+          grep -n -B 4 -A 12 'arch_timer' stock/unpacked/lavender.dts || true
           python3 - <<'PY'
           import os, re, sys
           text = open("stock/unpacked/header.txt", encoding="utf-8").read()
