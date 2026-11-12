@@ -19,6 +19,8 @@ on:
       keep_going:
         description: make -k (collect all compile errors in one run)
         default: "true"
+  pull_request:
+    branches: [main, ci/lavender-machine-profile]
   push:
     branches: [main, ci/lavender-machine-profile, fix/lavender-kernelconfig-table-placement]
     paths:
