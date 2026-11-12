@@ -133,14 +133,15 @@ jobs:
       - name: Build the Lavender XNU payload
         run: |
           set -euo pipefail
-          python3 tools/mkpayload.py out/kernel.development.lavender artifacts/lavender.adt artifacts/lavender-payload.bin \
+          file "$KERNEL_PATH"
+          python3 tools/mkpayload.py "$KERNEL_PATH" artifacts/lavender.adt artifacts/lavender-payload.bin \
             --machine LAVENDER \
             --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1'
 
       - name: Build non-flashing fastboot boot image
         env:
           TARGET: lavender
-          DTB_PATH: ../stock/unpacked/dtb
+          DTB_PATH: ${{ github.workspace }}/stock/unpacked/dtb
         run: |
           set -euo pipefail
           bash shim/build.sh "$GITHUB_WORKSPACE/artifacts/lavender-payload.bin"
