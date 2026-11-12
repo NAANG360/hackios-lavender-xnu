@@ -48,7 +48,7 @@ jobs:
           python3 tools/extract_appended_fdt.py stock/unpacked/kernel --index 0 --compatible qcom,sdm660 --model-contains 'SDM 660' --output stock/unpacked/dtb
           test -s stock/unpacked/dtb
           python3 - <<'PY' >> "$GITHUB_ENV"
-          import os, re
+          import os, re, sys
           text = open("stock/unpacked/header.txt", encoding="utf-8").read()
           match = re.search(r"os_version: 0x([0-9a-fA-F]+)", text)
           value = int(match.group(1), 16) if match else 0
@@ -65,7 +65,7 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
               env.write(f"OS_VERSION={os_version}\n")
               env.write(f"OS_PATCH_LEVEL={patch_level}\n")
-          print(f"Stock boot metadata: Android {os_version}, security patch {patch_level}")
+          print(f"Stock boot metadata: Android {os_version}, security patch {patch_level}", file=sys.stderr)
           PY
 
       - name: Build the Lavender pre-XNU diagnostic shim image
