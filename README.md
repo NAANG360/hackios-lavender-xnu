@@ -1,3 +1,5 @@
+> **Lavender port work:** start with the [master project handoff](PROJECT_HANDOFF.md). It records the Redmi Note 7 / SDM660 target, hardware audit findings, current branch and CI blocker, reference projects, and next engineering steps. The remainder of this README describes the original SWEET / Redmi Note 10 Pro reference project and is not the current Lavender status.
+
 # ios-sweet
 
 **Apple's iOS 16 running on a Redmi Note 10 Pro.**
