@@ -103,3 +103,20 @@ index 90cff06..3333333 100644
 @@ -22,0 +23,2 @@
 +# LAVENDER device-tree platform
 +iokit/Kernel/arm/LavenderPlatformExpert.cpp optional iokitcpp
+
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index e58bad1..4444444 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -35,3 +35,11 @@
+ const char * gIOKernelConfigTables =
+     "("
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++    "   {"
++    "     'IOClass'         = LavenderPlatformExpert;"
++    "     'IOProviderClass' = IOPlatformExpertDevice;"
++    "     'IONameMatch'     = 'xiaomi,lavender';"
++    "     'IOProbeScore'    = 10000:32;"
++    "   },"
++#endif
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
