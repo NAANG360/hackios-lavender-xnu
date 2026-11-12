@@ -39,7 +39,20 @@ jobs:
       - name: Install AArch64 and Android image tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mkbootimg
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Install AOSP mkbootimg with GKI support
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg "$RUNNER_TEMP/aosp-mkbootimg"
+          test -s "$RUNNER_TEMP/aosp-mkbootimg/mkbootimg.py"
+          cat > "$RUNNER_TEMP/mkbootimg" <<'EOF'
+          #!/usr/bin/env bash
+          exec python3 "$AOSP_MKBOOTIMG_DIR/mkbootimg.py" "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/mkbootimg"
+          echo "AOSP_MKBOOTIMG_DIR=$RUNNER_TEMP/aosp-mkbootimg" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
       - name: Download and verify published Lavender OTA
         env:
