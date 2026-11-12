@@ -110,7 +110,7 @@ static void delay_ms(unsigned ms)
 static void __attribute__((noreturn)) reset(unsigned after_s)
 {
 	con_skip();
-	con_str("RESET", after_s > 20 ? "in 40s" : "in 20s");
+	con_str("RESET", after_s > 20 ? "in 40s" : "soon");
 	delay_ms(after_s * 1000);
 #ifdef TARGET_LAVENDER
 	/* Use the PSCI conduit declared by the public SDM660 DT; do not poke
@@ -454,6 +454,10 @@ void shim_main(uint64_t dtb)
 
 	stage = "mmu enable";
 	int rc = mmu_enable(&mi);
+	if (rc == -2) {
+		con_str("MMU", "16K granule unsupported; rebooting");
+		reset(3);
+	}
 
 	stage = "fill on";
 	uint64_t fill_on = rc ? 0 : ticks_fill(RED);
