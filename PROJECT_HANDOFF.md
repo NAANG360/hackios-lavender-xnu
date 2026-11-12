@@ -1234,5 +1234,5 @@ Next session must:
 - Verified README and AGENTS discoverability on both branches.
 - Queried the newest ten Actions runs, inspected run #84's job and commit diff, and re-fetched its 0087 patch.
 - Rechecked the HakiOS, IOS-Sweet, Lavender and SDM660 public references listed above.
-- Updated this single canonical handoff on both branches.
+- Updated this single canonical handoff on both branches. Identical documentation commits: main `4422d6b9e0aee32c0571ff2c77ec2fa809de7e06`; ci/lavender-machine-profile `07cb2d9c83eed9c137969213df2cd8451ea38740`; resulting blob SHA `513ee08ea4a398598326c573d2140d7117e04e6f`.
 - **Did not** patch XNU source, dispatch a new workflow, cancel any queued run, produce a kernel, or boot the physical phone.
