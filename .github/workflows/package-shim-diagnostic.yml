@@ -63,8 +63,8 @@ jobs:
           else:
               os_version, patch_level = "15.0.0", "2025-03"
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-              env.write(f"OS_VERSION={os_version}\\n")
-              env.write(f"OS_PATCH_LEVEL={patch_level}\\n")
+              env.write(f"OS_VERSION={os_version}\n")
+              env.write(f"OS_PATCH_LEVEL={patch_level}\n")
           print(f"Stock boot metadata: Android {os_version}, security patch {patch_level}")
           PY
 
