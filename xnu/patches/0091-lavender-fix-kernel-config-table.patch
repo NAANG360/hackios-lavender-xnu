@@ -1,0 +1,23 @@
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -86,14 +86,15 @@
+     "   {"
+     "     'IOClass'         = IOPanicPlatform;"
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+     "     'IOProbeScore'    = 0:32;"
+-    "   }"
+-    ")";
+-#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++    "   },"
+     "   {"
+     "     'IOClass'         = LavenderPlatformExpert;"
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+     "     'IONameMatch'     = 'xiaomi,lavender';"
+     "     'IOProbeScore'    = 10000:32;"
+-    "   },"
++    "   }"
+ #endif
++    "   }"
++    ")";
