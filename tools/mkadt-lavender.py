@@ -153,15 +153,52 @@ def build(seed=None, product_tree=D22AP_ADT):
             ('canvas-width', u32(FB_W)),
             ('canvas-height', u32(FB_H)),
         ]),
+        node('tlmm', [
+            ph(),
+            ('device_type', cstr('gpio-controller')),
+            ('compatible', cstr('qcom,sdm660-pinctrl')),
+            ('reg', u64(TLMM - SOC_BASE, TLMM_SIZE)),
+        ]),
+        node('i2c0', [
+            ph(),
+            ('device_type', cstr('i2c-controller')),
+            ('compatible', cstr('qcom,i2c-msm-v2')),
+            ('reg', u64(I2C0 - SOC_BASE, I2C0_SIZE)),
+            ('reg-names', cstr('qup_phys_addr')),
+            ('interrupts', u32(*I2C0_IRQ_SPEC)),
+            ('interrupt-names', cstr('qup_irq')),
+            ('qcom,clk-freq-in', u32(I2C0_INPUT_HZ)),
+            ('qcom,clk-freq-out', u32(I2C0_OUTPUT_HZ)),
+            ('clock-names', cstr('iface_clk') + cstr('core_clk')),
+            ('status', cstr('ok')),
+        ], [
+            node('novatek-touchscreen', [
+                ph(),
+                ('device_type', cstr('touchscreen')),
+                ('compatible', cstr('novatek,NVT-ts')),
+                ('reg', u32(NVT_I2C_ADDRESS)),
+                ('interrupts', u32(NVT_IRQ_GPIO, 0x2008)),
+                ('lavender,gpio-controller-compatible', cstr('qcom,sdm660-pinctrl')),
+                ('lavender,irq-gpio-number', u32(NVT_IRQ_GPIO)),
+                ('lavender,irq-gpio-flags', u32(0x2001)),
+                ('lavender,reset-gpio-number', u32(NVT_RESET_GPIO)),
+                ('pinctrl-names', cstr('pmx_ts_active') + cstr('pmx_ts_suspend')),
+            ]),
+        ]),
         node('emmc', [
             ph(),
             ('device_type', cstr('block')),
-            ('compatible', cstr('qcom,sdm630-sdhci') + cstr('qcom,sdhci-msm-v5')),
-            # arm-io is translated from SOC_BASE; this is the child-relative offset.
-            ('reg', u64(EMMC - SOC_BASE, EMMC_SIZE)),
-            ('reg-names', cstr('hc_mem')),
+            ('compatible', cstr('qcom,sdhci-msm-v5') + cstr('qcom,sdhci-msm-cqe')),
+            # Three register windows from /soc/sdhci@c0c4000 in the real FDT.
+            ('reg', u64(*(v for base, size in EMMC_REGIONS
+                          for v in (base - SOC_BASE, size)))),
+            ('reg-names', cstr('hc_mem') + cstr('cqhci_mem') + cstr('cqhci_ice')),
+            ('interrupts', u32(*EMMC_IRQ_SPEC)),
+            ('interrupt-names', cstr('hc_irq') + cstr('pwr_irq')),
+            ('clock-names', cstr('iface_clk') + cstr('core_clk') + cstr('ice_core_clk')),
             ('bus-width', u32(8)),
             ('non-removable', b''),
+            ('status', cstr('ok')),
         ]),
     ])
 
@@ -221,9 +258,20 @@ def check(blob):
     assert fb_reg == (FB, FB_SIZE)
     assert FB + FB_SIZE <= 0xA0000000
     emmc = next(c for c in arm_io.children if c.name == 'emmc')
-    emmc_reg = struct.unpack('<2Q', next(v for n, _, v in emmc.props if n == 'reg'))
-    assert emmc_reg == (EMMC - SOC_BASE, EMMC_SIZE)
-    assert b'qcom,sdhci-msm-v5' in next(v for n, _, v in emmc.props if n == 'compatible')
+    emmc_reg = struct.unpack('<6Q', next(v for n, _, v in emmc.props if n == 'reg'))
+    expected_emmc = tuple(v for address, length in EMMC_REGIONS
+                          for v in (address - SOC_BASE, length))
+    assert emmc_reg == expected_emmc
+    emmc_compat = next(v for n, _, v in emmc.props if n == 'compatible')
+    assert b'qcom,sdhci-msm-v5' in emmc_compat and b'qcom,sdhci-msm-cqe' in emmc_compat
+    i2c = next(c for c in arm_io.children if c.name == 'i2c0')
+    i2c_reg = struct.unpack('<2Q', next(v for n, _, v in i2c.props if n == 'reg'))
+    assert i2c_reg == (I2C0 - SOC_BASE, I2C0_SIZE)
+    touch = next(c for c in i2c.children if c.name == 'novatek-touchscreen')
+    touch_props = {n: v for n, _, v in touch.props}
+    assert struct.unpack('<I', touch_props['reg'])[0] == NVT_I2C_ADDRESS
+    assert struct.unpack('<I', touch_props['lavender,irq-gpio-number'])[0] == NVT_IRQ_GPIO
+    assert struct.unpack('<I', touch_props['lavender,reset-gpio-number'])[0] == NVT_RESET_GPIO
     return base, size, regs, fb_reg
 
 
