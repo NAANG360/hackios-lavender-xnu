@@ -1,0 +1,91 @@
+name: Package Lavender pre-XNU shim diagnostic boot image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out Lavender shim
+        uses: actions/checkout@v4
+
+      - name: Install AArch64 and Android image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu mkbootimg cpio
+
+      - name: Download and verify published Lavender OTA
+        env:
+          OTA_URL: https://github.com/NAANG360/Lucid-OS/releases/download/lucid-android15-lavender-build-4/LucidOS-Android15-lavender-build-4-experimental.zip
+          OTA_SHA256: d2b81388a57c685b82e3cb8f29da475f540dfcb9f5114003846d9337533d3219
+        run: |
+          set -euo pipefail
+          mkdir -p stock artifacts
+          curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 "$OTA_URL" -o stock/lucid-build4.zip
+          echo "$OTA_SHA256  stock/lucid-build4.zip" | sha256sum -c -
+
+      - name: Extract the stock boot image and exact DTB
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import shutil, zipfile
+          from pathlib import Path, PurePosixPath
+          with zipfile.ZipFile("stock/lucid-build4.zip") as z:
+              candidates = [n for n in z.namelist() if PurePosixPath(n).name == "boot.img"]
+              if len(candidates) != 1:
+                  raise SystemExit(f"expected exactly one boot.img in OTA, found: {candidates}")
+              member = candidates[0]
+              z.extract(member, "stock/extracted")
+              shutil.copyfile(Path("stock/extracted") / member, "stock/boot.img")
+              print(f"Extracted {member}: {Path('stock/boot.img').stat().st_size} bytes")
+          PY
+          python3 tools/unpack_bootv2.py stock/boot.img stock/unpacked
+          test -s stock/unpacked/dtb
+
+      - name: Build the Lavender pre-XNU diagnostic shim image
+        env:
+          TARGET: lavender
+          DTB_PATH: stock/unpacked/dtb
+        run: |
+          set -euo pipefail
+          bash shim/build.sh
+          test -s shim/out/shim-boot.img
+
+      - name: Verify boot image and mark it diagnostic-only
+        run: |
+          set -euo pipefail
+          python3 tools/unpack_bootv2.py shim/out/shim-boot.img artifacts/verify
+          python3 - <<'PY'
+          from pathlib import Path
+          kernel = Path("artifacts/verify/kernel").read_bytes()
+          ramdisk = Path("artifacts/verify/ramdisk").read_bytes()
+          dtb = Path("artifacts/verify/dtb").read_bytes()
+          assert kernel[0x38:0x3c] == b"ARM\\x64", "shim is missing the ARM64 Image header"
+          assert ramdisk[:2] == b"\\x1f\\x8b", "diagnostic ramdisk is not gzip-compressed cpio"
+          assert len(dtb) > 0, "stock DTB is missing"
+          print(f"PASS: ARM64 shim={len(kernel)} bytes, diagnostic ramdisk={len(ramdisk)} bytes, DTB={len(dtb)} bytes")
+          PY
+          cp shim/out/shim-boot.img artifacts/lavender-shim-diagnostic-boot.img
+          sha256sum artifacts/lavender-shim-diagnostic-boot.img > artifacts/SHA256SUMS
+          {
+            echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
+            echo "Purpose: pre-XNU hardware diagnostics only; this image contains no XNU kernel"
+            echo "Boot mode: fastboot boot only; do not flash to a partition"
+            echo "Expected behavior: report CPU 16K granule support, then MMU/GIC/timer diagnostics and automatic reset"
+          } > artifacts/BUILD-MANIFEST.txt
+
+      - name: Upload Lavender shim diagnostic boot image
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavender-shim-diagnostic-boot
+          path: |
+            artifacts/lavender-shim-diagnostic-boot.img
+            artifacts/SHA256SUMS
+            artifacts/BUILD-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 14
