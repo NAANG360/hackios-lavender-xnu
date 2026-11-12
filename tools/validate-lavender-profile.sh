@@ -4,6 +4,7 @@ machine="${1:-LAVENDER}"
 patch="xnu/patches/0082-lavender-machine-profile.patch"
 cache_patch="xnu/patches/0083-lavender-cache-config.patch"
 expert_patch="xnu/patches/0087-lavender-linker-and-platform-expert.patch"
+config_table_fix="xnu/patches/0091-lavender-fix-config-table-placement.patch"
 if [[ "$machine" != "LAVENDER" ]]; then
   echo "Machine profile validation skipped for $machine"
   exit 0
@@ -11,6 +12,7 @@ fi
 test -s "$patch"
 test -s "$cache_patch"
 test -s "$expert_patch"
+test -s "$config_table_fix"
 grep -q 'SUPPORTED_ARM64_MACHINE_CONFIGS = .*LAVENDER' "$patch"
 grep -q 'MACHINE_FLAGS_ARM64_LAVENDER' "$patch"
 grep -q 'ARM64_BOARD_CONFIG_LAVENDER' "$patch"
