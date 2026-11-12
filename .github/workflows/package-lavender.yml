@@ -111,7 +111,7 @@ jobs:
           DTB_PATH: ../stock/unpacked/dtb
         run: |
           set -euo pipefail
-          bash shim/build.sh artifacts/lavender-payload.bin
+          bash shim/build.sh "$GITHUB_WORKSPACE/artifacts/lavender-payload.bin"
           test -s shim/out/shim-boot.img
 
       - name: Verify boot image structure and payload identity
