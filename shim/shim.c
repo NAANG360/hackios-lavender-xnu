@@ -486,9 +486,6 @@ void shim_main(uint64_t dtb)
 	con_hex2("PSCI", "ver=", smc(PSCI_VERSION, 0, 0, 0), "smccc=", smc(SMCCC_VERSION, 0, 0, 0));
 	con_skip();
 	test_gic();
-#ifdef TARGET_LAVENDER
-	test_smp();
-#endif
 
 	stage = "done";
 	reset(40);
