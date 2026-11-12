@@ -25,7 +25,8 @@ SAFE_RAM_END = 0xEA948000
 MEM_SIZE_TOTAL = SAFE_RAM_END - PHYS_BASE
 PANIC_LOG_SIZE = 0x100000
 
-# Public mainline SDM660/Lavender DT references; verify against live vendor DT.
+# Cross-checked against Lucid Build 4's embedded SDM660/Lavender FDT and
+# the supplied live hardware audit. Linux GIC SPI specifiers remain source data.
 SOC_BASE = 0x01000000
 GICD, GICD_SIZE = 0x17A00000, 0x10000
 GICR, GICR_SIZE = 0x17B00000, 0x100000
@@ -33,16 +34,24 @@ GICR_PE_SIZE = 0x20000
 VTIMER_INTID = 19  # live /proc/interrupts: mpm-gic 19 Level arch_timer
 TIMEBASE = 19200000
 
-# Public sdm660-xiaomi-lavender.dts simple-framebuffer handoff.
+# Bootloader framebuffer handoff confirmed in the embedded Lavender FDT.
 FB, FB_SIZE = 0x9D400000, 0x23FF000
 FB_W, FB_H, FB_STRIDE = 1080, 2340, 1080 * 4
 
-# Live boot device: Qualcomm SDHCI v5 eMMC at c0c4000.sdhci.
-EMMC, EMMC_SIZE = 0x0C0C4000, 0x1000
+# Actual SDM660 peripheral resources from the Build 4 boot image FDT.
+EMMC_REGIONS = ((0x0C0C4000, 0x1000), (0x0C0C5000, 0x1000),
+                (0x0C0C8000, 0x8000))
+EMMC_IRQ_SPEC = (0, 0x6E, 4, 0, 0x70, 4)
+I2C0, I2C0_SIZE = 0x0C175000, 0x600
+I2C0_IRQ_SPEC = (0, 0x5F, 4)
+I2C0_INPUT_HZ, I2C0_OUTPUT_HZ = 0x124F800, 0x61A80
+TLMM, TLMM_SIZE = 0x03000000, 0xC00000
+NVT_I2C_ADDRESS, NVT_IRQ_GPIO, NVT_RESET_GPIO = 0x62, 67, 66
 
-# Mainline sdm630.dtsi CPU map: two clusters, four Aff0 values each.
-# The boot CPU is represented by logical CPU 0 (MPIDR 0x100) in this ADT.
-CPU_MPIDRS = (0x100, 0x101, 0x102, 0x103, 0x000, 0x001, 0x002, 0x003)
+# Actual FDT CPU-node order and Linux cpu0..cpu7 topology: four cores in
+# cluster 0 (Aff1=0), then four in cluster 1 (Aff1=1). Confirm the executing
+# boot MPIDR with the shim before enabling secondary startup.
+CPU_MPIDRS = (0x000, 0x001, 0x002, 0x003, 0x100, 0x101, 0x102, 0x103)
 
 BOOT_MANIFEST_HASH = hashlib.sha384(b'lavender boot manifest').digest()
 LAVENDER_ECID = 0x4C4156454E000001  # synthetic stable identity; not device data
