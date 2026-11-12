@@ -37,7 +37,7 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
 --- a/iokit/Kernel/arm/LavenderPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
-@@ -61,2 +61,10 @@
+@@ -61,5 +61,13 @@
      }
      createNubs(this, IODTFindMatchingEntries(root, kIODTExclusive, excludeList()));
 +
