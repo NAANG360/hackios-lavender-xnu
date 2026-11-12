@@ -85,7 +85,16 @@ jobs:
         working-directory: dxb
         env:
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
-        run: bash build.sh
+        run: set -o pipefail; bash build.sh 2>&1 | tee ../xnu-build.log
+
+      - name: Upload XNU build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-build-log
+          path: xnu-build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Package build tree for local compilation
         if: always()
