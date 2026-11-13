@@ -26,7 +26,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	lavender_guard_mark 3
 +#endif
 +
-@@ -835,6 +850,10 @@
+@@ -835,3 +850,7 @@
  	msr		CPACR_EL1, x0
  #endif
  
@@ -34,10 +34,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	lavender_guard_mark 4
 +#endif
 +
- 	// Clear thread pointer
- 	msr		TPIDR_EL1, xzr						// Set thread register
- 
-@@ -850,4 +869,8 @@
+@@ -850,3 +869,7 @@
  	// Clear thread pointer
  	msr		TPIDR_EL1, xzr						// Set thread register
  
@@ -45,7 +42,6 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	lavender_guard_mark 5
 +#endif
 +
- #if defined(APPLE_ARM64_ARCH_FAMILY)
 @@ -867,4 +890,8 @@
  	APPLY_TUNABLES x12, x13, x14
  
