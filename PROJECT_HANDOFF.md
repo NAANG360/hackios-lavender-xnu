@@ -2333,3 +2333,17 @@ Guardian reset handling now queries PSCI SYSTEM_RESET support and tries PSCI SYS
 ### 36.4 Next safe step
 
 Wait for XNU run 43431560794 to finish. If it passes, package using that exact run ID, verify the new image and shim, and only then consider a further RAM-only test. The next test must report the last checkpoint reached. Given the user's broken power button and prior failed reset attempts, do not request another physical boot before the replacement image and reset path have been reviewed. Never flash a partition.
+
+## 37. Instrumentation register-preservation fix and reset fallback refinement — 2026-11-13
+
+The first draft of patch 0095 used x0/x1 as scratch in some checkpoints. Static review found that x0 remains live as the V=P mapping cursor at stage 0x16, so that draft could corrupt the page-table setup. This was corrected before requesting any further hardware test.
+
+Patch 0095 now saves x0 and x1 to unused slack in the already-reserved 16 KiB boot_args page at offsets +0x1008 and +0x1010, writes the marker at +0x1000, then restores both registers. The post-MMU macro also cleans the marker cache line to PoC and restores x0/x1. It no longer relies on SP/KVA for progress reporting. The unified-diff hunk counts and following new-line offsets were recalculated after the final macro edit.
+
+Final instrumentation-patch commit: a699f63aa75ac069f9979ab6f242e1201721a585.
+
+The guardian reset sequence is now PSCI SYSTEM_RESET first. If it returns, the SDM660 KPSS watchdog fallback follows the upstream driver register order: disable, reset counter, set bark and bite values, enable. It calculates a nominal 128 ms tick count using CNTFRQ_EL0 as the best available proxy; the actual watchdog input clock has not yet been proven to equal CNTFRQ_EL0, so this is a last-resort experimental fallback, not a verified reset guarantee. Upstream Qualcomm's Linux driver uses the KPSS register offsets RST=0x04, EN=0x08, BARK=0x10, BITE=0x14 and writes RST before bark/bite then enable; its restart path uses a 128 ms timeout. See https://github.com/torvalds/linux/blob/master/drivers/watchdog/qcom-wdt.c.
+
+Latest XNU build for the corrected checkpoint patch: run 43432569041, commit a699f63aa75ac069f9979ab6f242e1201721a585; still running at last check. Latest shim compile after the timer-derived timeout change: run 43432762610, commit a3a4bae44257d1d78118661a36a5c0843101c8bf; queued at last check. The prior shim compile run 43432676526 succeeded for the preceding register-order revision.
+
+Do not retest the old image. Wait for run 43432569041 to finish successfully, wait for run 43432762610 to pass, then package from the exact successful XNU run while checking out the current branch so the current shim is included. Verify the complete image before proposing another RAM-only test. Do not flash any partition, and do not ask the user for another physical test until the reset behavior has been reviewed.
