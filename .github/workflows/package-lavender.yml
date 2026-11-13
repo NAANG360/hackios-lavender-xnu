@@ -7,6 +7,12 @@ on:
         description: Successful XNU workflow run ID containing the xnu-kernel artifact
         required: true
         type: string
+  workflow_call:
+    inputs:
+      xnu_run_id:
+        description: Successful XNU workflow run ID containing the xnu-kernel artifact
+        required: true
+        type: string
 
 permissions:
   actions: read
