@@ -2217,3 +2217,64 @@ Successful package workflow run #6:
 - Patch 0091 maps the two 32 MiB blocks containing the audited 0x9d400000 framebuffer as Normal-NC and draws a centered white Apple-like mark on black during early `arm_init()`. This is only a first display mark, not a full display driver, and remains unverified until the kernel build and physical screen output pass.
 
 Current status: real Lavender XNU ARM64 kernel **compiled and statically verified**; a complete Android boot.img v2 containing the shim, LAVENDRX kernel payload, generated Lavender ADT and audited stock FDT **packaged and structurally verified**; actual phone boot, XNU entry, TGran16 result, framebuffer output/logo, and iOS userspace remain unverified. Continue with run #90 and a logo-bearing package, then arrange a reversible RAM-only device test. Never flash a partition.
+
+
+---
+
+## 35. Physical Lavender red-screen test and A73 handoff fix (2026-11-13)
+
+### 35.1 Recorded physical test — observed, not inferred
+
+The user supplied a video of a RAM-only boot test on the physical Redmi Note 7. The diagnostic framebuffer was visible. The captured red-screen values were:
+
+- Boot CPU MPIDR: `0x000000`
+- Boot CPU `ID_AA64MMFR0_EL1`: `0x0000000000011722`
+- Boot CPU TGran16: `0` (unsupported on the executing A53-class core)
+- Loader message: `16K granule unsupported; refusing XNU`
+- A73 target MPIDR: `0x000100`
+- PSCI_FEATURES(CPU_ON) return: `0` (firmware reports the call as supported)
+- PSCI_CPU_ON return: `0` (firmware accepted the request)
+
+The recording does **not** show an A73 observed MPIDR or A73 MMFR0/TGran16 diagnostic after the CPU_ON request. Therefore the original test did not prove the target core entered the secondary trampoline. XNU was not entered.
+
+### 35.2 Root cause found in PSCI trampoline address
+
+The shim is linked at address zero and relocated by the Qualcomm bootloader. The previous diagnostic passed `(uintptr_t)secondary_entry` to PSCI CPU_ON, which is a link-time image-relative symbol offset, not the trampoline's runtime physical address. PSCI needs the physical entry point.
+
+### 35.3 Source corrections
+
+- `844117c1688c93061768e9c53624629f13d9ea87`: obtain the live relocated trampoline address with AArch64 PC-relative `ADR`, probe the A73's own MPIDR/MMFR0 in the secondary entry, and only release it to `loader_boot()` after it reports TGran16 support.
+- `1040d2dd99f8db30e1e25f4b55b4fde9b836dcc0`: remove static local target arrays that caused GCC to emit a libc `memcpy` reference in the freestanding shim.
+- `2d530838fe1e3fc86607f17618c6c3db57f406f0`: pin the attempt to A73 MPIDR `0x100`, fail closed on missing/mismatched probe, and do not try a different core with an incompatible boot-CPU tree.
+- `5bf3b7002b5ddd5a2266795a6f25eb7a8d7493a3`: generate the Apple Device Tree with `--boot-mpidr 0x100`, so CPU node ordering and `state=running` agree with the actual intended XNU entry CPU.
+
+The A73 handoff now has a three-second bounded wait for the secondary-core probe. It checks the reported MPIDR and TGran16 value before setting the shared GO state. Any unsupported value, unexpected core identity, PSCI error, or timeout is a fail-closed reset; no unchecked branch proceeds into XNU.
+
+### 35.4 Build and static artifact verification
+
+- Package workflow run: `43390817610` (success)
+- Run URL: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43390817610
+- Source commit in package manifest: `5bf3b7002b5ddd5a2266795a6f25eb7a8d7493a3`
+- XNU source artifact: workflow run `43377325690`, artifact `xnu-kernel` ID `14016090541`
+- Package artifact: `lavender-fastboot-boot-test`, artifact ID `14020204355`
+- Package ZIP SHA-256: `94bfe7969811c8654e9bbe4f972a5b79cf37d707ccc6dcd480530ca21e5303a0`
+- Standalone boot image SHA-256: `e8f09e5a56e4e54fd1bd9876a8eb275f929075f2ac6c081d27298ddcda706741`
+- Payload SHA-256: `817947bd3c18af6e98c0c1510b77ec1e94ba8d2311fa5eb863b4399bc5b6f307`
+- ADT SHA-256: `0162e8fbefb37309dc0521d13ac5c7361102b0bdec2089a88b6a42c6087cf6a0`
+- Header: Android boot v2, 4096-byte pages
+- Load ranges, independently asserted non-overlapping:
+  - Shim kernel: `[0x8000, 0x2d000)`
+  - Payload ramdisk: `[0x01000000, 0x01f380e0)`
+  - Stock DTB: `[0x02000000, 0x020635a6)`
+- ARM64 Image magic, `LAVENDRX` payload magic, FDT magic, and range separation all pass.
+- Parsed ADT CPU order begins `0x100, 0x101, 0x102, 0x103, 0x0, 0x1, 0x2, 0x3`; first CPU state is running, all others stopped. This matches the A73 handoff target.
+
+### 35.5 Current truth / next test
+
+This is a new **A73-targeted XNU handoff test image**, not proof of a successful physical XNU boot. The user must run it once through bootloader Fastboot using RAM-only `fastboot boot` (never flash). The next success criteria on the physical phone are:
+1. Screen prints A73 observed MPIDR `0x100`.
+2. Screen prints an A73 TGran16 value of `1` or `2`.
+3. Screen prints `A73 16K supported; launching XNU` and then the loader's `JUMP` / `XNU jumping` diagnostic.
+4. The phone does not immediately fall back to Android; any subsequent kernel panic/crash is a separate XNU early-boot issue to diagnose.
+
+No XNU execution, early kernel initialization, userspace, or SpringBoard is yet confirmed. Continue to use only reversible RAM boots; do not flash any partition.
