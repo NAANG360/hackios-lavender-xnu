@@ -70,6 +70,22 @@ static volatile uint64_t sec_probe[4];	/* CPU1 redistributor write test */
 static volatile uint32_t irq_count, irq_other, irq_last;
 static volatile int irq_src;
 
+#ifdef TARGET_LAVENDER
+#define A73_STATE_IDLE       0
+#define A73_STATE_PROBED     1
+#define A73_STATE_GO         2
+#define A73_STATE_ABORT      3
+#define A73_STATE_BAD_CORE   4
+
+/* Shared while both CPUs have their MMUs and data caches disabled. */
+static volatile uintptr_t lavender_boot_dtb;
+static volatile uint64_t lavender_a73_state;
+static volatile uint64_t lavender_a73_request_idx;
+static volatile uint64_t lavender_a73_mpidr;
+static volatile uint64_t lavender_a73_mmfr0;
+static void __attribute__((noreturn)) reset(unsigned after_s);
+#endif
+
 /* ICC_SGI1R_EL1 value targeting the calling core only. */
 static uint64_t sgi_self(unsigned id)
 {
@@ -181,12 +197,41 @@ static uintptr_t find_gicr(void);
 
 void secondary_main(uint64_t idx)
 {
-	sec_mpidr[idx] = rsr("mpidr_el1") | (1ULL << 63);
+	if (idx >= NR_CPUS) {
+		__asm__ volatile("dsb sy" ::: "memory");
+		smc(PSCI_CPU_OFF, 0, 0, 0);
+		for (;;)
+			__asm__ volatile("wfe");
+	}
+
+	uint64_t actual_mpidr = rsr("mpidr_el1") & 0xffffff;
+	sec_mpidr[idx] = actual_mpidr | (1ULL << 63);
+
 #ifdef TARGET_LAVENDER
-	/* Record the first A73 cluster core's own translation-granule support. */
-	if (idx == 4)
-		sec_probe[0] = rsr("id_aa64mmfr0_el1");
+	if (idx >= 4) {
+		static const uint64_t targets[NR_CPUS] = LAVENDER_CPU_MPIDRS;
+		uint64_t mmfr0 = rsr("id_aa64mmfr0_el1");
+		lavender_a73_mpidr = actual_mpidr;
+		lavender_a73_mmfr0 = mmfr0;
+		sec_probe[0] = mmfr0;
+
+		if (idx != lavender_a73_request_idx || actual_mpidr != targets[idx])
+			lavender_a73_state = A73_STATE_BAD_CORE;
+		else
+			lavender_a73_state = A73_STATE_PROBED;
+
+		__asm__ volatile("dsb sy; sev" ::: "memory");
+		while (lavender_a73_state == A73_STATE_PROBED)
+			__asm__ volatile("wfe" ::: "memory");
+
+		if (lavender_a73_state == A73_STATE_GO) {
+			const char *why = loader_boot(lavender_boot_dtb);
+			con_str("A73 LOADER", why);
+			reset(15);
+		}
+	}
 #endif
+
 	if (idx == 1) {
 		uintptr_t r = find_gicr();
 		if (r) {
@@ -200,6 +245,8 @@ void secondary_main(uint64_t idx)
 	}
 	__asm__ volatile("dsb sy" ::: "memory");
 	smc(PSCI_CPU_OFF, 0, 0, 0);
+	for (;;)
+		__asm__ volatile("wfe");
 }
 
 #ifndef TARGET_LAVENDER
@@ -239,34 +286,84 @@ static void __attribute__((unused)) test_smp(void)
 #endif /* !TARGET_LAVENDER: shim does not own Lavender SMP */
 
 #ifdef TARGET_LAVENDER
-/* Diagnostic only: probe one A73 core through PSCI, then let it power off. */
-static void test_lavender_a73_psci(void)
+/*
+ * Start an A73-derived core and run the XNU loader there. The shim is linked
+ * at VA 0 and relocated by ABL, so a C cast of secondary_entry is NOT a
+ * physical entry address. ADR computes its actual runtime PA while the MMU
+ * is off, which is what PSCI CPU_ON requires.
+ */
+static __attribute__((noreturn)) void test_lavender_a73_psci(uintptr_t dtb)
 {
 	const uint64_t targets[NR_CPUS] = LAVENDER_CPU_MPIDRS;
-	uint64_t current = rsr("mpidr_el1") & 0xffffff;
-	uint64_t target = targets[4];
+	uintptr_t secondary_entry_pa;
+	__asm__ volatile("adr %0, secondary_entry" : "=r"(secondary_entry_pa));
+
 	int64_t feature = (int64_t)smc(PSCI_FEATURES, PSCI_CPU_ON, 0, 0);
-
-	con_hex("A73 target MPIDR", target);
 	con_hex("PSCI CPU_ON feature", (uint64_t)feature);
-	if (current == target) {
-		con_str("A73 PSCI", "already running on target core");
-		return;
-	}
+	con_hex("A73 entry PA", secondary_entry_pa);
 	if (feature < 0) {
-		con_str("A73 PSCI", "CPU_ON not advertised");
-		return;
+		con_str("A73", "PSCI CPU_ON unavailable");
+		reset(15);
 	}
 
-	int64_t ret = (int64_t)smc(PSCI_CPU_ON, target,
-				  (uintptr_t)secondary_entry, 4);
-	con_hex("PSCI A73 CPU_ON", (uint64_t)ret);
-	if (ret == 0) {
-		delay_ms(500);
-		con_hex("A73 observed MPIDR", sec_mpidr[4]);
-		con_hex("A73 MMFR0", sec_probe[0]);
-		con_hex("A73 TGRAN16", (sec_probe[0] >> 20) & 0xf);
+	lavender_boot_dtb = dtb;
+	for (uint64_t idx = 4; idx < NR_CPUS; idx++) {
+		lavender_a73_request_idx = idx;
+		lavender_a73_state = A73_STATE_IDLE;
+		__asm__ volatile("dsb sy" ::: "memory");
+
+		con_hex("A73 target MPIDR", targets[idx]);
+		int64_t ret = (int64_t)smc(PSCI_CPU_ON, targets[idx],
+					  secondary_entry_pa, idx);
+		con_hex("PSCI CPU_ON ret", (uint64_t)ret);
+
+		/* An already-on core cannot be restarted via CPU_ON; try the next A73. */
+		if (ret == -4)
+			continue;
+		if (ret != 0 && ret != -5) {
+			con_str("A73", "PSCI CPU_ON failed");
+			reset(15);
+		}
+
+		uint64_t deadline = now() + rsr("cntfrq_el0") * 3;
+		while (lavender_a73_state == A73_STATE_IDLE && now() < deadline)
+			delay_ms(10);
+
+		if (lavender_a73_state != A73_STATE_PROBED &&
+		    lavender_a73_state != A73_STATE_BAD_CORE) {
+			lavender_a73_state = A73_STATE_ABORT;
+			__asm__ volatile("dsb sy; sev" ::: "memory");
+			con_str("A73", "secondary entry timed out");
+			reset(15);
+		}
+
+		con_hex("A73 observed MPIDR", lavender_a73_mpidr);
+		con_hex("A73 MMFR0", lavender_a73_mmfr0);
+		uint64_t tgran16 = (lavender_a73_mmfr0 >> 20) & 0xf;
+		con_hex("A73 TGRAN16", tgran16);
+
+		if (lavender_a73_state == A73_STATE_BAD_CORE) {
+			lavender_a73_state = A73_STATE_ABORT;
+			__asm__ volatile("dsb sy; sev" ::: "memory");
+			con_str("A73", "unexpected MPIDR; refusing XNU");
+			reset(15);
+		}
+		if (tgran16 < 1 || tgran16 > 2) {
+			lavender_a73_state = A73_STATE_ABORT;
+			__asm__ volatile("dsb sy; sev" ::: "memory");
+			con_str("A73", "16K granule unsupported; refusing XNU");
+			reset(15);
+		}
+
+		con_str("A73", "16K supported; launching XNU");
+		lavender_a73_state = A73_STATE_GO;
+		__asm__ volatile("dsb sy; sev" ::: "memory");
+		for (;;)
+			__asm__ volatile("wfe");
 	}
+
+	con_str("A73", "all target cores already on");
+	reset(15);
 }
 #endif /* TARGET_LAVENDER */
 
@@ -454,6 +551,28 @@ static uint32_t to_us(uint64_t ticks)
 
 void shim_main(uint64_t dtb)
 {
+#ifdef TARGET_LAVENDER
+	/* Choose a CPU that can use the 16K translation granule XNU was built for. */
+	stage = "loader";
+	con_clear(RED);
+	con_str("SHIM", "lavender XNU A73 handoff");
+	con_skip();
+	uint64_t boot_mpidr = rsr("mpidr_el1") & 0xffffff;
+	uint64_t boot_mmfr0 = rsr("id_aa64mmfr0_el1");
+	uint64_t boot_tgran16 = (boot_mmfr0 >> 20) & 0xf;
+	con_hex("BOOT MPIDR", boot_mpidr);
+	con_hex("BOOT MMFR0", boot_mmfr0);
+	con_hex("BOOT TGRAN16", boot_tgran16);
+
+	if (boot_tgran16 >= 1 && boot_tgran16 <= 2) {
+		const char *why = loader_boot(dtb);
+		con_str("LOADER", why);
+		reset(15);
+	}
+
+	con_str("BOOT CPU", "16K unsupported; trying A73");
+	test_lavender_a73_psci(dtb);
+#else
 	struct mmu_info mi;
 
 	/* An xnu payload in the ramdisk means: boot it (MMU stays off). */
@@ -538,4 +657,5 @@ void shim_main(uint64_t dtb)
 
 	stage = "done";
 	reset(40);
+#endif /* TARGET_LAVENDER */
 }
