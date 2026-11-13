@@ -1,0 +1,156 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@
+ common_start:
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++/* Publish the last completed XNU bootstrap milestone to the A53 guardian. */
++.macro lavender_guard_mark value
++	add	x0, x20, x22
++	sub	x0, x0, x23
++	add	x0, x0, #0x1000
++	mov	w1, #\value
++	str	w1, [x0]
++	dc	cvac, x0
++	dsb	sy
++.endm
++#endif
++
+ #if HAS_NEX_PG
+ 	mov x19, lr
+ 	bl		EXT(set_nex_pg)
+@@
+ #if !VMAPPLE && !defined(SWEET)
+ 	MOV64   x1, SCTLR_EL1_DEFAULT
+ 	cmp		x0, x1
+ 	bne		.
+ #endif /* !VMAPPLE */
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	lavender_guard_mark 3
++#endif
++
+ #if (!CONFIG_KERNEL_INTEGRITY || (CONFIG_KERNEL_INTEGRITY && !defined(KERNEL_INTEGRITY_WT)))
+@@
+ 	msr		CPACR_EL1, x0
+ #endif
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	lavender_guard_mark 4
++#endif
++
+ 	// Clear thread pointer
+ 	msr		TPIDR_EL1, xzr						// Set thread register
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	lavender_guard_mark 5
++#endif
++
+@@
+ 	APPLY_TUNABLES x12, x13, x14
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	lavender_guard_mark 6
++#endif
++
+@@
+ #if KASAN
+@@
+ #endif
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	lavender_guard_mark 7
++#endif
++
+ 	// Return to arm_init()
+ 	ret
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@
+ static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
+ static volatile uint32_t *early_guard_cell;
+ 
++static int
++lavender_logo_ellipse(int x, int y, int cx, int cy, int rx, int ry)
++{
++	int64_t dx = x - cx;
++	int64_t dy = y - cy;
++	int64_t rx2 = (int64_t)rx * rx;
++	int64_t ry2 = (int64_t)ry * ry;
++	return dx * dx * ry2 + dy * dy * rx2 <= rx2 * ry2;
++}
++
++/*
++ * Draw a high-contrast Apple mark only after XNU has reached arm_init().
++ * This deliberately uses the bootloader framebuffer and no IOKit, allocator,
++ * locks, fonts, or platform services.
++ */
++void
++sweet_early_logo(void)
++{
++	const int cx = (int)LAVENDER_FB_WIDTH / 2;
++	const int cy = (int)LAVENDER_FB_HEIGHT / 2;
++	const uint32_t black = 0xff000000u;
++	const uint32_t white = 0xffffffffu;
++
++	/* Black field behind the mark, large enough to be unmistakable on red. */
++	for (int y = cy - 250; y <= cy + 250; y++) {
++		volatile uint32_t *line = early_fb + y * LAVENDER_FB_STRIDE;
++		for (int x = cx - 190; x <= cx + 190; x++) {
++			line[x] = black;
++		}
++	}
++
++	for (int y = -205; y <= 185; y++) {
++		volatile uint32_t *line = early_fb + (cy + y) * LAVENDER_FB_STRIDE;
++		for (int x = -165; x <= 165; x++) {
++			int body =
++				lavender_logo_ellipse(x, y, -55, -52, 82, 96) ||
++				lavender_logo_ellipse(x, y,  55, -52, 82, 96) ||
++				lavender_logo_ellipse(x, y,   0,  34, 130, 132);
++			int bite = lavender_logo_ellipse(x, y, 132, -8, 46, 55);
++
++			/* A small rotated leaf and short stem above the right lobe. */
++			int dx = x - 37;
++			int dy = y + 164;
++			int u = dx + dy / 2;
++			int v = dy - dx / 2;
++			int leaf = u * u * 256 + v * v * 1444 <= 1444 * 256;
++			int stem = (x >= -2 && x <= 5 && y >= -145 && y <= -117);
++
++			if ((body && !bite) || leaf || stem) {
++				line[cx + x] = white;
++			}
++		}
++	}
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
+ void
+ sweet_early_guard_init(uintptr_t boot_args_kva)
+@@
+diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+--- a/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/sweet_early.h
+@@
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+ void sweet_early_guard_init(uintptr_t boot_args_kva);
++void sweet_early_logo(void);
+ #else
+ static inline void sweet_early_guard_init(uintptr_t boot_args_kva) { (void)boot_args_kva; }
+ #endif
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	sweet_early_guard_init((uintptr_t)args);
+ #endif
+ 	sweet_early_mark(1, "arm_init entered (MMU on)");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_logo();
++#endif
+ 
+ 	arm_setup_pre_sign();
