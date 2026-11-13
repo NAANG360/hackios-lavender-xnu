@@ -2391,3 +2391,73 @@ The GitHub artifact digest above hashes the uploaded artifact archive, not the e
 - Extracted raw image SHA-256: NOT YET RECORDED.
 - Physical test of this new image: NOT YET DONE.
 - Apple logo / `arm_init()` / iOS userspace: NOT YET CONFIRMED.
+
+## 38. 2026-11-13 — latest physical test diagnosis, corrected XNU checkpoints, and packaged image run #18
+
+### 38.1 Latest physical video interpretation
+
+The user supplied /mnt/data/1000317576.mp4 (about 67 seconds). Frames were inspected throughout the clip. The display shows the Lavender shim selecting the A73, loading ten XNU Mach-O segments, preparing boot arguments, and branching to XNU. The final stable diagnostic reports XNUSTAGE=1, followed by a 60-second stall/reset message.
+
+Confirmed interpretation:
+- The shim observes the A53 at MPIDR 0x0, whose ID_AA64MMFR0_EL1.TGran16 field is 0; it rejects that CPU for the 16 KiB XNU build.
+- The shim powers on the A73 at MPIDR 0x100; that CPU reports TGran16 1, the architectural encoding for 16 KiB granule supported.
+- Ten XNU Mach-O segments are loaded and the boot arguments are prepared.
+- The displayed entry VA 0xfffffe000747c488 matches the compiled kernel's __start symbol.
+- XNUSTAGE=1 is only the earliest XNU marker, written immediately after saving x0 as the physical boot-arguments pointer. It occurs before VBAR setup, boot-argument loads, stack setup, page-table construction, TCR/TTBR/MAIR setup, and SCTLR/MMU enable. It does not prove arm_init() ran.
+- Neither the 60-second automatic recovery nor the Volume Up + Volume Down chord recovered the handset during this physical test. The screen remained frozen until the battery drained. Reset is therefore not physically verified.
+
+### 38.2 Compiled pre-MMU instrumentation and Apple-like diagnostic mark
+
+Patch xnu/patches/0095-lavender-pre-mmu-instrumentation.patch adds progress checkpoints through early startup:
+- 1: first XNU instruction path after capturing the physical boot-arguments pointer.
+- 0x11: first early framebuffer pixel loop completed.
+- 0x12: exception-vector base / VBAR setup completed.
+- 0x13: core boot arguments (virtual/physical bases, memory size, flags) loaded.
+- 0x14: stack/return-address setup and early address calculations completed.
+- 0x15: bootstrap page-table clearing loop completed.
+- 0x16: physical/virtual range alignment completed.
+- 0x17: V=P bootstrap mapping created.
+- 0x18: KVA bootstrap mapping created.
+- 0x19: framebuffer/device mapping entry setup completed.
+- 0x1A: TCR_EL1 write completed.
+- 0x1B: TTBR1_EL1 write completed.
+- 0x1C: MAIR/TLB maintenance completed.
+- 0x1D: final exception-vector setup completed.
+- 0x1E: immediately before SCTLR_EL1/MMU enable.
+- 2: SCTLR/MMU enable and ISB completed.
+- 0x21: subsequent post-MMU framebuffer write completed.
+
+The early and post-MMU marker macros preserve live x0/x1 in reserved slack within the 16 KiB boot-arguments page at offsets +0x1008 and +0x1010. The post-MMU macro writes through the V=P identity mapping and cleans the cache line; it does not rely on the KVA stack. This avoids corrupting the live page-table cursor and prevents KVA-stack failure from hiding later progress.
+
+The build-tree artifact from XNU run 43432569041 was inspected directly: lavender_early_mark and lavender_guard_mark appear in the compiled source tree, all 0x11–0x1E markers are present, and sweet_early_logo is defined and called from arm_init(). The logo only runs after XNU reaches arm_init(); successful compilation does not prove the phone displayed it.
+
+### 38.3 Guardian / reset status
+
+The guardian now reports CELL PA separately from GUARDMK, correcting the old GUARD PA label that printed the marker value rather than the address.
+
+The reset path attempts PSCI SYSTEM_RESET first, then falls back to the SDM660 KPSS watchdog block. The fallback uses the Qualcomm watchdog_v2 register order: disable, reset counter, configure bark/bite, then enable. Its nominal 128 ms timeout is calculated from CNTFRQ_EL0 as the best available proxy; equality with the watchdog clock has not been established. The PMIC SPMI transaction also has corrected SID and extended-address fields for volume-key polling.
+
+Critical: PSCI return behavior, KPSS watchdog clock/register mapping on this exact Lavender boot state, and the Volume Up + Volume Down PMIC inputs still need physical validation. The previous handset test showed that the older recovery implementation did not work. With the power button broken, do not tell the user to repeat a hung boot until the new reset behavior has been independently reviewed and a reliable recovery method is established.
+
+### 38.4 Successful XNU and package runs — run #18
+
+- XNU build run: 43432569041 — success: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43432569041
+- XNU kernel artifact: xnu-kernel, artifact ID 14042181954.
+- Kernel SHA-256 from XNU artifact: 50d15d57f12cd3a12a9ea9c3d1b2d2009444bc51f3690f0a4c8f6bd1f67a1448.
+- The packaged manifest lists the same kernel SHA-256; the XNU artifact was downloaded and its actual kernel.development.lavender hash independently compared. Exact match.
+- Packaging workflow run: 43436477205 — success; all 15 steps completed, including matching-source checkout, kernel artifact download, Mach-O presence check, stock boot/DTB verification, Lavender ADT generation, payload creation, mkbootimg, boot-image/payload identity verification, and artifact upload: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43436477205
+- Package artifact: lavender-fastboot-boot-test, artifact ID 14042828307; archive size 16,977,101 bytes; GitHub archive SHA-256 ab535da4f1c1b9a5dde8bec87f488c6bb9c5491ec20bb4570246151831105bce; expiry 2026-11-27T13:47:34Z.
+- Extracted iosboot.img: 16,527,360 bytes; SHA-256 9baacc8dd7a233d1879195d6876d34493f782c351fb776eae86a30a8395d306e.
+- iosboot.img is byte-identical to shim/out/shim-boot.img.
+- Structural validation passed: Android boot magic ANDROID!, header v2, ARM64 Image magic ARMd, embedded payload magic LAVENDRX, non-empty DTB, and non-overlapping kernel/ramdisk/DTB load ranges.
+- Payload SHA-256: 0059b80c404ea8b991b78ec26c4b8aaea9fe47e5d29ece7172b1389832d551c3.
+- Generated ADT SHA-256: b6349a4061edb38c4dce2697c511b2697e28d56ac28b4e25ddc7b82a2d139f8b.
+- Package source commit (packaging workflow checkout): 81ba53dbed5413326f0e7fd41e3393a671dfd599.
+- Boot metadata: Redmi Note 7 / lavender / SDM660; Android boot metadata reports 15.0.0 / 2025-03; XNU boot CPU MPIDR 0x100.
+- Package manifest says fastboot boot only; do not flash to a partition. It records physical recovery validation as pending.
+
+### 38.5 Current project state / next action
+
+The latest iosboot.img is freshly packaged and its embedded kernel identity is verified against XNU run 43432569041. It is a RAM-only diagnostic bring-up image, not a successfully booted XNU/iOS system. No Apple logo has yet been observed on the phone.
+
+Next test, only when safe recovery is sorted: use the run #18 image and record the last XNU checkpoint value. The value identifies the failing interval (framebuffer, bootargs/stack, page-table build, TCR/TTBR, or SCTLR/MMU enable). Never substitute an earlier image and never flash a partition. Preserve the run IDs, hashes, and this section as the source of truth for the next chat/session.
