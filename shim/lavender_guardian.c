@@ -5,13 +5,15 @@
 #define SPMI_CORE 0x0800f000UL
 #define SPMI_CNFG 0x0800a000UL
 #define SPMI_OBS  0x09400000UL
+#define SPMI_CORE_SIZE 0x1000U
 #define SPMI_VERSION 0x00
-#define SPMI_FEATURES 0x04
-#define SPMI_V5_MAP 0x900
-#define SPMI_V7_MAP 0x2000
-#define SPMI_OWNER 0x700
-#define SPMI_COUNT_MASK 0x7ffU
-#define SPMI_MAX_APIDS 1024U
+#define SPMI_V2_MIN 0x20010000U
+#define SPMI_V3_MIN 0x30000000U
+#define SPMI_V5_MIN 0x50000000U
+#define SPMI_V2_MAP 0x800U
+#define SPMI_V5_MAP 0x900U
+#define SPMI_OWNER 0x700U
+#define SPMI_MAX_APIDS 512U
 #define SPMI_CMD 0x00
 #define SPMI_STATUS 0x08
 #define SPMI_RDATA0 0x18
@@ -71,35 +73,46 @@ struct spmi {
 	uint32_t pon_apid;
 	uint32_t gpio_apid;
 };
-static int find_apid(uint32_t ppid, uint32_t n, uint32_t mapoff, uint32_t *out)
+static int find_apid(uint32_t ppid, uint32_t n, uint32_t mapoff,
+                     uint32_t owner_filter, uint32_t *out)
 {
-	int found=0;
-	uint32_t selected=0;
-	for(uint32_t i=0;i<n;i++) {
-		uint32_t m=read32(SPMI_CORE+mapoff+i*4U);
-		if(!m || ((m>>8)&0xfffU)!=ppid) continue;
-		uint32_t owner=read32(SPMI_CNFG+SPMI_OWNER+i*4U)&7U;
-		/* Select the last mapping owned by HLOS EE 0, as Linux does. */
-		if(owner==0U) { selected=i; found=1; }
-	}
-	if(found) *out=selected;
-	return found?0:-1;
+    int found=0;
+    uint32_t selected=0;
+    for(uint32_t i=0;i<n;i++) {
+        uint32_t m=read32(SPMI_CORE+mapoff+i*4U);
+        if(!m || ((m>>8)&0xfffU)!=ppid) continue;
+        if(owner_filter) {
+            uint32_t owner=read32(SPMI_CNFG+SPMI_OWNER+i*4U)&7U;
+            if(owner!=0U) continue;
+        }
+        selected=i;
+        found=1;
+    }
+    if(found) *out=selected;
+    return found?0:-1;
 }
 static int discover(struct spmi *s)
 {
-	uint32_t ver=read32(SPMI_CORE+SPMI_VERSION);
-	uint32_t n=read32(SPMI_CORE+SPMI_FEATURES)&SPMI_COUNT_MASK;
-	uint32_t mapoff;
-	if((ver&0xff000000U)==0x50000000U) {
-		mapoff=SPMI_V5_MAP; s->stride=0x80U;
-	} else if((ver&0xff000000U)==0x70000000U) {
-		mapoff=SPMI_V7_MAP; s->stride=0x20U;
-	} else return -1;
-	if(!n || n>SPMI_MAX_APIDS) return -1;
-	if(find_apid(SPMI_PON_PPID,n,mapoff,&s->pon_apid)) return -1;
-	if(find_apid(SPMI_GPIO7_PPID,n,mapoff,&s->gpio_apid)) return -1;
-	s->obs=SPMI_OBS;
-	return 0;
+    uint32_t ver=read32(SPMI_CORE+SPMI_VERSION);
+    uint32_t mapoff, n, owner_filter=0;
+    if(ver<SPMI_V2_MIN) return -1;
+    if(ver<SPMI_V5_MIN) {
+        mapoff=SPMI_V2_MAP;
+        n=(SPMI_CORE_SIZE-mapoff)/4U;
+        s->stride=0x8000U;
+    } else {
+        mapoff=SPMI_V5_MAP;
+        n=(SPMI_CORE_SIZE-mapoff)/4U;
+        s->stride=0x80U;
+        owner_filter=1U;
+    }
+    if(!n || n>SPMI_MAX_APIDS) return -1;
+    if(find_apid(SPMI_PON_PPID,n,mapoff,owner_filter,&s->pon_apid)) return -1;
+    if(find_apid(SPMI_GPIO7_PPID,n,mapoff,owner_filter,&s->gpio_apid)) return -1;
+    s->obs=SPMI_OBS;
+    con_hex("SPMI arbiter version",ver);
+    con_hex2("SPMI key APIDs","PON=",s->pon_apid,"GPIO7=",s->gpio_apid);
+    return 0;
 }
 static int read_byte(const struct spmi *s,uint32_t apid,uint16_t addr,uint8_t *out)
 {
