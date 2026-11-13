@@ -19,9 +19,10 @@
 -	str	w1, [x0], #4
 -	subs	x3, x3, #1
 -	b.ne	Llavender_stage1_pixel
--	add	x0, x0, x4
+-	add		x0, x0, x4
 -	subs	x2, x2, #1
 -	b.ne	Llavender_stage1_row
 -	dsb		sy
  	lavender_early_mark 0x11
  #endif
+ 
