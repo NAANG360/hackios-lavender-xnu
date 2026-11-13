@@ -100,6 +100,26 @@
  #endif
  
  	/* Ensure TTEs are visible */
+@@ -752,17 +779,13 @@
+  *	TPIDRRO_EL0 - CPU number
+  */
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+-/* Preserve bootstrap scratch registers while publishing each milestone. */
++/* Use the active V=P alias so the guardian marker does not rely on SP/KVA. */
+ .macro lavender_guard_mark value
+-	stp	x0, x1, [sp, #-16]!
+-	add	x0, x20, x22
+-	sub	x0, x0, x23
+-	add	x0, x0, #0x1000
++	add	x0, x20, #0x1000
+ 	mov	w1, #\value
+ 	str	w1, [x0]
+ 	dc	cvac, x0
+ 	dsb	sy
+-	ldp	x0, x1, [sp], #16
+ .endm
+ #endif
+ 
 @@ -779,6 +806,9 @@
  	add		x0, x0, EXT(sysreg_restore)@pageoff
  	ldr		x1, [x0, SR_RESTORE_TCR_EL1]
