@@ -96,10 +96,14 @@ static void __attribute__((noreturn)) reset_now(const char *why)
 	 * No MMIO readback: a stalled peripheral read must not trap here.
 	 */
 	con_str("RESET", "watchdog fallback");
+	uint64_t rate = frequency();
+	uint32_t timeout = (uint32_t)((128ULL * rate) / 1000ULL);
+	if (!timeout) timeout = 1;
+	con_hex2("WDT ticks", "rate=", (uint32_t)rate, "bite=", timeout);
 	write32(QCOM_WDT_BASE + WDT0_EN, 0);
 	write32(QCOM_WDT_BASE + WDT0_RST, 1);
-	write32(QCOM_WDT_BASE + WDT0_BARK_TIME, 1);
-	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 2);
+	write32(QCOM_WDT_BASE + WDT0_BARK_TIME, timeout);
+	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, timeout);
 	__asm__ volatile("dsb sy" ::: "memory");
 	write32(QCOM_WDT_BASE + WDT0_EN, 1);
 	__asm__ volatile("dsb sy; isb" ::: "memory");
