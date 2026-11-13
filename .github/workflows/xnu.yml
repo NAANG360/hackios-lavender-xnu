@@ -74,34 +74,8 @@ jobs:
           # The pinned upstream script hardcodes -j8; use every logical CPU
           # exposed by the hosted runner for its major build steps.
           sed -i '' 's/make install -j8/make install -j"${XNU_MAKE_JOBS:-8}"/g' dxb/build.sh
-          # Apply the Lavender pre-VBAR safety edit after upstream patches. The
-          # standalone 0096 patch can lose its context after earlier XNU patches.
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("dxb/build.sh")
-          s = p.read_text()
-          old = "    patches\\n    venv"
-          new = """    patches
-    # 0095 adds early RAM markers; strip its legacy framebuffer loop before compiling.
-    python3 - <<'PATCHPY'
-from pathlib import Path
-p = Path("xnu/osfmk/arm64/start.s")
-s = p.read_text()
-first = s.index("lavender_early_mark 1", s.index("LEXT(start_first_cpu)"))
-first_end = s.index("\n", first) + 1
-last = s.index("lavender_early_mark 0x11", first_end)
-last_line = s.rfind("\n", 0, last) + 1
-last_end = s.index("\n", last) + 1
-s = s[:first_end] + s[last_line:last_end] + s[last_end:]
-p.write_text(s)
-check = s[s.index("LEXT(start_first_cpu)"):s.index("MSR_VBAR_EL1_X0", s.index("LEXT(start_first_cpu)"))]
-assert "0x9d400000" not in check and "Llavender_stage1_pixel" not in check
-PATCHPY
-    venv"""
-          if old not in s:
-              raise SystemExit("could not locate post-patch insertion point in pinned build.sh")
-          p.write_text(s.replace(old, new, 1))
-          PY
+          # Run a deterministic post-patch source guard from the repo tools.
+          python3 -c 'from pathlib import Path; p=Path("dxb/build.sh"); s=p.read_text(); old="    patches\\n    venv"; new="    patches\\n    python3 ../tools/fix-lavender-pre-vbar.py\\n    venv"; assert old in s, "pinned build.sh insertion point changed"; p.write_text(s.replace(old,new,1))'
           # libfirehose_kernel is arm64e-only upstream; the reference and Lavender
           # targets are plain arm64.
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
