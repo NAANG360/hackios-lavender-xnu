@@ -1,4 +1,3 @@
-diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
 @@ -526,23 +526,9 @@
@@ -15,7 +14,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 -	mov		x2, #8
 -	mov		x4, #(4320 - 32)
 -Llavender_stage1_row:
--	mov	x3, #8
+-	mov		x3, #8
 -Llavender_stage1_pixel:
 -	str	w1, [x0], #4
 -	subs	x3, x3, #1
@@ -23,6 +22,6 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 -	add	x0, x0, x4
 -	subs	x2, x2, #1
 -	b.ne	Llavender_stage1_row
--	dsb	sy
+-	dsb		sy
  	lavender_early_mark 0x11
  #endif
