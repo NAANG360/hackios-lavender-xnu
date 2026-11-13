@@ -2278,3 +2278,24 @@ This is a new **A73-targeted XNU handoff test image**, not proof of a successful
 4. The phone does not immediately fall back to Android; any subsequent kernel panic/crash is a separate XNU early-boot issue to diagnose.
 
 No XNU execution, early kernel initialization, userspace, or SpringBoard is yet confirmed. Continue to use only reversible RAM boots; do not flash any partition.
+
+
+### 35.6 Final CPU-topology correction and replacement artifact (2026-11-13)
+
+A final topology review found that the initial A73 attempt left the original MPIDR `0x0` boot CPU in a WFE loop, while the generated ADT marked that CPU stopped. The final source now sends PSCI `CPU_OFF` on the original boot CPU after the secondary A73 has reported TGran16 support and the GO state has been published. This makes the intended runtime state consistent with the ADT before XNU starts.
+
+- Final source commit: `5c7675992844d8eadb6a1fa5d4e4f562b9958596`
+- Final package workflow run: `43391253726` (success)
+- Final run URL: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43391253726
+- Final artifact ID: `14020528046`
+- Final artifact name: `lavender-fastboot-boot-test`
+- Final artifact ZIP SHA-256: `36be5faf67ee1b410bb478068729b6b7d14ff65c4d9e483457e591259e83a170`
+- Final standalone boot image SHA-256: `be930cfab7657e74feee713eb53df0d9afbad97ec4554c952f0c3e9a75b2fc76`
+- Final payload SHA-256: `803d91f230e751911e67d452c04c411dc78160624dd9fd09de4c5a02c8d9ecf6`
+- Final ADT SHA-256: `0a36282dfdafa42f6cc3cdebff8c0ac6937bbe8a7746ab0f0e39773a7d7f8531`
+
+Final artifact was downloaded and independently rechecked in the working container. Android header v2, 4 KiB page size, ARM64 Image magic, `LAVENDRX` payload magic, FDT magic, non-overlapping kernel/ramdisk/DTB physical ranges, and ADT CPU ordering all pass. The ADT begins with MPIDR `0x100` as running; original boot CPU MPIDR `0x0` is explicitly stopped.
+
+**Supersedes:** the earlier package artifact from run `43390817610` (artifact `14020204355`) did not power off the original A53 boot CPU. Do not test that earlier package; use the run `43391253726` artifact only.
+
+This remains a RAM-only **physical-test candidate**. No device report yet confirms the A73 TGran16 check, secondary-core trampoline, XNU entry, or kernel early-init success. The next physical boot should be performed with bootloader Fastboot and `fastboot boot`; never flash it.
