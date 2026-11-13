@@ -1882,3 +1882,43 @@ If the boot CPU is A53 (`TGran16=0`), the current 16 KiB XNU cannot be entered o
 5. If the active boot core lacks 16 KiB support, stop rather than attempting a blind jump. Investigate the PSCI handoff path or 4 KiB XNU feasibility.
 
 This is a newly identified hardware compatibility gate, not evidence that the current kernel build failed.
+
+
+---
+
+## 26. Patch-stack forensic correction and run #85 — 2026-11-13
+
+### 26.1 What run #84 actually applied
+
+The full run #84 log was searched around the patch-driver output. It confirms:
+
+- `0087-lavender-linker-and-platform-expert.patch` applied successfully.
+- `0089-lavender-platform-expert-table-fix.patch` was skipped because its hunk failed at `iokit/KernelConfigTables.cpp:88`.
+- `0091-fix-lavender-iokit-config-table.patch` was skipped because its hunk failed at `iokit/KernelConfigTables.cpp:80`.
+- `0091-lavender-config-table-placement.patch` was skipped as a corrupt patch at line 27.
+
+Therefore the 0091 patch is **not** part of the successful build's source state. The Lavender platform expert and `qcom,sdm660-mtp` personality present in the compiled Mach-O come from the applied 0087 patch. Do not claim that either 0089-table-fix or 0091 was applied. The duplicate/obsolete table-fix patches only create misleading skip warnings and must not be required by preflight.
+
+### 26.2 Run #85 failure was preflight-only
+
+- Run #85: `43354511913`, source commit `b09d33168c750f63b6c1810199bd3c1bf1862fae`.
+- It failed at `Validate selected machine profile`, before dependency install or XNU compilation.
+- Exact fatal diagnostic: `error: corrupt patch at xnu/patches/0091-lavender-config-table-placement.patch:27`.
+- The workflow's unconditional build-tree packaging then produced secondary missing-directory errors because compilation never started.
+- The unconditional kernel artifact upload created a 150-byte artifact containing only an empty KDK-library manifest. This is not a kernel and must never be published as one.
+
+This failure does not invalidate run #84's already downloaded and statically verified ARM64 Mach-O kernel. It does show that my initial restoration of the 0091 validator check was incorrect: the patch is obsolete and was already skipped by the successful build.
+
+### 26.3 Corrective repository change
+
+- Remove the obsolete, skipped table-fix patches from the active `xnu/patches/` directory: `0089-lavender-platform-expert-table-fix.patch`, `0091-fix-lavender-iokit-config-table.patch`, and `0091-lavender-config-table-placement.patch`.
+- Keep 0087 as the active source-of-truth for the Lavender IOKit personality table insertion; its successful application is proven by the run #84 log and binary strings/symbols.
+- Remove the false 0091 requirement from `tools/validate-lavender-profile.sh`.
+- Make build-tree packaging skip cleanly when compilation never created its inputs.
+- Upload `xnu-kernel` only after the build and strict kernel verification succeed; no placeholder/KDK-only kernel artifact on failed runs.
+
+### 26.4 Current state after correction
+
+The correction is committed as a new engineering-branch change and starts another XNU CI validation. The diagnostic-only MPIDR/TGran16 shim instrumentation is also committed separately and has its own Lavender shim compile workflow queued. Await both runs; do not infer success from dispatch/queue state.
+
+The canonical build evidence remains run #84 and binary SHA-256 `58ab0b425eed4b2134a126aa6a04c915bd44a4ee64096f51a20933485f7477b3`. No physical-device boot has occurred.

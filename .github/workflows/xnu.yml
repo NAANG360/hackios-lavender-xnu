@@ -99,21 +99,26 @@ jobs:
       - name: Package build tree for local compilation
         if: always()
         run: |
-          SDK=$(xcrun --sdk macosx --show-sdk-path)
-          mkdir -p sdk-kernel-platform
-          cp -R "$SDK/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform" sdk-kernel-platform/ || true
-          tar czf buildtree.tgz \
-            --exclude='*.o' --exclude='*.cpo' --exclude='*.a' --exclude='*.dSYM' --exclude='*.unstripped' \
-            --exclude='kernel.development.*' --exclude='.git' \
-            -C dxb build/xnu.obj fakeroot/usr/local/include xnu \
-            -C .. sdk-kernel-platform
-          ls -lh buildtree.tgz
+          if [[ -d dxb/build/xnu.obj && -d dxb/xnu && -d dxb/fakeroot/usr/local/include ]]; then
+            SDK=$(xcrun --sdk macosx --show-sdk-path)
+            mkdir -p sdk-kernel-platform
+            cp -R "$SDK/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform" sdk-kernel-platform/ || true
+            tar czf buildtree.tgz \
+              --exclude='*.o' --exclude='*.cpo' --exclude='*.a' --exclude='*.dSYM' --exclude='*.unstripped' \
+              --exclude='kernel.development.*' --exclude='.git' \
+              -C dxb build/xnu.obj fakeroot/usr/local/include xnu \
+              -C .. sdk-kernel-platform
+            ls -lh buildtree.tgz
+          else
+            echo "No generated XNU tree exists; build failed before compilation, skipping build-tree package."
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: xnu-buildtree
           path: buildtree.tgz
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Inspect closed KDK support libraries
@@ -157,8 +162,8 @@ jobs:
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: xnu-kernel
           path: out/
-          if-no-files-found: warn
+          if-no-files-found: error
