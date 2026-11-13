@@ -306,64 +306,56 @@ static __attribute__((noreturn)) void test_lavender_a73_psci(uintptr_t dtb)
 	}
 
 	lavender_boot_dtb = dtb;
-	for (uint64_t idx = 4; idx < NR_CPUS; idx++) {
-		lavender_a73_request_idx = idx;
-		lavender_a73_state = A73_STATE_IDLE;
-		__asm__ volatile("dsb sy" ::: "memory");
+	lavender_a73_request_idx = 4;
+	lavender_a73_state = A73_STATE_IDLE;
+	__asm__ volatile("dsb sy" ::: "memory");
 
-		uint64_t target_mpidr = 0x100ULL | (idx - 4);
-		con_hex("A73 target MPIDR", target_mpidr);
-		int64_t ret = (int64_t)smc(PSCI_CPU_ON, target_mpidr,
-					  secondary_entry_pa, idx);
-		con_hex("PSCI CPU_ON ret", (uint64_t)ret);
-
-		/* An already-on core cannot be restarted via CPU_ON; try the next A73. */
-		if (ret == -4)
-			continue;
-		if (ret != 0 && ret != -5) {
-			con_str("A73", "PSCI CPU_ON failed");
-			reset(15);
-		}
-
-		uint64_t deadline = now() + rsr("cntfrq_el0") * 3;
-		while (lavender_a73_state == A73_STATE_IDLE && now() < deadline)
-			delay_ms(10);
-
-		if (lavender_a73_state != A73_STATE_PROBED &&
-		    lavender_a73_state != A73_STATE_BAD_CORE) {
-			lavender_a73_state = A73_STATE_ABORT;
-			__asm__ volatile("dsb sy; sev" ::: "memory");
-			con_str("A73", "secondary entry timed out");
-			reset(15);
-		}
-
-		con_hex("A73 observed MPIDR", lavender_a73_mpidr);
-		con_hex("A73 MMFR0", lavender_a73_mmfr0);
-		uint64_t tgran16 = (lavender_a73_mmfr0 >> 20) & 0xf;
-		con_hex("A73 TGRAN16", tgran16);
-
-		if (lavender_a73_state == A73_STATE_BAD_CORE) {
-			lavender_a73_state = A73_STATE_ABORT;
-			__asm__ volatile("dsb sy; sev" ::: "memory");
-			con_str("A73", "unexpected MPIDR; refusing XNU");
-			reset(15);
-		}
-		if (tgran16 < 1 || tgran16 > 2) {
-			lavender_a73_state = A73_STATE_ABORT;
-			__asm__ volatile("dsb sy; sev" ::: "memory");
-			con_str("A73", "16K granule unsupported; refusing XNU");
-			reset(15);
-		}
-
-		con_str("A73", "16K supported; launching XNU");
-		lavender_a73_state = A73_STATE_GO;
-		__asm__ volatile("dsb sy; sev" ::: "memory");
-		for (;;)
-			__asm__ volatile("wfe");
+	/* The paired ADT is generated with MPIDR 0x100 as its boot CPU. */
+	const uint64_t target_mpidr = 0x100;
+	con_hex("A73 target MPIDR", target_mpidr);
+	int64_t ret = (int64_t)smc(PSCI_CPU_ON, target_mpidr,
+				  secondary_entry_pa, 4);
+	con_hex("PSCI CPU_ON ret", (uint64_t)ret);
+	if (ret != 0 && ret != -5) {
+		con_str("A73", ret == -4 ? "target core already on" : "PSCI CPU_ON failed");
+		reset(15);
 	}
 
-	con_str("A73", "all target cores already on");
-	reset(15);
+	uint64_t deadline = now() + rsr("cntfrq_el0") * 3;
+	while (lavender_a73_state == A73_STATE_IDLE && now() < deadline)
+		delay_ms(10);
+
+	if (lavender_a73_state != A73_STATE_PROBED &&
+	    lavender_a73_state != A73_STATE_BAD_CORE) {
+		lavender_a73_state = A73_STATE_ABORT;
+		__asm__ volatile("dsb sy; sev" ::: "memory");
+		con_str("A73", "secondary entry timed out");
+		reset(15);
+	}
+
+	con_hex("A73 observed MPIDR", lavender_a73_mpidr);
+	con_hex("A73 MMFR0", lavender_a73_mmfr0);
+	uint64_t tgran16 = (lavender_a73_mmfr0 >> 20) & 0xf;
+	con_hex("A73 TGRAN16", tgran16);
+
+	if (lavender_a73_state == A73_STATE_BAD_CORE) {
+		lavender_a73_state = A73_STATE_ABORT;
+		__asm__ volatile("dsb sy; sev" ::: "memory");
+		con_str("A73", "unexpected MPIDR; refusing XNU");
+		reset(15);
+	}
+	if (tgran16 < 1 || tgran16 > 2) {
+		lavender_a73_state = A73_STATE_ABORT;
+		__asm__ volatile("dsb sy; sev" ::: "memory");
+		con_str("A73", "16K granule unsupported; refusing XNU");
+		reset(15);
+	}
+
+	con_str("A73", "16K supported; launching XNU");
+	lavender_a73_state = A73_STATE_GO;
+	__asm__ volatile("dsb sy; sev" ::: "memory");
+	for (;;)
+		__asm__ volatile("wfe");
 }
 #endif /* TARGET_LAVENDER */
 
