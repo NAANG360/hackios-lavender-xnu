@@ -2069,3 +2069,62 @@ The bundle contains the XNU kernel, updated PSCI-probe shim Image/ELF, run #18 A
 Shim run #19 (`43355597114`) generated the default ADT successfully and passed the builder's own `check()` for the new A73-only profile. The host test then failed on an incorrectly escaped expected `state` byte string (`b"running\\\\0"` instead of a NUL-terminated string). This was a test assertion bug, not an ADT builder or firmware failure; the shim compile was skipped because the test step stopped first.
 
 The test now compares against the builder's own `mod.cstr()` encoding and removes a dead conditional expression. The A73-only assertions still require MPIDRs `0x100, 0x101, 0x102, 0x103`, cluster ID 1, and exactly one running boot CPU. A new shim workflow run is triggered to verify the correction.
+
+
+---
+
+## 33. Session continuation — 2026-11-13 11:07 IST
+
+### 33.1 Repository and agent entrypoint revalidated
+
+- Repository: https://github.com/NAANG360/hackios-lavender-xnu
+- Active engineering branch: `ci/lavender-machine-profile`.
+- Root `AGENTS.md` and `PROJECT_HANDOFF.md` were read. The root README correctly directs agents to these files and warns that most inherited README/NOTES content describes IOS-Sweet / Redmi Note 10 Pro / SM7150, not Lavender.
+- Repository tree was inspected recursively. Relevant current files include `.github/workflows/xnu.yml`, `.github/workflows/lavender-shim.yml`, `.github/workflows/package-lavender.yml`, `tools/validate-lavender-profile.sh`, `tools/mkadt-lavender.py`, `shim/loader.c`, `shim/platform_lavender.h`, Lavender XNU patches, and the ADT regression tests.
+- A dedicated `gitinspect` connector/action was not exposed in this session; GitHub's Git data/tree, refs, commit history, workflow, job, artifact, and file APIs were used for equivalent repository inspection.
+
+### 33.2 Run #84 kernel artifact independently downloaded and inspected
+
+- XNU workflow run: `43259106099` (#84), source commit `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`, conclusion success.
+- Artifact: `xnu-kernel`, ID `13966815907`, ZIP digest `ca56d0a3b12cd9dd660442d5bf243b3f2de77d0d8842d324baf775b5c731ebee`.
+- Extracted kernel: `kernel.development.lavender`, 16,586,120 bytes.
+- Independent local `file`/Mach-O inspection: 64-bit ARM64 Mach-O executable, `MH_EXECUTE`, PIE, 26 load commands, 0 undefined symbols according to the earlier artifact inspection.
+- Required identity bytes are present: `LavenderPlatformExpert`, `qcom,sdm660-mtp`, and `Redmi Note 7`.
+- Kernel SHA-256: `58ab0b425eed4b2134a126aa6a04c915bd44a4ee64096f51a20933485f7477b3`.
+- This confirms a statically valid, linked Lavender-configured XNU binary. It does not prove runtime compatibility or physical-device boot.
+
+### 33.3 Run #86 verification failure diagnosed and corrected
+
+- Run #86: `43354920951`, source commit `67839aa2055873ef7d6caac9d68415d4a0e34efc`.
+- The XNU compile and link steps succeeded. The final verifier failed after `file` printed `Mach-O 64-bit executable arm64` on macOS, while the shell regex expected `Mach-O 64-bit arm64 executable`.
+- This was a host-tool output-format mismatch, not evidence of an XNU compile failure. The kernel artifact was not uploaded because verification stopped before publication.
+- Corrected `.github/workflows/xnu.yml` in commit `6eb50162628b73f7e1493193c45c8d22e4c625ed`: verification now parses the Mach-O 64-bit header directly (magic, ARM64 CPU type, MH_EXECUTE) and checks the three Lavender identity strings in the bytes, avoiding platform-specific `file` wording.
+- XNU run #87: `43373843354`, source commit `6eb50162628b73f7e1493193c45c8d22e4c625ed`. At this handoff update it is in progress in the XNU build step. Poll its final conclusion, logs and artifact before treating the corrected verifier as validated.
+
+### 33.4 Latest shim/ADT compile evidence
+
+- Lavender shim workflow run #20: `43355764226`, source commit `7aa8150684fd8f67a0b10edf3d1e03871c948f90`, conclusion success.
+- Job `131657332610`: ADT generation, ADT invariants, and AArch64 shim compilation all passed.
+- Artifact `lavender-shim-compile`: ID `14005927386`.
+- Downloaded artifact contents: `shim/out/Image` (217,088 bytes; ARM64 Linux boot Image wrapper), `shim/out/shim.elf` (22,624-byte statically linked AArch64 ELF), `artifacts/lavender.adt` (10,072 bytes), and `host.ppm` host-test framebuffer sample.
+- Hashes from the downloaded run #20 artifact: Image `0fbca09bcfd3f48425456c5236b9f4f6d15bd0d198b0c3d3ce4dbcb2c3b5e401`; shim ELF `8786fdbc0d96d647d14c7475484e618904c095a5c5e385861d71f20b41a9b35c`; ADT `b8f7e94e86a82d792edf1417363d2dbdbcf7895912fc177291de13c14affdd`.
+- The host-test PPM shows a simulated synchronous exception panic screen. It is not a physical-device screenshot and not an Apple logo or boot result.
+
+### 33.5 Current hardware/boot gate and user-facing milestone
+
+- The current XNU payload assembled earlier uses `cpus=1`, a Lavender ADT, and the run #84 kernel. It contains no iOS root ramdisk and is only for early kernel bring-up.
+- The shim now reports the active MPIDR and `ID_AA64MMFR0_EL1.TGran16`. A separate PSCI CPU_ON diagnostic probes MPIDR `0x100` and powers that secondary core back off; it does not hand XNU execution to the A73.
+- Cortex-A53 does not support the configured 16 KiB translation granule; Cortex-A73 does. The actual boot-core/cluster mapping and PSCI behavior must be measured on the physical phone before attempting the XNU jump. Keep the loader's safety refusal; do not bypass it to manufacture a logo.
+- The generated ADT has passed host invariants for the provisional RAM aperture, CPU order, framebuffer, eMMC and NVT touch properties. These are source/profile checks, not runtime driver validation.
+- No physical Lavender XNU boot, Apple logo, display driver, touch driver, eMMC root mount, iOS userspace, or SpringBoard is established.
+- Do not overwrite Android, recovery, userdata, boot, dtbo, vbmeta, modem, persist or calibration partitions. Preserve the requested reversible trial. A host-triggered `fastboot boot` is tethered and must not be described as the user's requested untethered/device-local trial.
+
+### 33.6 Immediate continuation
+
+1. Poll XNU run #87 and verify that the corrected Mach-O verifier passes and the `xnu-kernel` artifact is published.
+2. Inspect the new artifact's exact SHA-256, Mach-O header, load commands, entry point, segments, symbol/undefined-symbol state and Lavender identity strings.
+3. Continue from the physical boot-core/TGran16/PSCI gate. The next required evidence is the actual phone's boot MPIDR and TGran16 plus the PSCI A73 probe result; no emulator substitute.
+4. Keep the package workflow manual and do not run it until its external stock-DTB input path is independently reviewed and the user's no-overwrite/untethered constraints are respected.
+5. After a verified physical early-boot/display milestone, update this canonical handoff with the exact run, commit, artifact hash and device evidence.
+
+This section records repository inspection, artifact verification and a CI verifier correction. It does not claim that a boot image has been produced or that the physical phone has displayed an Apple logo.
