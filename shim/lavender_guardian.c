@@ -10,6 +10,7 @@
 #define SPMI_V2_MIN 0x20010000U
 #define SPMI_V3_MIN 0x30000000U
 #define SPMI_V5_MIN 0x50000000U
+#define SPMI_V7_MIN 0x70000000U
 #define SPMI_V2_MAP 0x800U
 #define SPMI_V5_MAP 0x900U
 #define SPMI_OWNER 0x700U
@@ -158,9 +159,13 @@ void lavender_guardian_run(void)
 		else if(cell) {
 			uint32_t marker=*cell;
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
-			/* Stage 20 sets bit 31 after the early-kernel startup guard completes. */
-			if(!(marker&0x80000000U) && now-progress>f*EARLY_TIMEOUT_SECONDS)
-				reset_now("XNU early boot stalled");
+			/* Stage 20 ends the early timeout only after key guardian is ready. */
+			if(now-progress>f*EARLY_TIMEOUT_SECONDS) {
+				if(marker&0x80000000U)
+					reset_now("XNU reached startup but key guardian unavailable");
+				else
+					reset_now("XNU early boot stalled");
+			}
 		} else if(now-started>f*EARLY_TIMEOUT_SECONDS) {
 			reset_now("XNU handoff did not start");
 		}
@@ -174,7 +179,13 @@ void lavender_guardian_run(void)
 				if(!chord_since) chord_since=now;
 				else if(now-chord_since>=f*CHORD_SECONDS)
 					reset_now("VolUp+VolDown held 3 seconds");
-			} else chord_since=0;
+			} else {
+				chord_since=0;
+				if(pressed<0) {
+					ready=0;
+					probe_at=now+f;
+				}
+			}
 		}
 		delay_ms(POLL_MS,f);
 	}
