@@ -22,7 +22,7 @@ on:
         default: LAVENDER
       keep_going:
         description: make -k (collect all compile errors in one run)
-        default: "true"
+        default: "false"
   push:
     branches: [main, ci/lavender-machine-profile]
     paths:
@@ -75,7 +75,16 @@ jobs:
           # exposed by the hosted runner for its major build steps.
           sed -i '' 's/make install -j8/make install -j"${XNU_MAKE_JOBS:-8}"/g' dxb/build.sh
           # Run a deterministic post-patch source guard from the repo tools.
-          python3 -c 'from pathlib import Path; p=Path("dxb/build.sh"); s=p.read_text(); old="    patches\\n    venv"; new="    patches\\n    python3 ../tools/fix-lavender-pre-vbar.py\\n    venv"; assert old in s, "pinned build.sh insertion point changed"; p.write_text(s.replace(old,new,1))'
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("dxb/build.sh")
+          source = path.read_text()
+          old = "    patches" + chr(10) + "    venv"
+          new = "    patches" + chr(10) + "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) + "    venv"
+          if old not in source:
+              raise SystemExit("pinned build.sh main() patch/venv insertion point changed")
+          path.write_text(source.replace(old, new, 1))
+          PY
           # libfirehose_kernel is arm64e-only upstream; the reference and Lavender
           # targets are plain arm64.
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
