@@ -2128,3 +2128,63 @@ The test now compares against the builder's own `mod.cstr()` encoding and remove
 5. After a verified physical early-boot/display milestone, update this canonical handoff with the exact run, commit, artifact hash and device evidence.
 
 This section records repository inspection, artifact verification and a CI verifier correction. It does not claim that a boot image has been produced or that the physical phone has displayed an Apple logo.
+
+
+---
+
+## 34. XNU run #87 verified; current run-87 payload bundle assembled — 2026-11-13
+
+### 34.1 Corrected XNU build is green
+
+- XNU workflow run #87: `43373843354`, conclusion **success**.
+- Source commit: `6eb50162628b73f7e1493193c45c8d22e4c625ed`.
+- All job steps passed, including Lavender profile preflight, XNU 8796 build, kernel collection, direct Mach-O verification and artifact upload.
+- Artifact: `xnu-kernel`, ID `14013279960`, 58,301,734 bytes.
+- Kernel: `kernel.development.lavender`, 16,586,120 bytes.
+- SHA-256: `8d216a3f65e1a28f34ba05115257298b02af32f6bbcbe21589590dfaf8bad627`.
+- Independent local checks: Mach-O 64-bit ARM64, `MH_EXECUTE`, `NOUNDEFS|PIE`, 26 load commands, no chained-fixups load command, entry VA `0xfffffe000747c488`. The required identity bytes `LavenderPlatformExpert`, `qcom,sdm660-mtp`, and `Redmi Note 7` are present.
+
+This closes the previous run #86 host-output-format false failure. It proves a Lavender-configured XNU kernel is compiled and linked; it does not prove the kernel runs on the phone.
+
+### 34.2 Current shim and ADT inputs
+
+- Lavender shim workflow run #20: `43355764226`, conclusion success, source commit `7aa8150684fd8f67a0b10edf3d1e03871c948f90`.
+- Artifact `lavender-shim-compile`, ID `14005927386`.
+- Shim Image SHA-256: `0fbca09bcfd3f48425456c5236b9f4f6d15bd0d198b0c3d3ce4dbcb2c3b5e401`.
+- Shim ELF SHA-256: `8786fdbc0d96d647d14c7475484e618904c095a5c5e385861d71f20b41a9b35c`.
+- ADT SHA-256: `b8f7f0e94b86a82d792edf1417363d2dbcf7895912fc177291de13c14affdd`.
+- The shim includes a boot-CPU MPIDR/TGran16 diagnostic and a one-core A73 PSCI probe. The PSCI probe powers the target core back off; it does not transfer XNU execution to it.
+
+### 34.3 Run #87 LAVENDRX payload assembled and checked
+
+A new payload was assembled from the run #87 kernel and run #20 ADT using the repository's documented LAVENDRX payload layout. Independent structural checks passed:
+
+- Payload size: 15,958,240 bytes.
+- SHA-256: `86c6ba082740d588e11c09186f603274d1cb067d0dc12b7031cb84603bd95b0c`.
+- Magic/version: `LAVENDRX` / 1; 10 segments; zero chained fixups.
+- Virtual base: `0xfffffe0006000000`; entry: `0xfffffe000747c488`.
+- Kernel end: `0xfffffe000801c000`.
+- Physical aperture: base `0xa0400000`, size `0x4a448000`, end `0xea848000`.
+- ADT offset/size: `15948160` / `10072` bytes.
+- Segment table, payload/ADT bounds, entry containment, and kernel physical end within the ADT RAM aperture were checked.
+
+A local intermediate ZIP was created at `/mnt/data/LIOS-Lavender-Run87-Intermediate.zip`, SHA-256 `baef4bec3d3b48a7c5bda9a19d7af2f9f88b921391153895f5c9ee252bf0a29c`. It contains the kernel, shim Image/ELF, ADT, payload, checksums and provenance README. It is explicitly an engineering intermediate, **not** a boot.img or flashable ROM.
+
+### 34.4 Remaining blockers before a boot-image candidate
+
+- The package workflow remains manual. Do not trigger it until its external DTB source is independently reviewed and the no-overwrite / requested boot-mode constraints are respected.
+- The package workflow currently obtains a boot.img from an external experimental Android OTA and extracts its appended FDT. That source must not be assumed safe or exact without verifying its boot image, appended FDT compatible/model, board variant and memory/reserved-memory map against the supplied live-device audit. Do not modify the Android ROM repository as part of LIOS.
+- The uploaded hardware audit confirms the device identity, SDM660 MTP F7A overlay, 8-core topology, Tianma 1080x2340 display and splash framebuffer at `0x9d400000`; it does not report the actual boot CPU MPIDR or live `ID_AA64MMFR0_EL1.TGran16` value. The latter is still a hard gate because the current XNU configuration uses 16 KiB translation granules.
+- The shim's loader correctly refuses the XNU jump if the live boot CPU reports unsupported TGran16. Do not remove or bypass that refusal. The A73 PSCI test is diagnostic only.
+- The current early framebuffer console patches are SWEET-specific (`#if defined(SWEET)`) and use SWEET framebuffer addresses. They are not a Lavender Apple-logo implementation. A Lavender-specific early framebuffer path (using the audited Lavender splash region and correct bootstrap/final mappings) still needs to be implemented and built before claiming an Apple logo can be shown by XNU.
+- No iOS root filesystem, cryptexes, dyld shared cache, or SpringBoard are present in the payload. This is kernel bring-up only.
+
+### 34.5 Next engineering sequence
+
+1. Obtain/verify the exact current-device boot image or raw FDT/DTB, not a guessed generic board tree; check its F7A model, compatible strings, framebuffer and reserved memory against the uploaded audit.
+2. Produce a **diagnostic-only** RAM-boot image that cannot jump to XNU until the live CPU's TGran16 gate passes; use it to record the actual boot MPIDR, TGran16 and A73 PSCI result. Preserve the Android boot/recovery path and never flash a partition.
+3. If the A73 handoff is proven, build an ADT with `--boot-mpidr 0x100 --cpu-count 4` and make the loader's CPU-selection path explicitly match the measured result. Otherwise stop at the safe refusal and investigate a compatible granule strategy.
+4. Add a Lavender-specific early framebuffer console/logo path; do not reuse SWEET's hardcoded framebuffer address or claim the SWEET console is already enabled for Lavender.
+5. Only then package and test the first XNU-entry boot image. A green CI build or static payload is not a physical boot.
+
+Current status: XNU kernel compile/link **verified**; LAVENDRX payload **assembled and structurally checked**; shim/ADT compile **verified**; stock FDT provenance, live boot CPU gate, boot.img packaging, XNU runtime, display logo and userspace remain unverified.
