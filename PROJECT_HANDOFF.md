@@ -1956,3 +1956,49 @@ This is **compile-only**. The workflow explicitly reports that no `boot.img` was
 ### 27.3 Next CI status
 
 After removing the obsolete table-fix patches and correcting the validator, XNU run #86 (`43354920951`, commit `67839aa2055873ef7d6caac9d68415d4a0e34efc`) entered the machine-profile preflight. Its final result must be checked before treating the new workflow as healthy.
+
+
+---
+
+## 28. First LAVENDRX kernel payload assembled and statically checked — 2026-11-13
+
+### 28.1 Inputs
+
+Used the exact XNU kernel from run #84 and the exact shim/ADT output from run #17:
+
+- XNU kernel SHA-256: `58ab0b425eed4b2134a126aa6a04c915bd44a4ee64096f51a20933485f7477b3`.
+- Lavender ADT SHA-256: `a41be87e39f7657a270f64e12ae4fc28d40470004a9ace9847fa6a80bec6c855`.
+- Payload machine marker: `LAVENDRX`.
+- Command line: `debug=0xc serial=3 cpus=1 keepsyms=1`.
+- No root ramdisk was supplied.
+
+### 28.2 Payload output
+
+The repository's `mkpayload.py` / `adt.py` packing logic produced `lavender-payload.bin`:
+
+- Size: **15,958,240 bytes**.
+- SHA-256: `8dd0ce2552a525058b1f4b407948f3484721d1ac10c738a8c2460dc2e752eb39`.
+- Header: `LAVENDRX`, version 1, **10 segments**, 0 chained fixups.
+- Virtual base: `0xfffffe0006000000`.
+- Entry point: `0xfffffe000747c488` (inside `__TEXT_EXEC`).
+- Kernel end: `0xfffffe000801c000`.
+- Physical base: `0xa0400000`; managed size `0x4a448000`; aperture end `0xea848000`.
+- ADT offset: 15,948,160; ADT size: 10,072 bytes.
+
+A separate structural check passed: magic/version, segment table bounds, every segment's virtual bounds, entry-point containment, ADT placement, and kernel physical aperture were all valid. The payload's physical kernel end is inside the selected contiguous RAM aperture.
+
+### 28.3 Limitations and boot path
+
+- This payload has **no root ramdisk** and no `RAMDisk` property in its ADT. It is suitable only for early XNU bring-up through kernel initialization; it is not an iOS userspace boot image.
+- The bundle does not contain the exact stock Lavender DTB, an iOS root filesystem, cryptexes, dyld shared cache, or an iPhone `/product` ADT node.
+- No `boot.img` has been packaged and no physical-device boot has occurred.
+- The existing package workflow is a **temporary fastboot-boot test image** workflow, not an untethered boot method and not a flashing workflow. The user's preference for a device-local/untethered trial remains unresolved; do not silently treat fastboot boot as satisfying it.
+- The 16 KiB granule gate remains: capture the active boot MPIDR and TGran16 on the phone before allowing XNU entry. The shim compile artifact now contains that diagnostic.
+
+### 28.4 Intermediate bundle
+
+A checksummed ZIP containing the kernel, shim Image/ELF, generated ADT, LAVENDRX payload and a limitations/provenance README was created for handoff. It is an engineering intermediate only, not a flashable artifact.
+
+### 28.5 XNU CI after patch-stack cleanup
+
+At the time this section was written, run #86 (`43354920951`, commit `67839aa2055873ef7d6caac9d68415d4a0e34efc`) had passed Lavender profile preflight and dependency installation and was actively running **Build XNU 8796**. Its final conclusion and artifact must be checked separately.
