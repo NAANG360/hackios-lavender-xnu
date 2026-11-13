@@ -2511,3 +2511,12 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 - The package job in the same XNU workflow is configured to package only after that run's kernel verification succeeds.
 - Physical test: not performed. The new patch is only a static/build-time risk reduction. No Apple logo or successful iOS boot has yet been confirmed.
 - Never flash a partition. Do not request a physical boot until the guardian's reset/recovery behavior is independently considered safe for this handset with its broken power button.
+
+
+## 41. 2026-11-13 — Guard stage-20 completion from false early-stall reporting
+
+- Commit `b521ba593b51749dedc1cd32a2fa3b89b8cc52c2` updates `shim/lavender_guardian.c`.
+- The stage-20 marker is terminal for the early instrumentation path; XNU intentionally stops advancing that marker after the early serial/kprintf milestone.
+- The guardian now paints `XNU EARLY BOOT STALLED` only when the marker has not reached stage 20. If stage 20 was reached but the PMIC key guardian could not initialize within the timeout, it paints the distinct `KEY GUARDIAN UNAVAILABLE` message. If stage 20 was reached and the key guardian is ready, it does not paint a false stall screen and refreshes its local watchdog baseline.
+- Shim compile run 43450644863 (#37) succeeded for commit `b521ba593b51749dedc1cd32a2fa3b89b8cc52c2`.
+- This corrects a diagnostic false-positive; it does not prove PSCI/watchdog reset or PMIC recovery behavior on the physical phone.
