@@ -2060,3 +2060,12 @@ The bundle contains the XNU kernel, updated PSCI-probe shim Image/ELF, run #18 A
 
 - Shim run #19 (`43355597114`, source commit `9e6a84667e7ca6dd3a50bbebe1e37f1c8aeb19b2`) is testing the new optional boot-MPIDR/CPU-count ADT profiles, including an A73-only profile with boot MPIDR `0x100` and four CPU nodes.
 - XNU run #86 (`43354920951`) remains in the XNU build step after passing profile preflight and dependency installation. Do not report it complete until its final job result and verified kernel artifact are available.
+
+
+---
+
+## 32. A73 ADT regression-test correction — 2026-11-13
+
+Shim run #19 (`43355597114`) generated the default ADT successfully and passed the builder's own `check()` for the new A73-only profile. The host test then failed on an incorrectly escaped expected `state` byte string (`b"running\\\\0"` instead of a NUL-terminated string). This was a test assertion bug, not an ADT builder or firmware failure; the shim compile was skipped because the test step stopped first.
+
+The test now compares against the builder's own `mod.cstr()` encoding and removes a dead conditional expression. The A73-only assertions still require MPIDRs `0x100, 0x101, 0x102, 0x103`, cluster ID 1, and exactly one running boot CPU. A new shim workflow run is triggered to verify the correction.
