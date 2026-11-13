@@ -128,7 +128,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          python3 tools/mkadt-lavender.py artifacts/lavender.adt --check
+          # XNU will enter on Kryo 260 Gold core MPIDR 0x100; keep the ADT boot CPU aligned.
+          python3 tools/mkadt-lavender.py artifacts/lavender.adt --boot-mpidr 0x100 --check
 
       - name: Build the Lavender XNU payload
         run: |
@@ -193,6 +194,7 @@ jobs:
             echo "Source commit: ${{ github.sha }}"
             echo "Boot mode: fastboot boot only; do not flash to a partition"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
+            echo "XNU boot CPU MPIDR: 0x100 (Kryo 260 Gold cluster)"
             echo "Android boot metadata: ${OS_VERSION} / ${OS_PATCH_LEVEL}"
             echo "Kernel: ${KERNEL_PATH}"
           } > artifacts/BUILD-MANIFEST.txt
