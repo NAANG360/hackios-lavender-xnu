@@ -6,9 +6,15 @@
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +/* Physical guard-cell writes remain observable to the uncached A53 guardian. */
 +.macro lavender_early_mark value
++	/* Save live scratch registers in unused boot_args-page space. */
++	str		x0, [x20, #0x1008]
++	str		x1, [x20, #0x1010]
++	add		x0, x20, #0x1000
 +	mov		w1, #\value
-+	str		w1, [x20, #0x1000]
++	str		w1, [x0]
 +	dsb		sy
++	ldr		x0, [x20, #0x1008]
++	ldr		x1, [x20, #0x1010]
 +.endm
  	/* Stage 1: XNU's first instruction path, MMU/caches still off. */
 -	mov		w1, #1
@@ -111,6 +117,8 @@
 -	add	x0, x20, x22
 -	sub	x0, x0, x23
 -	add	x0, x0, #0x1000
++	str	x0, [x20, #0x1008]
++	str	x1, [x20, #0x1010]
 +	add	x0, x20, #0x1000
  	mov	w1, #\value
  	str	w1, [x0]
