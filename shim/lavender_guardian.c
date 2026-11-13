@@ -34,6 +34,7 @@
 #define QCOM_WDT_BASE 0x17817000UL
 #define WDT0_RST 0x04U
 #define WDT0_EN 0x08U
+#define WDT0_BARK_TIME 0x10U
 #define WDT0_BITE_TIME 0x14U
 #define SPMI_OP_EXT_READL 1U
 #define EARLY_TIMEOUT_SECONDS 60U
@@ -89,16 +90,16 @@ static void __attribute__((noreturn)) reset_now(const char *why)
 	}
 
 	/*
-	 * Qualcomm SDM660 watchdog fallback. Keep its programming sequence
-	 * aligned with the QCOM v2 watchdog driver: disable, set bite timeout,
-	 * reset the counter, then enable. Do not read back MMIO here: a stalled
-	 * peripheral read must not prevent the firmware reset attempt above.
+	 * SDM660 KPSS watchdog_v2 layout/order from qcom-wdt: disable,
+	 * reset the counter, program bark then bite, and enable last.
+	 * One-tick bite is only a last-resort fallback after PSCI failed.
+	 * No MMIO readback: a stalled peripheral read must not trap here.
 	 */
 	con_str("RESET", "watchdog fallback");
 	write32(QCOM_WDT_BASE + WDT0_EN, 0);
-	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 1);
-	__asm__ volatile("dsb sy" ::: "memory");
 	write32(QCOM_WDT_BASE + WDT0_RST, 1);
+	write32(QCOM_WDT_BASE + WDT0_BARK_TIME, 1);
+	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 2);
 	__asm__ volatile("dsb sy" ::: "memory");
 	write32(QCOM_WDT_BASE + WDT0_EN, 1);
 	__asm__ volatile("dsb sy; isb" ::: "memory");
