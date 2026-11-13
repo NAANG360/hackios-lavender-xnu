@@ -50,11 +50,13 @@ index 023086f..64bc230 100644
  	/* Ensure TTEs are visible */
  	dsb		ish
  
-@@ -837,6 +871,32 @@ common_start:
+@@ -837,6 +871,34 @@ common_start:
  	MSR_SCTLR_EL1_X0
  	isb		sy
  
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Preserve x0: the non-SWEET path verifies the SCTLR value below. */
++	mov		x5, x0
 +	/* Stage 2: MMU/caches live; publish to the A53 guardian at PoC. */
 +	add		x0, x20, x22
 +	sub		x0, x0, x23
@@ -78,6 +80,7 @@ index 023086f..64bc230 100644
 +	subs	x2, x2, #1
 +	b.ne	Llavender_stage2_row
 +	dsb		sy
++	mov		x0, x5
 +#endif
 +
  #if !VMAPPLE && !defined(SWEET)
