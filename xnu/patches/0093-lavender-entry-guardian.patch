@@ -50,7 +50,7 @@ index 023086f..64bc230 100644
  	/* Ensure TTEs are visible */
  	dsb		ish
  
-@@ -837,6 +871,34 @@ common_start:
+@@ -837,6 +871,35 @@ common_start:
  	MSR_SCTLR_EL1_X0
  	isb		sy
  
