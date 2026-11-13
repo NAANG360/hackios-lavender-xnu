@@ -101,7 +101,8 @@ jobs:
           grep -q 'lavender_guard_mark 7' dxb/xnu/osfmk/arm64/start.s
           grep -q '#if !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR)' dxb/xnu/osfmk/arm64/start.s
           grep -q 'SPMI_OP_EXT_READL' shim/lavender_guardian.c
-          grep -q 'QCOM_PSHOLD_BASE 0x010ac000' shim/lavender_guardian.c
+          grep -q 'QCOM_WDT_BASE 0x17817000' shim/lavender_guardian.c
+          grep -q 'WDT0_BITE_TIME 0x14' shim/lavender_guardian.c
 
       - name: Upload XNU build log
         if: always()
