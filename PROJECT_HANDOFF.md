@@ -1841,3 +1841,44 @@ The XNU workflow should also fail a nominally successful build if the expected n
 6. Only after kernel early boot is confirmed should display/NVT touch and the iOS 16.5 userspace chain be attempted. Adreno 512 remains later.
 
 The project has now crossed from “no kernel” to “first verified static ARM64 Lavender XNU kernel artifact.” The device boot milestone remains open.
+
+
+---
+
+## 25. SDM660 16 KiB translation-granule compatibility gate — 2026-11-13
+
+### 25.1 Newly confirmed core-specific constraint
+
+The Lavender XNU profile and shim use a 16 KiB translation granule. This must not be treated as a generic “ARM64 supports it” assumption:
+
+- Arm's official Cortex-A53 TRM specifies `ID_AA64MMFR0_EL1.TGran16 = 0x0`: 16 KiB translation granules are **not supported** on Cortex-A53.
+- Arm's official Cortex-A73 TRM specifies `TGran16 = 0x1`: 16 KiB granules **are supported** on Cortex-A73.
+- Snapdragon 660 has two four-core Kryo 260 clusters. Independent architecture reporting identifies the high-performance cluster as Cortex-A73-derived and the efficiency cluster as Cortex-A53-derived. Qualcomm confirms the two-cluster, four-plus-four Kryo 260 topology.
+
+References:
+- Arm Cortex-A53 TRM: https://documentation-service.arm.com/static/6040c321ee937942ba301626
+- Arm Cortex-A73 TRM: https://documentation-service.arm.com/static/5e7b6c837158f500bd5c03fc
+- Qualcomm SDM660: https://www.qualcomm.com/processors/application-processors/products/sdm660
+- Cluster/core identification: https://www.anandtech.com/show/11338/qualcomm-announces-snapdragon-660-630-mobile-platforms-better-connectivity-camera-compute-at-14nm
+
+### 25.2 Impact on this port
+
+The XNU build can be perfectly valid ARM64 Mach-O and still be unable to run on the currently executing CPU if ABL enters the shim on a Cortex-A53. The existing loader correctly refuses to jump when the active core reports `TGran16 < 1`. However, it previously logged only the granule field, not which MPIDR/cluster was executing.
+
+The kernel payload command line currently requests `cpus=1`, which is a useful conservative first-boot limit, but it does **not** select a Cortex-A73 boot core. The exact relationship between MPIDR Aff1 cluster IDs and the A73/A53 clusters must be read from the live FDT/CPU audit and verified on-device. Do not assume cluster 0 is the performance cluster.
+
+If the boot CPU is A53 (`TGran16=0`), the current 16 KiB XNU cannot be entered on that core. Possible engineering paths are to start an A73 core through a verified PSCI CPU_ON handoff before entering XNU, or to investigate a genuine XNU 4 KiB-granule port. Neither path is implemented or proven. Do not enable eight-core SMP until the per-core granule support and cluster mapping are known.
+
+### 25.3 Instrumentation change
+
+`shim/loader.c` now prints the active boot MPIDR (Aff2:Aff1:Aff0), raw `ID_AA64MMFR0_EL1`, and decoded `TGran16` before the XNU jump gate. This is diagnostic-only and does not change the jump policy. The Lavender shim compile workflow is triggered by this change.
+
+### 25.4 Next gate
+
+1. Confirm the diagnostic-only shim compile succeeds.
+2. On the actual device, collect the boot MPIDR and `ID_AA64MMFR0_EL1.TGran16` without writing any partition.
+3. Match Aff1 to the actual A73/A53 cluster using the live device tree and CPU MIDR data.
+4. Only permit XNU entry on a core with 16 KiB support; keep `cpus=1` until the SMP strategy is proven.
+5. If the active boot core lacks 16 KiB support, stop rather than attempting a blind jump. Investigate the PSCI handoff path or 4 KiB XNU feasibility.
+
+This is a newly identified hardware compatibility gate, not evidence that the current kernel build failed.

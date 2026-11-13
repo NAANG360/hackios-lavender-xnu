@@ -88,9 +88,12 @@ const char *loader_boot(uintptr_t dtb)
 	/* XNU is configured for 16 KiB translation granules. Refuse to jump
 	 * unless the live CPU advertises TGran16=1 (supported) or 2
 	 * (supported with LPA2). TGran16=0 means unsupported. */
-	uint64_t mmfr0;
+	uint64_t mmfr0, mpidr;
 	__asm__ volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(mmfr0));
+	__asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 	uint64_t tgran16 = (mmfr0 >> 20) & 0xf;
+	con_hex("BOOT MPIDR", mpidr & 0xffffff);
+	con_hex("MMFR0", mmfr0);
 	con_hex("TGRAN16", tgran16);
 	if (tgran16 < 1 || tgran16 > 2)
 		return "16K granule unsupported; refusing XNU jump";
