@@ -215,16 +215,25 @@ void lavender_guardian_run(void)
 			/* Stage 20 ends the early timeout only after key guardian is ready. */
 			if(now-progress>f*EARLY_TIMEOUT_SECONDS) {
 				uint64_t age=(now-progress)/f;
-				/* XNU may have cleared the shared framebuffer. Repaint only
-				 * after progress has stopped, so the guardian's report is visible. */
-				con_clear(RED);
-				con_str("LAVENDER","XNU EARLY BOOT STALLED");
-				con_hex("LAST STAGE",marker);
-				con_hex("STALL SECS",age);
-				if(!(marker&0x80000000U))
+				if(!(marker&0x80000000U)) {
+					/* XNU may have cleared the shared framebuffer. Repaint
+					 * only for a genuine pre-stage-20 stall. */
+					con_clear(RED);
+					con_str("LAVENDER","XNU EARLY BOOT STALLED");
+					con_hex("LAST STAGE",marker);
+					con_hex("STALL SECS",age);
 					reset_now("XNU early boot stalled");
-				else if(!ready)
+				} else if(!ready) {
+					con_clear(RED);
+					con_str("LAVENDER","KEY GUARDIAN UNAVAILABLE");
+					con_hex("LAST STAGE",marker);
+					con_hex("WAIT SECS",age);
 					reset_now("key guardian unavailable");
+				} else {
+					/* Stage 20 intentionally ends marker updates. Do not
+					 * misreport later kernel startup as an early stall. */
+					progress=now;
+				}
 			}
 		} else if(now-started>f*EARLY_TIMEOUT_SECONDS) {
 			con_clear(RED);
