@@ -37,7 +37,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  	// Clear thread pointer
  	msr		TPIDR_EL1, xzr						// Set thread register
  
-@@ -850,5 +869,9 @@
+@@ -850,4 +869,8 @@
  	// Clear thread pointer
  	msr		TPIDR_EL1, xzr						// Set thread register
  
