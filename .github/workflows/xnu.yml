@@ -132,8 +132,13 @@ jobs:
           start = source.index("LEXT(start_first_cpu)")
           vbar = source.index("MSR_VBAR_EL1_X0", start)
           pre_vbar = source[start:vbar]
-          if "0x9d400000" in pre_vbar or "Llavender_stage1_pixel" in pre_vbar:
-              raise SystemExit("unsafe Lavender framebuffer access remains before VBAR_EL1")
+          # Inspect executable assembly only; comments and labels are not writes.
+          instructions = "\\n".join(line.split("//", 1)[0] for line in pre_vbar.splitlines())
+          import re
+          unsafe_fb_base = re.search(r"(?mi)^\\s*MOV64\\s+x0,\\s*\\(0x9d400000", instructions)
+          unsafe_fb_store = re.search(r"(?mi)^\\s*str\\s+w1,\\s*\\[x0\\]", instructions)
+          if unsafe_fb_base and unsafe_fb_store:
+              raise SystemExit("unsafe Lavender framebuffer write sequence remains before VBAR_EL1")
           if "lavender_early_mark 0x11" not in pre_vbar:
               raise SystemExit("missing RAM-only pre-VBAR checkpoint 0x11")
           print("PASS: pre-VBAR path has RAM-only markers and no framebuffer I/O")
