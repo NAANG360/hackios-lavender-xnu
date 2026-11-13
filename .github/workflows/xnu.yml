@@ -99,6 +99,7 @@ jobs:
           grep -q 'sweet_early_logo' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'sweet_early_logo();' dxb/xnu/osfmk/arm/arm_init.c
           grep -q 'lavender_guard_mark 7' dxb/xnu/osfmk/arm64/start.s
+          grep -q '#if !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR)' dxb/xnu/osfmk/arm64/start.s
           grep -q 'SPMI_OP_EXT_READL' shim/lavender_guardian.c
           grep -q 'QCOM_PSHOLD_BASE 0x010ac000' shim/lavender_guardian.c
 
