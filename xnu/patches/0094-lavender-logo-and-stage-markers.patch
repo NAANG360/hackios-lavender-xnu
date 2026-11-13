@@ -155,12 +155,14 @@ diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -351,6 +351,9 @@
+@@ -351,6 +351,11 @@
  	sweet_early_guard_init((uintptr_t)args);
  #endif
  	sweet_early_mark(1, "arm_init entered (MMU on)");
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	sweet_early_logo();
++	/* Stage 2 separates arm_init entry from completion of the logo draw. */
++	sweet_early_mark(2, "Lavender diagnostic logo completed");
 +#endif
  
  	arm_setup_pre_sign();
