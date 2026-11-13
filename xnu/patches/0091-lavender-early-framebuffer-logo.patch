@@ -121,7 +121,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -651,4 +651,26 @@ Lkernelcache_base_found:
+@@ -651,3 +651,25 @@ Lkernelcache_base_found:
  #endif
  
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
