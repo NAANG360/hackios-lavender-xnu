@@ -17,7 +17,11 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +.endm
 +#endif
 +
-@@ -807,4 +818,8 @@
+@@ -807,6 +818,11 @@
+-#if !VMAPPLE
++#if !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR)
++	/* KTRR's pinst setter may clobber x0; compare only the direct-MSR path. */
+ 	MOV64   x1, SCTLR_EL1_DEFAULT
  	cmp		x0, x1
  	bne		.
  #endif /* !VMAPPLE */
