@@ -93,7 +93,18 @@ jobs:
         run: |
           set -euo pipefail
           grep -q 'LAVENDER_XNU_GUARD_2026' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'Llavender_stage1_pixel' dxb/xnu/osfmk/arm64/start.s
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("dxb/xnu/osfmk/arm64/start.s").read_text()
+          start = source.index("LEXT(start_first_cpu)")
+          vbar = source.index("MSR_VBAR_EL1_X0", start)
+          pre_vbar = source[start:vbar]
+          if "0x9d400000" in pre_vbar or "Llavender_stage1_pixel" in pre_vbar:
+              raise SystemExit("unsafe Lavender framebuffer access remains before VBAR_EL1")
+          if "lavender_early_mark 0x11" not in pre_vbar:
+              raise SystemExit("missing RAM-only pre-VBAR checkpoint 0x11")
+          print("PASS: pre-VBAR path has RAM-only markers and no framebuffer I/O")
+          PY
           grep -q 'sweet_early_guard_init' dxb/xnu/osfmk/arm/arm_init.c
           grep -q 'sweet_early_map_final' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q 'sweet_early_logo' dxb/xnu/osfmk/arm64/sweet_early.c

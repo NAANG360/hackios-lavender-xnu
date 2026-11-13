@@ -1,0 +1,28 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -526,23 +526,9 @@
+ 	ldr		x0, [x20, #0x1008]
+ 	ldr		x1, [x20, #0x1010]
+ .endm
+-	/* Stage 1: XNU's first instruction path, MMU/caches still off. */
++	/* Stage 1: first XNU instruction path. Keep framebuffer I/O disabled
++	 * until VBAR_EL1 points at the kernel's exception vectors. */
+ 	lavender_early_mark 1
+-	MOV64	x0, (0x9d400000 + 2308 * 4320 + 64)
+-	movz	w1, #0xff00
+-	movk	w1, #0xff00, lsl #16
+-	mov		x2, #8
+-	mov		x4, #(4320 - 32)
+-Llavender_stage1_row:
+-	mov	x3, #8
+-Llavender_stage1_pixel:
+-	str	w1, [x0], #4
+-	subs	x3, x3, #1
+-	b.ne	Llavender_stage1_pixel
+-	add	x0, x0, x4
+-	subs	x2, x2, #1
+-	b.ne	Llavender_stage1_row
+-	dsb	sy
+ 	lavender_early_mark 0x11
+ #endif
