@@ -2028,3 +2028,35 @@ The existing ADT builder always advertised MPIDR `0x0` as the running CPU and em
 The builder now supports optional `--boot-mpidr` and `--cpu-count` arguments. It puts the selected MPIDR first, then the rest of that same cluster, then the other cluster; it marks only the selected boot CPU as `running`, and assigns sequential logical CPU IDs. Defaults remain unchanged (`boot_mpidr=0x0`, eight nodes), so current CI output is preserved.
 
 The host regression test now also constructs an A73-only profile (`--boot-mpidr 0x100 --cpu-count 4`) and checks the ordered MPIDRs, cluster IDs, logical IDs and running/stopped states. This is a preparatory ADT feature, not a claim that XNU has been successfully booted on an A73. The PSCI probe and actual device evidence remain required before using this profile in a boot image.
+
+
+---
+
+## 31. PSCI A73 probe compiles; refreshed intermediate bundle — 2026-11-13
+
+### 31.1 Shim run #18
+
+The new one-core PSCI diagnostic compiled successfully:
+
+- Run: **#18 / `43355464628`**, source commit `746607b89418df46e23ab30d4f76c7a78adc991c`.
+- Conclusion: **success**; Lavender ADT generation, invariants, and shim compile all passed.
+- Artifact: ID `14005737191`, 26,162 bytes, ZIP SHA-256 `7d73091cff2985e015a6ef8ae4adb9599a6d77225f2ed8e5efa7a3f2ace6afca`.
+- ELF strings confirm the compiled diagnostic paths: `A73 target MPIDR`, `PSCI CPU_ON feature`, `PSCI A73 CPU_ON`, `A73 observed MPIDR`, `A73 MMFR0`, and `A73 TGRAN16`.
+- This is compile evidence only. No PSCI call has been made on the physical phone.
+
+### 31.2 Refreshed payload bundle
+
+Rebuilt the LAVENDRX payload using the run #18 ADT and the verified run #84 XNU kernel:
+
+- ADT SHA-256: `9e1d86da9845d119ede62044b619aa75ce99015574d8fbd883c0343b9666879b`.
+- Payload SHA-256: `48b9cb44372658a5fb5f5e883cac7bacb0cf5f22dcd686ae03cd15af58f05cd8`.
+- Shim Image SHA-256: `0fbca09bcfd3f48425456c5236b9f4f6d15bd0d198b0c3d3ce4dbcb2c3b5e401`.
+- Shim ELF SHA-256: `8786fdbc0d96d647d14c7475484e618904c095a5c5e385861d71f20b41a9b35c`.
+- Bundle: `lavender-xnu-intermediate-bundle.zip`, 12 MB, SHA-256 `c06b9e11e1c588c1de1189667854c01c4d99701c6b40afce5563442591ee64d9`.
+
+The bundle contains the XNU kernel, updated PSCI-probe shim Image/ELF, run #18 ADT, matching LAVENDRX payload, checksums, provenance and explicit non-bootable limitations. It remains an intermediate—not a boot.img or flashable ROM.
+
+### 31.3 Remaining CI
+
+- Shim run #19 (`43355597114`, source commit `9e6a84667e7ca6dd3a50bbebe1e37f1c8aeb19b2`) is testing the new optional boot-MPIDR/CPU-count ADT profiles, including an A73-only profile with boot MPIDR `0x100` and four CPU nodes.
+- XNU run #86 (`43354920951`) remains in the XNU build step after passing profile preflight and dependency installation. Do not report it complete until its final job result and verified kernel artifact are available.
