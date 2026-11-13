@@ -31,7 +31,10 @@
 #define PON_RESIN_N_SET 0x02U
 #define PSCI_SYSTEM_RESET 0x84000009UL
 #define PSCI_FEATURES 0x8400000aUL
-#define QCOM_PSHOLD_BASE 0x010ac000UL
+#define QCOM_WDT_BASE 0x17817000UL
+#define WDT0_RST 0x04U
+#define WDT0_EN 0x08U
+#define WDT0_BITE_TIME 0x14U
 #define SPMI_OP_EXT_READL 1U
 #define EARLY_TIMEOUT_SECONDS 60U
 #define CHORD_SECONDS 3U
@@ -75,19 +78,26 @@ static void __attribute__((noreturn)) reset_now(const char *why)
 	uint64_t f = frequency();
 	con_skip();
 	con_str("RESET", why);
-	con_hex("PSCI RESET FEAT", smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0));
+	con_hex("PSCI", smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0));
 
-	/* SDM660 qcom,pshold restart resource from the public SoC device tree.
-	 * Qualcomm's Linux restart path deasserts PS_HOLD by writing zero. */
-	write32(QCOM_PSHOLD_BASE, 0);
+	/* SDM660 watchdog block from qcom,msm-watchdog in the public SoC DT.
+	 * Program a one-tick secure bite; unlike PS_HOLD this requests a SoC
+	 * restart, not a PMIC shutdown. Register offsets follow Qualcomm's
+	 * watchdog_v2 driver: EN=0x08, RST=0x04, BITE_TIME=0x14. */
+	write32(QCOM_WDT_BASE + WDT0_EN, 0);
+	write32(QCOM_WDT_BASE + WDT0_RST, 1);
+	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 1);
 	__asm__ volatile("dsb sy; isb" ::: "memory");
+	write32(QCOM_WDT_BASE + WDT0_EN, 1);
+	__asm__ volatile("dsb sy; isb" ::: "memory");
+	con_hex("WDT BITE", read32(QCOM_WDT_BASE + WDT0_BITE_TIME));
 	if (f)
 		delay_ms(250, f);
 
-	/* Firmware reset is a second, independent attempt if PS_HOLD returns. */
+	/* If the watchdog path returns, try PSCI SYSTEM_RESET as the fallback. */
 	con_str("RESET", "PSCI fallback");
 	uint64_t ret = smc_call(PSCI_SYSTEM_RESET, 0, 0, 0);
-	con_hex("PSCI RESET RET", ret);
+	con_hex("PSCI RET", ret);
 	for (;;) __asm__ volatile("wfe");
 }
 struct spmi {
@@ -137,8 +147,8 @@ static int discover(struct spmi *s)
     s->obs=SPMI_OBS;
     s->pon_sid=(SPMI_PON_PPID>>8)&0xfU;
     s->gpio_sid=(SPMI_GPIO7_PPID>>8)&0xfU;
-    con_hex("SPMI arbiter version",ver);
-    con_hex2("SPMI key APIDs","PON=",s->pon_apid,"GPIO7=",s->gpio_apid);
+    con_hex("SPMI VER",ver);
+    con_hex2("SPMI IDs","PON=",s->pon_apid,"GPIO7=",s->gpio_apid);
     return 0;
 }
 static int read_byte(const struct spmi *s,uint32_t apid,uint32_t sid,
@@ -189,18 +199,18 @@ void lavender_guardian_run(void)
 	for(;;) {
 		uint64_t now=ticks();
 		uintptr_t pa=lavender_guardian_cell_pa;
-		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; con_hex("GUARD CELL",marker_last); }
+		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; con_hex("GUARD PA",marker_last); }
 		else if(cell) {
 			uint32_t marker=*cell;
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
 			/* Stage 20 ends the early timeout only after key guardian is ready. */
 			if(now-progress>f*EARLY_TIMEOUT_SECONDS) {
-				con_hex("XNU STAGE",marker);
-				con_hex("STALL SECONDS",(now-progress)/f);
-				if(marker&0x80000000U)
-					reset_now("XNU reached startup but key guardian unavailable");
-				else
+				con_hex("XNUSTAGE",marker);
+				con_hex("AGE SECS",(now-progress)/f);
+				if(!(marker&0x80000000U))
 					reset_now("XNU early boot stalled");
+				else if(!ready)
+					reset_now("key guardian unavailable");
 			}
 		} else if(now-started>f*EARLY_TIMEOUT_SECONDS) {
 			reset_now("XNU handoff did not start");
