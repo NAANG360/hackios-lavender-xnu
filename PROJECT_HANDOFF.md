@@ -2017,3 +2017,14 @@ The SDM660 public device-tree topology maps the first performance-cluster core t
 - This is **not SMP enablement** and does not yet hand XNU to the A73. It is a diagnostic probe only; the current loader's XNU jump policy remains unchanged.
 
 This should establish whether the Qualcomm PSCI firmware can wake the 16 KiB-capable core from the initial boot CPU, and whether MPIDR `0x100` actually reports the expected feature on the phone. The shim compile workflow is triggered by the source change. No hardware call has been made and no device partition has been touched.
+
+
+---
+
+## 30. Boot-CPU-aware Lavender ADT profiles — 2026-11-13
+
+The existing ADT builder always advertised MPIDR `0x0` as the running CPU and emitted the eight CPU nodes in FDT order. That is correct only if XNU is entered on that CPU. If the A53 boot core cannot use 16 KiB pages and a PSCI handoff is later proven to MPIDR `0x100`, the generated ADT must describe the A73 as the boot CPU instead.
+
+The builder now supports optional `--boot-mpidr` and `--cpu-count` arguments. It puts the selected MPIDR first, then the rest of that same cluster, then the other cluster; it marks only the selected boot CPU as `running`, and assigns sequential logical CPU IDs. Defaults remain unchanged (`boot_mpidr=0x0`, eight nodes), so current CI output is preserved.
+
+The host regression test now also constructs an A73-only profile (`--boot-mpidr 0x100 --cpu-count 4`) and checks the ordered MPIDRs, cluster IDs, logical IDs and running/stopped states. This is a preparatory ADT feature, not a claim that XNU has been successfully booted on an A73. The PSCI probe and actual device evidence remain required before using this profile in a boot image.

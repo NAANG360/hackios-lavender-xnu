@@ -56,6 +56,18 @@ def run():
     emmc = props(child(arm_io, "emmc"))
     assert len(emmc["reg"]) == 48  # three 64-bit address/size windows
     assert b"qcom,sdhci-msm-cqe" in emmc["compatible"]
+
+    # Optional A73-only first-boot profile: boot MPIDR first, then only its cluster.
+    a73_root = mod.build(seed=bytes(range(64)), product_tree="/nonexistent/lavender-product.adt",
+                         boot_mpidr=0x100, cpu_count=4)
+    a73_blob = mod.adt.serialize(a73_root)
+    mod.check(a73_blob, boot_mpidr=0x100, cpu_count=4)
+    a73_cpu_nodes = child(child(a73_root, "cpus"), "cpu0") if False else child(a73_root, "cpus").children
+    a73_ids = [struct.unpack("<I", props(n)["reg"])[0] for n in a73_cpu_nodes]
+    assert a73_ids == [0x100, 0x101, 0x102, 0x103]
+    assert [props(n)["state"] for n in a73_cpu_nodes] == [b"running\\0", b"stopped\\0", b"stopped\\0", b"stopped\\0"]
+    assert [struct.unpack("<I", props(n)["cluster-id"])[0] for n in a73_cpu_nodes] == [1, 1, 1, 1]
+
     print("PASS: Lavender ADT memory, framebuffer, CPU order, eMMC and NVT touch checks")
 
 if __name__ == "__main__":

@@ -53,6 +53,17 @@ NVT_I2C_ADDRESS, NVT_IRQ_GPIO, NVT_RESET_GPIO = 0x62, 67, 66
 # boot MPIDR with the shim before enabling secondary startup.
 CPU_MPIDRS = (0x000, 0x001, 0x002, 0x003, 0x100, 0x101, 0x102, 0x103)
 
+
+def ordered_cpu_mpidrs(boot_mpidr):
+    """Put the selected boot core first, then its cluster, then the other cluster."""
+    if boot_mpidr not in CPU_MPIDRS:
+        raise ValueError(f"unknown Lavender MPIDR 0x{boot_mpidr:x}")
+    cluster = (boot_mpidr >> 8) & 0xff
+    same = [m for m in CPU_MPIDRS if m != boot_mpidr and ((m >> 8) & 0xff) == cluster]
+    other = [m for m in CPU_MPIDRS if ((m >> 8) & 0xff) != cluster]
+    return (boot_mpidr, *same, *other)
+
+
 BOOT_MANIFEST_HASH = hashlib.sha384(b'lavender boot manifest').digest()
 LAVENDER_ECID = 0x4C4156454E000001  # synthetic stable identity; not device data
 D22AP_ADT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -85,7 +96,11 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, product_tree=D22AP_ADT):
+def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
+    ordered_mpidrs = ordered_cpu_mpidrs(boot_mpidr)
+    if not 1 <= cpu_count <= len(ordered_mpidrs):
+        raise ValueError(f"cpu_count must be 1..{len(ordered_mpidrs)}")
+    ordered_mpidrs = ordered_mpidrs[:cpu_count]
     phys_base = PHYS_BASE
     mem_size = MEM_SIZE_TOTAL
     panic_base = phys_base + mem_size - PANIC_LOG_SIZE
@@ -118,7 +133,7 @@ def build(seed=None, product_tree=D22AP_ADT):
     ])
 
     cpu_nodes = []
-    for logical, mpidr in enumerate(CPU_MPIDRS):
+    for logical, mpidr in enumerate(ordered_mpidrs):
         cluster = (mpidr >> 8) & 0xff
         core = mpidr & 0xff
         cpu_nodes.append(node(f'cpu{logical}', [
@@ -244,7 +259,7 @@ def build(seed=None, product_tree=D22AP_ADT):
     ], [chosen, defaults, cpus, arm_io, fbcon, buttons, pram] + product)
 
 
-def check(blob):
+def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
     root, end = adt.parse(blob)
     assert end == len(blob)
     chosen = next(c for c in root.children if c.name == 'chosen')
@@ -257,7 +272,13 @@ def check(blob):
     cpus = next(c for c in root.children if c.name == 'cpus')
     regs = [struct.unpack('<I', next(v for n, _, v in c.props if n == 'reg'))[0]
             for c in cpus.children]
-    assert tuple(regs) == CPU_MPIDRS
+    expected_mpidrs = ordered_cpu_mpidrs(boot_mpidr)[:cpu_count]
+    assert tuple(regs) == expected_mpidrs
+    states = [next(v for n, _, v in c.props if n == 'state') for c in cpus.children]
+    assert states == [cstr('running')] + [cstr('stopped')] * (cpu_count - 1)
+    logical_ids = [struct.unpack('<I', next(v for n, _, v in c.props if n == 'logical-cpu-id'))[0]
+                   for c in cpus.children]
+    assert logical_ids == list(range(cpu_count))
     arm_io = next(c for c in root.children if c.name == 'arm-io')
     gic = next(c for c in arm_io.children if c.name == 'gic')
     reg = struct.unpack('<4Q', next(v for n, _, v in gic.props if n == 'reg'))
@@ -290,11 +311,17 @@ if __name__ == '__main__':
     ap.add_argument('--product-tree', default=D22AP_ADT)
     ap.add_argument('--dump', action='store_true')
     ap.add_argument('--check', action='store_true')
+    ap.add_argument('--boot-mpidr', type=lambda x: int(x, 0), default=CPU_MPIDRS[0],
+                    help='MPIDR of the CPU XNU will enter on (default: 0x0)')
+    ap.add_argument('--cpu-count', type=int, default=len(CPU_MPIDRS),
+                    help='number of CPU nodes to advertise, boot cluster first (default: 8)')
     args = ap.parse_args()
-    root = build(product_tree=args.product_tree)
+    root = build(product_tree=args.product_tree, boot_mpidr=args.boot_mpidr,
+                 cpu_count=args.cpu_count)
     blob = adt.serialize(root)
     if args.check:
-        base, size, cpus, fb = check(blob)
+        base, size, cpus, fb = check(blob, boot_mpidr=args.boot_mpidr,
+                                     cpu_count=args.cpu_count)
         print(f'PASS: RAM 0x{base:x}+0x{size:x}; CPUs {[hex(x) for x in cpus]}; framebuffer {hex(fb[0])}+{hex(fb[1])}')
     open(args.out, 'wb').write(blob)
     if args.dump:
