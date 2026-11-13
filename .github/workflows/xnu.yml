@@ -27,6 +27,7 @@ on:
     branches: [main, ci/lavender-machine-profile]
     paths:
       - "xnu/patches/**"
+      - "shim/**"
       - ".github/workflows/xnu.yml"
       - "tools/validate-lavender-profile.sh"
       - "shim/**"
