@@ -2461,3 +2461,32 @@ Critical: PSCI return behavior, KPSS watchdog clock/register mapping on this exa
 The latest iosboot.img is freshly packaged and its embedded kernel identity is verified against XNU run 43432569041. It is a RAM-only diagnostic bring-up image, not a successfully booted XNU/iOS system. No Apple logo has yet been observed on the phone.
 
 Next test, only when safe recovery is sorted: use the run #18 image and record the last XNU checkpoint value. The value identifies the failing interval (framebuffer, bootargs/stack, page-table build, TCR/TTBR, or SCTLR/MMU enable). Never substitute an earlier image and never flash a partition. Preserve the run IDs, hashes, and this section as the source of truth for the next chat/session.
+
+## 39. 2026-11-13 — early guardian isolation, logo checkpoint, and automatic RAM-image packaging
+
+### Source changes
+
+- Commit `d4fbc4e604a18887ee8a636f5e76038fe030043d` changes `shim/lavender_guardian.c`.
+  - The A53 guardian no longer probes PMIC/SPMI immediately when the XNU handoff cell appears.
+  - SPMI discovery now starts only after the XNU marker's high bit is set. In the existing early-console patch series, marker 20 is emitted after `arm_vm_init()` and `serial_init()` complete. This keeps potentially blocking direct PMIC MMIO outside the fragile early XNU startup window.
+  - If the early marker stalls, the guardian clears the shared framebuffer to a red diagnostic screen and prints the last marker and stall age before attempting reset. This addresses the possibility that XNU framebuffer activity obscured the guardian's text.
+  - Retry interval for PMIC discovery after marker 20 is five seconds.
+- Commit `dcd782864b38d14cef76d9a663cba4019d5ecac9` changes `xnu/patches/0094-lavender-logo-and-stage-markers.patch`.
+  - Immediately after `sweet_early_logo()` returns in `arm_init()`, the kernel emits `sweet_early_mark(2, ...)`.
+  - With the Lavender marker encoding, the A53 guardian should see cell value 5 if the diagnostic Apple-logo drawing routine returned; value 4 means `arm_init()` was entered but the draw did not complete.
+- Commit `225e91146cbbfd8fab67bc9314dfe2c69b64d1ea` changes the XNU workflow to package the same run's verified `xnu-kernel` artifact automatically in a second Ubuntu job. The package output remains a non-flashing `fastboot boot` image. The manual `package-lavender.yml` dispatch path remains available.
+- The first reusable-workflow automation attempt (commit `82f3db31b8179213c34372e8a77829dfd9bb044e`, run 43449283687) was rejected at workflow startup with no jobs created. It was superseded by the inline package job in commit `225e91146cbbfd8fab67bc9314dfe2c69b64d1ea`; do not treat that startup failure as a source/build failure.
+
+### CI status at consolidation
+
+- Shim compile run 43448986105, source commit `d4fbc4e604a18887ee8a636f5e76038fe030043d`: **success**. ADT generation, ADT invariant test, and AArch64 shim compile all passed.
+- XNU run 43449034676, source commit `dcd782864b38d14cef76d9a663cba4019d5ecac9`: **in progress** at last check.
+- Latest combined build/package run 43449540803, source/workflow commit `225e91146cbbfd8fab67bc9314dfe2c69b64d1ea`: **in progress** at last check; XNU build job was in progress and package job awaits it.
+- The older package run #18 remains the last completed `iosboot.img` artifact. No replacement image exists until the latest XNU build and automatic packaging jobs both succeed.
+
+### Physical-test safety and acceptance
+
+- No physical device test has been performed with these changes.
+- Do not flash any partition. The candidate remains RAM-only.
+- The handset's recovery/reset behavior is still unverified; the earlier physical test did not recover as expected. Do not ask for another long/hung test until the new guardian behavior and the recovery route have been reviewed.
+- An Apple-like diagnostic logo is drawn only after XNU reaches `arm_init()`. Stage value 5 proves the logo routine returned; it does not prove full iOS boot or SpringBoard.
