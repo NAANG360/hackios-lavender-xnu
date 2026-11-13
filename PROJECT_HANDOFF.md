@@ -2002,3 +2002,18 @@ A checksummed ZIP containing the kernel, shim Image/ELF, generated ADT, LAVENDRX
 ### 28.5 XNU CI after patch-stack cleanup
 
 At the time this section was written, run #86 (`43354920951`, commit `67839aa2055873ef7d6caac9d68415d4a0e34efc`) had passed Lavender profile preflight and dependency installation and was actively running **Build XNU 8796**. Its final conclusion and artifact must be checked separately.
+
+
+---
+
+## 29. One-core A73 PSCI diagnostic added — 2026-11-13
+
+The SDM660 public device-tree topology maps the first performance-cluster core to MPIDR `0x100`. Because the A53 cluster cannot use XNU's 16 KiB granule, the shim now has a conservative diagnostic path:
+
+- If the current boot core reports unsupported `TGran16`, query `PSCI_FEATURES(PSCI_CPU_ON)`.
+- If supported, issue exactly one `PSCI_CPU_ON` for MPIDR `0x100`, with context index 4.
+- The existing secondary entry records its own MPIDR and `ID_AA64MMFR0_EL1`, then immediately calls `PSCI_CPU_OFF`.
+- The primary prints the PSCI return code and the secondary's observed MPIDR/TGran16.
+- This is **not SMP enablement** and does not yet hand XNU to the A73. It is a diagnostic probe only; the current loader's XNU jump policy remains unchanged.
+
+This should establish whether the Qualcomm PSCI firmware can wake the 16 KiB-capable core from the initial boot CPU, and whether MPIDR `0x100` actually reports the expected feature on the phone. The shim compile workflow is triggered by the source change. No hardware call has been made and no device partition has been touched.

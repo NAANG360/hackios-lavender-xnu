@@ -182,6 +182,11 @@ static uintptr_t find_gicr(void);
 void secondary_main(uint64_t idx)
 {
 	sec_mpidr[idx] = rsr("mpidr_el1") | (1ULL << 63);
+#ifdef TARGET_LAVENDER
+	/* Record the first A73 cluster core's own translation-granule support. */
+	if (idx == 4)
+		sec_probe[0] = rsr("id_aa64mmfr0_el1");
+#endif
 	if (idx == 1) {
 		uintptr_t r = find_gicr();
 		if (r) {
@@ -232,6 +237,38 @@ static void __attribute__((unused)) test_smp(void)
 }
 
 #endif /* !TARGET_LAVENDER: shim does not own Lavender SMP */
+
+#ifdef TARGET_LAVENDER
+/* Diagnostic only: probe one A73 core through PSCI, then let it power off. */
+static void test_lavender_a73_psci(void)
+{
+	const uint64_t targets[NR_CPUS] = LAVENDER_CPU_MPIDRS;
+	uint64_t current = rsr("mpidr_el1") & 0xffffff;
+	uint64_t target = targets[4];
+	int64_t feature = (int64_t)smc(PSCI_FEATURES, PSCI_CPU_ON, 0, 0);
+
+	con_hex("A73 target MPIDR", target);
+	con_hex("PSCI CPU_ON feature", (uint64_t)feature);
+	if (current == target) {
+		con_str("A73 PSCI", "already running on target core");
+		return;
+	}
+	if (feature < 0) {
+		con_str("A73 PSCI", "CPU_ON not advertised");
+		return;
+	}
+
+	int64_t ret = (int64_t)smc(PSCI_CPU_ON, target,
+				  (uintptr_t)secondary_entry, 4);
+	con_hex("PSCI A73 CPU_ON", (uint64_t)ret);
+	if (ret == 0) {
+		delay_ms(500);
+		con_hex("A73 observed MPIDR", sec_mpidr[4]);
+		con_hex("A73 MMFR0", sec_probe[0]);
+		con_hex("A73 TGRAN16", (sec_probe[0] >> 20) & 0xf);
+	}
+}
+#endif /* TARGET_LAVENDER */
 
 /* ---- GIC + timer ---- */
 
@@ -433,6 +470,11 @@ void shim_main(uint64_t dtb)
 	con_skip();
 
 #ifdef TARGET_LAVENDER
+	/* If ABL entered on an A53, probe the A73 cluster before MMU setup. */
+	uint64_t boot_tg16 = (rsr("id_aa64mmfr0_el1") >> 20) & 0xf;
+	if (boot_tg16 < 1 || boot_tg16 > 2)
+		test_lavender_a73_psci();
+
 	/* The XNU payload is supplied in ABL's initrd. Storage is eMMC and is
 	 * intentionally not probed by this shim; XNU needs its own SDHCI driver. */
 	stage = "storage";
