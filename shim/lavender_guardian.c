@@ -75,30 +75,33 @@ static uint64_t smc_call(uint64_t fn, uint64_t a1, uint64_t a2, uint64_t a3)
 
 static void __attribute__((noreturn)) reset_now(const char *why)
 {
-	uint64_t f = frequency();
 	con_skip();
 	con_str("RESET", why);
 
-	/* SDM660 watchdog block from qcom,msm-watchdog in the public SoC DT.
-	 * Program a one-tick secure bite; unlike PS_HOLD this requests a SoC
-	 * restart, not a PMIC shutdown. Register offsets follow Qualcomm's
-	 * watchdog_v2 driver: EN=0x08, RST=0x04, BITE_TIME=0x14. */
+	/* Use the firmware reset service before touching unverified MMIO. */
+	int64_t feature = (int64_t)smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0);
+	con_hex("PSCI RESET FEAT", (uint64_t)feature);
+	if (feature >= 0) {
+		con_str("RESET", "PSCI system reset");
+		__asm__ volatile("dsb sy; isb" ::: "memory");
+		uint64_t ret = smc_call(PSCI_SYSTEM_RESET, 0, 0, 0);
+		con_hex("PSCI RET", ret);
+	}
+
+	/*
+	 * Qualcomm SDM660 watchdog fallback. Keep its programming sequence
+	 * aligned with the QCOM v2 watchdog driver: disable, set bite timeout,
+	 * reset the counter, then enable. Do not read back MMIO here: a stalled
+	 * peripheral read must not prevent the firmware reset attempt above.
+	 */
+	con_str("RESET", "watchdog fallback");
 	write32(QCOM_WDT_BASE + WDT0_EN, 0);
-	write32(QCOM_WDT_BASE + WDT0_RST, 1);
 	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 1);
-	__asm__ volatile("dsb sy; isb" ::: "memory");
+	__asm__ volatile("dsb sy" ::: "memory");
+	write32(QCOM_WDT_BASE + WDT0_RST, 1);
+	__asm__ volatile("dsb sy" ::: "memory");
 	write32(QCOM_WDT_BASE + WDT0_EN, 1);
 	__asm__ volatile("dsb sy; isb" ::: "memory");
-	con_hex("WDT BITE", read32(QCOM_WDT_BASE + WDT0_BITE_TIME));
-	if (f)
-		delay_ms(250, f);
-
-	/* Check firmware support only after the hardware watchdog attempt. */
-	con_hex("PSCI", smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0));
-	/* If the watchdog path returns, try PSCI SYSTEM_RESET as the fallback. */
-	con_str("RESET", "PSCI fallback");
-	uint64_t ret = smc_call(PSCI_SYSTEM_RESET, 0, 0, 0);
-	con_hex("PSCI RET", ret);
 	for (;;) __asm__ volatile("wfe");
 }
 struct spmi {
