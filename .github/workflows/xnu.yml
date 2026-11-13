@@ -150,15 +150,38 @@ jobs:
       - name: Verify Lavender kernel artifact
         if: success()
         run: |
+          set -euo pipefail
           kernel=out/kernel.development.lavender
           test -s "$kernel"
-          description=$(file "$kernel")
-          echo "$description" | tee out/KERNEL-VERIFICATION.txt
-          echo "$description" | grep -Eq 'Mach-O 64-bit arm64 executable'
-          lipo -verify_arch arm64 "$kernel"
-          strings "$kernel" | grep -F 'LavenderPlatformExpert' >/dev/null
-          strings "$kernel" | grep -F 'qcom,sdm660-mtp' >/dev/null
-          strings "$kernel" | grep -F 'Redmi Note 7' >/dev/null
+          file "$kernel" | tee out/KERNEL-VERIFICATION.txt
+          python3 - "$kernel" <<'PY'
+          import struct
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          data = path.read_bytes()
+          if len(data) < 32:
+              raise SystemExit("kernel is shorter than a Mach-O 64-bit header")
+          magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved = struct.unpack_from("<IiiIIIII", data)
+          if magic != 0xFEEDFACF:
+              raise SystemExit(f"unexpected Mach-O magic: 0x{magic:08x}")
+          if cputype != 0x0100000C:
+              raise SystemExit(f"kernel is not ARM64 (cputype=0x{cputype:08x})")
+          if filetype != 2:
+              raise SystemExit(f"expected MH_EXECUTE (filetype={filetype})")
+          required = (b"LavenderPlatformExpert", b"qcom,sdm660-mtp", b"Redmi Note 7")
+          missing = [item.decode() for item in required if item not in data]
+          if missing:
+              raise SystemExit("missing Lavender identity strings: " + ", ".join(missing))
+          result = (
+              f"PASS: Mach-O 64-bit ARM64 executable; size={len(data)} bytes; "
+              f"ncmds={ncmds}; flags=0x{flags:08x}; "
+              "LavenderPlatformExpert, qcom,sdm660-mtp, Redmi Note 7 present"
+          )
+          print(result)
+          Path("out/KERNEL-VERIFICATION.txt").write_text(result + "\\n", encoding="utf-8")
+          PY
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
 
       - uses: actions/upload-artifact@v4
