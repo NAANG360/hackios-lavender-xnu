@@ -71,6 +71,9 @@ jobs:
           git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
           git -C dxb checkout -q FETCH_HEAD
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
+          # The pinned upstream script hardcodes -j8; use every logical CPU
+          # exposed by the hosted runner for its major build steps.
+          sed -i '' 's/make install -j8/make install -j"${XNU_MAKE_JOBS:-8}"/g' dxb/build.sh
           # libfirehose_kernel is arm64e-only upstream; the reference and Lavender
           # targets are plain arm64.
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
@@ -79,6 +82,30 @@ jobs:
 
       - name: Validate selected machine profile
         run: bash tools/validate-lavender-profile.sh "$MACHINE_CONFIG"
+
+      # Cache only for the exact patch set and Xcode runner image.
+      - name: Restore exact-match XNU build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            dxb/build
+            dxb/fakeroot
+          key: lavender-xnu8796-macos15-xcode16-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh') }}
+
+      - name: Detect runner capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          logical="$(sysctl -n hw.logicalcpu)"
+          physical="$(sysctl -n hw.physicalcpu)"
+          memory="$(sysctl -n hw.memsize)"
+          jobs="$logical"
+          echo "XNU_MAKE_JOBS=$jobs" >> "$GITHUB_ENV"
+          echo "MEMORY_SIZE_OVERRIDE=$memory" >> "$GITHUB_ENV"
+          echo "PHYS_CPU_OVERRIDE=$physical" >> "$GITHUB_ENV"
+          echo "LOGICAL_CPU_OVERRIDE=$logical" >> "$GITHUB_ENV"
+          echo "KERNEL_PARALLELISM_OVERRIDE=$physical" >> "$GITHUB_ENV"
+          printf 'Runner resources: %s physical CPUs, %s logical CPUs, %s bytes RAM; make -j%s\\n' "$physical" "$logical" "$memory" "$jobs"
 
       - name: Install build dependencies
         run: |
@@ -90,7 +117,7 @@ jobs:
       - name: Build XNU 8796
         working-directory: dxb
         env:
-          MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
+          MAKEFLAGS: ${{ inputs.keep_going == 'true' && '-k' || '' }}
         run: set -o pipefail; bash build.sh 2>&1 | tee ../xnu-build.log
 
 
