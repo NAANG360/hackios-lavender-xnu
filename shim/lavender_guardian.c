@@ -214,19 +214,32 @@ void lavender_guardian_run(void)
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
 			/* Stage 20 ends the early timeout only after key guardian is ready. */
 			if(now-progress>f*EARLY_TIMEOUT_SECONDS) {
-				con_hex("XNUSTAGE",marker);
-				con_hex("AGE SECS",(now-progress)/f);
+				uint64_t age=(now-progress)/f;
+				/* XNU may have cleared the shared framebuffer. Repaint only
+				 * after progress has stopped, so the guardian's report is visible. */
+				con_clear(RED);
+				con_str("LAVENDER","XNU EARLY BOOT STALLED");
+				con_hex("LAST STAGE",marker);
+				con_hex("STALL SECS",age);
 				if(!(marker&0x80000000U))
 					reset_now("XNU early boot stalled");
 				else if(!ready)
 					reset_now("key guardian unavailable");
 			}
 		} else if(now-started>f*EARLY_TIMEOUT_SECONDS) {
+			con_clear(RED);
+			con_str("LAVENDER","XNU HANDOFF NOT SEEN");
 			reset_now("XNU handoff did not start");
 		}
-		if(cell && !ready && now>=probe_at) {
+		/*
+		 * Do not touch the PMIC/SPMI block while XNU is still in its
+		 * fragile pre-MMU/arm_init path. These are direct MMIO transactions;
+		 * an unresponsive peripheral must not freeze the independent A53
+		 * progress watchdog before its 60-second deadline.
+		 */
+		if(cell && (marker_last & 0x80000000U) && !ready && now>=probe_at) {
 			ready=(discover(&s)==0);
-			probe_at=now+f;
+			probe_at=now+5U*f;
 		}
 		if(ready) {
 			uint8_t up=0,down=0;
