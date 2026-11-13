@@ -203,7 +203,7 @@ void lavender_guardian_run(void)
 	for(;;) {
 		uint64_t now=ticks();
 		uintptr_t pa=lavender_guardian_cell_pa;
-		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; con_hex("GUARD PA",marker_last); }
+		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; con_hex("CELL PA",pa); con_hex("GUARDMK",marker_last); }
 		else if(cell) {
 			uint32_t marker=*cell;
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
