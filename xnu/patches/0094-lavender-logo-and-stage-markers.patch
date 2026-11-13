@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -655,1 +655,12 @@
+@@ -655,2 +655,15 @@
  common_start:
  
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -17,7 +17,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +.endm
 +#endif
 +
-@@ -807,3 +818,7 @@
+@@ -807,4 +818,8 @@
  	cmp		x0, x1
  	bne		.
  #endif /* !VMAPPLE */
@@ -37,16 +37,16 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  	// Clear thread pointer
  	msr		TPIDR_EL1, xzr						// Set thread register
  
-+@@ -850,6 +869,10 @@
-+	msr		TPIDR_EL1, xzr						// Set thread register
-+
+@@ -850,5 +869,9 @@
+ 	// Clear thread pointer
+ 	msr		TPIDR_EL1, xzr						// Set thread register
+ 
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	lavender_guard_mark 5
 +#endif
 +
- 
  #if defined(APPLE_ARM64_ARCH_FAMILY)
-@@ -867,6 +890,10 @@
+@@ -867,4 +890,8 @@
  	APPLY_TUNABLES x12, x13, x14
  
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -69,7 +69,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -150,2 +150,51 @@
+@@ -150,5 +150,61 @@
  static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
  static volatile uint32_t *early_guard_cell;
  
@@ -131,7 +131,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +
  void
  sweet_early_guard_init(uintptr_t boot_args_kva)
-@@ -17,4 +17,5 @@
+@@ -17,5 +17,6 @@
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
  void sweet_early_guard_init(uintptr_t boot_args_kva);
 +void sweet_early_logo(void);
@@ -141,7 +141,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -350,4 +350,7 @@
+@@ -350,7 +350,10 @@
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
  	sweet_early_guard_init((uintptr_t)args);
  #endif
