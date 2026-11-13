@@ -156,9 +156,35 @@ jobs:
           kernel = Path("artifacts/verify/kernel").read_bytes()
           payload = Path("artifacts/verify/ramdisk").read_bytes()
           dtb = Path("artifacts/verify/dtb").read_bytes()
+          import re
+          header = {}
+          for line in Path("artifacts/verify/header.txt").read_text().splitlines():
+              if ": " in line:
+                  k, v = line.split(": ", 1)
+                  header[k] = v
           assert kernel[0x38:0x3c] == b"ARMd", "shim is missing the ARM64 Image header"
           assert payload[:8] == b"LAVENDRX", "ramdisk does not contain a Lavender XNU payload"
           assert len(dtb) > 0, "stock DTB is missing"
+          def hx(k): return int(header[k], 0)
+          ranges = {
+              "kernel": (hx("kernel_addr"), hx("kernel_addr") + len(kernel)),
+              "ramdisk": (hx("ramdisk_addr"), hx("ramdisk_addr") + len(payload)),
+              "dtb": (hx("dtb_addr"), hx("dtb_addr") + len(dtb)),
+          }
+          for name, (lo, hi) in ranges.items():
+              assert lo >= 0 and hi > lo, f"invalid {name} load range: {lo:#x}..{hi:#x}"
+          names = list(ranges)
+          for i, a in enumerate(names):
+              for b in names[i+1:]:
+                  alo, ahi = ranges[a]; blo, bhi = ranges[b]
+                  assert ahi <= blo or bhi <= alo, (
+                      f"BOOT IMAGE LOAD OVERLAP: {a} [{alo:#x},{ahi:#x}) "
+                      f"and {b} [{blo:#x},{bhi:#x})"
+                  )
+          assert hx("dtb_addr") % 0x1000 == 0, "DTB load address is not page-aligned"
+          print("PASS: non-overlapping boot load ranges:")
+          for name, (lo, hi) in ranges.items():
+              print(f"  {name}: [{lo:#x}, {hi:#x}) ({hi-lo} bytes)")
           print(f"PASS: ARM64 shim={len(kernel)} bytes, LAVENDRX payload={len(payload)} bytes, DTB={len(dtb)} bytes")
           PY
           sha256sum "$KERNEL_PATH" shim/out/shim-boot.img artifacts/lavender-payload.bin artifacts/lavender.adt > artifacts/SHA256SUMS
