@@ -2388,7 +2388,7 @@ The GitHub artifact digest above hashes the uploaded artifact archive, not the e
 - Shim compile: PASS.
 - Fastboot test image package: PASS.
 - Image structure/payload validation in CI: PASS.
-- Extracted raw image SHA-256: NOT YET RECORDED.
+- Extracted raw image SHA-256: 9baacc8dd7a233d1879195d6876d34493f782c351fb776eae86a30a8395d306e (recorded in section 38.4).
 - Physical test of this new image: NOT YET DONE.
 - Apple logo / `arm_init()` / iOS userspace: NOT YET CONFIRMED.
 
