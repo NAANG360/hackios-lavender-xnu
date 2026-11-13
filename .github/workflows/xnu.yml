@@ -137,7 +137,24 @@ jobs:
           mkdir -p out
           cp -R dxb/fakeroot/System/Library/Kernels/. out/ 2>/dev/null || true
           ls -la out
-          (cd out && shasum -a 256 kernel.* > SHA256SUMS) || true
+          if [[ -s out/kernel.development.lavender ]]; then
+            (cd out && shasum -a 256 kernel.development.lavender > SHA256SUMS)
+          fi
+
+
+      - name: Verify Lavender kernel artifact
+        if: success()
+        run: |
+          kernel=out/kernel.development.lavender
+          test -s "$kernel"
+          description=$(file "$kernel")
+          echo "$description" | tee out/KERNEL-VERIFICATION.txt
+          echo "$description" | grep -Eq 'Mach-O 64-bit arm64 executable'
+          lipo -verify_arch arm64 "$kernel"
+          strings "$kernel" | grep -F 'LavenderPlatformExpert' >/dev/null
+          strings "$kernel" | grep -F 'qcom,sdm660-mtp' >/dev/null
+          strings "$kernel" | grep -F 'Redmi Note 7' >/dev/null
+          shasum -a 256 "$kernel" | tee out/SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -1783,3 +1783,61 @@ Patch 0091, fetched from the current engineering branch at this update (blob `61
 - Revalidated the root README/AGENTS discovery path, canonical handoff blob on both branches, live branch heads, run #84 metadata, run #431986 job log/artifacts, and patch 0091.
 - Added the user's explicit iOS 16.5 userspace goal and no-mock-Android requirement to the handoff.
 - This is a **documentation-only** update. It does not fix the compiler error, start or complete run #84, produce a kernel, verify a Mach-O image, or boot the phone.
+
+
+---
+
+## 24. First successful Lavender XNU kernel build — 2026-11-13
+
+### 24.1 Run #84 is a real compile success
+
+The previously queued run was rechecked and completed:
+
+- Workflow: `xnu`
+- Run: **#84 / `43259106099`**
+- Job: `131325274032` (`build`)
+- Branch/source commit: `ci/lavender-machine-profile` / `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`
+- Result: **success**; all build steps completed, including **Build XNU 8796**.
+- Build environment: `macos-15-intel`, Xcode 16.0, `DEVELOPMENT_ARM64_LAVENDER`; `MACHINE_CONFIG=LAVENDER`, `KERNEL_CONFIG=DEVELOPMENT`, XNU 8796 (macOS 13.5 source selection).
+- Build log reports `🎉 XNU Build Done!` and installs `kernel.development.lavender` for `arm64`.
+
+Artifact `xnu-kernel`: ID `13966815907`, 58,306,556 bytes, ZIP SHA-256 `ca56d0a3b12cd9dd660442d5bf243b3f2de77d0d8842d324baf775b5c731ebee`.
+
+### 24.2 Downloaded kernel static verification
+
+Downloaded and extracted the exact run #84 artifact. The kernel is:
+
+- File: `kernel.development.lavender`
+- Size: **16,586,120 bytes**
+- File type: **Mach-O 64-bit ARM64 executable** (`MH_MAGIC_64`, `MH_EXECUTE`, CPU type ARM64, subtype ALL)
+- Mach-O flags: `NOUNDEFS | PIE`
+- Load commands: 26; symbol table: 69,021 entries; undefined symbols: **0**.
+- Has `LC_UNIXTHREAD` with `ARM_THREAD_STATE64`; entry PC `0xfffffe000747c488`, inside the executable `__TEXT_EXEC` segment.
+- Binary contains the Lavender-specific IOKit personality, `LavenderPlatformExpert`, `qcom,sdm660-mtp`, `Redmi Note 7`, and its driver log strings.
+- Extracted binary SHA-256: `58ab0b425eed4b2134a126aa6a04c915bd44a4ee64096f51a20933485f7477b3`.
+
+This closes the earlier “no kernel artifact” blocker. It is a real linked ARM64 XNU kernel, not a KDK-only artifact or a generic arm64 build.
+
+### 24.3 What this does not prove
+
+- No actual Lavender phone boot has been performed or verified.
+- This is a raw XNU kernel, **not** a bootable Android `boot.img`, shim image, or complete iOS system.
+- The build does not prove that the platform expert matches the live DTB, that the interrupt controller/timer/memory map are correct at runtime, or that display/touch/userspace work.
+- Do not flash it or overwrite Android/recovery partitions. Continue with reversible loader/payload preparation and static checks, then a temporary device boot only when the boot chain and target FDT are verified.
+
+### 24.4 CI hardening follow-up
+
+Run #84 succeeded even though its source commit had removed the explicit preflight check for patch 0091. The patch is present and the compiled binary contains the Lavender platform personality. Restore the required-file and `git apply --numstat` checks for `0091-lavender-config-table-placement.patch` so a future build cannot silently omit the fix.
+
+The XNU workflow should also fail a nominally successful build if the expected non-empty `kernel.development.lavender` is absent, and verify its ARM64 Mach-O type and Lavender identity strings before artifact publication. Keep this validation separate from the claim of device bootability.
+
+### 24.5 Next engineering actions
+
+1. Restore 0091 validator coverage and add strict kernel artifact verification to CI.
+2. Inspect the existing shim and packaging scripts against the Lavender-specific hardware audit and live device tree; identify which inherited Sweet constants are still present and must be replaced or gated.
+3. Build the Lavender ADT and payload using verified Lavender DT data only; do not use Sweet framebuffer, touch, storage, IRQ or memory assumptions.
+4. Verify the resulting boot image structure and loader handoff without writing any device partition.
+5. Plan the requested reversible, non-destructive physical-device trial. No userdata changes, repartitioning, or permanent flashing.
+6. Only after kernel early boot is confirmed should display/NVT touch and the iOS 16.5 userspace chain be attempted. Adreno 512 remains later.
+
+The project has now crossed from “no kernel” to “first verified static ARM64 Lavender XNU kernel artifact.” The device boot milestone remains open.
