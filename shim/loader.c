@@ -155,6 +155,12 @@ const char *loader_boot(uintptr_t dtb)
 	ba->memSizeActual = p->mem_size;
 	con_hex2("BOOTARG", "pa=", ba_pa, "top=", top);
 
+#ifdef TARGET_LAVENDER
+	/* The A53 guardian watches this reserved word during the XNU handoff. */
+	lavender_guardian_cell_pa = ba_pa + 0x1000;
+	__asm__ volatile("dsb sy" ::: "memory");
+#endif
+
 	uintptr_t entry_pa = p->entry_va + pa_of_va_base;
 	con_hex("JUMP", entry_pa);
 	con_str("XNU", "jumping (fbcon clears screen)");

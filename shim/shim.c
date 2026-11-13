@@ -12,6 +12,8 @@
 #include "loader.h"
 #ifndef TARGET_LAVENDER
 #include "ufs.h"
+#else
+#include "lavender_guardian.h"
 #endif
 
 #ifndef TARGET_LAVENDER
@@ -83,6 +85,7 @@ static volatile uint64_t lavender_a73_state;
 static volatile uint64_t lavender_a73_request_idx;
 static volatile uint64_t lavender_a73_mpidr;
 static volatile uint64_t lavender_a73_mmfr0;
+volatile uintptr_t lavender_guardian_cell_pa;
 static void __attribute__((noreturn)) reset(unsigned after_s);
 #endif
 
@@ -355,12 +358,10 @@ static __attribute__((noreturn)) void test_lavender_a73_psci(uintptr_t dtb)
 	lavender_a73_state = A73_STATE_GO;
 	__asm__ volatile("dsb sy; sev" ::: "memory");
 
-	/* The paired ADT marks the original A53 boot CPU as stopped. Power it
-	 * off before XNU starts so CPU topology and PSCI state agree. */
-	con_str("BOOT CPU", "powering off for XNU");
-	smc(PSCI_CPU_OFF, 0, 0, 0);
-	for (;;)
-		__asm__ volatile("wfe");
+	/* Keep the original A53 alive outside XNU. It is omitted from the
+	 * Apple Device Tree and runs the independent PMIC-key/watchdog guardian. */
+	con_str("BOOT CPU", "guardian active");
+	lavender_guardian_run();
 }
 #endif /* TARGET_LAVENDER */
 

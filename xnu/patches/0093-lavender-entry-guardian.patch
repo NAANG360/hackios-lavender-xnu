@@ -1,0 +1,214 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 023086f..64bc230 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -513,6 +513,27 @@ LEXT(start_first_cpu)
+ 	mov		x20, x0
+ 	mov		x21, #0
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Stage 1: XNU's first instruction path, MMU/caches still off. */
++	mov		w1, #1
++	str		w1, [x20, #0x1000]
++	MOV64	x0, (0x9d400000 + 2308 * 4320 + 64)
++	movz	w1, #0xff00
++	movk	w1, #0xff00, lsl #16
++	mov		x2, #8
++	mov		x4, #(4320 - 32)
++Llavender_stage1_row:
++	mov		x3, #8
++Llavender_stage1_pixel:
++	str		w1, [x0], #4
++	subs	x3, x3, #1
++	b.ne	Llavender_stage1_pixel
++	add		x0, x0, x4
++	subs	x2, x2, #1
++	b.ne	Llavender_stage1_row
++	dsb		sy
++#endif
++
+ #if defined(SWEET)
+ 	/* Stage 0: white 64x32 band, no stack or page tables needed. */
+ 	MOV64	x0, (0x9c000000 + 2368 * 4320)
+@@ -695,6 +716,19 @@ Lkernelcache_base_found:
+ 	str		x11, [x13, x12, lsl #TTE_SHIFT]
+ #endif
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* The 1080x2340 framebuffer at 0x9d400000 is contained in this
++	 * single 32MB L2 block. Map it Normal-NC in the V=P bootstrap table.
++	 */
++	MOV64	x10, 0x9c000000
++	MOV64	x11, (ARM_TTE_TYPE_BLOCK | ARM_TTE_VALID | ARM_TTE_BLOCK_SH(SH_OUTER_MEMORY) | ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_WRITECOMB) | ARM_TTE_BLOCK_AF | ARM_TTE_BLOCK_PNX | ARM_TTE_BLOCK_NX)
++	orr		x11, x11, x10
++	and		x12, x10, #(ARM_TT_L2_INDEX_MASK)
++	lsr		x12, x12, #(ARM_TT_L2_SHIFT)
++	add		x13, x25, #(2 * PGBYTES)
++	str		x11, [x13, x12, lsl #TTE_SHIFT]
++#endif
++
+ 	/* Ensure TTEs are visible */
+ 	dsb		ish
+ 
+@@ -837,6 +871,32 @@ common_start:
+ 	MSR_SCTLR_EL1_X0
+ 	isb		sy
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Stage 2: MMU/caches live; publish to the A53 guardian at PoC. */
++	add		x0, x20, x22
++	sub		x0, x0, x23
++	add		x0, x0, #0x1000
++	mov		w1, #2
++	str		w1, [x0]
++	dc		cvac, x0
++	dsb		sy
++	MOV64	x0, (0x9d400000 + 2308 * 4320 + 128)
++	movz	w1, #0x00ff
++	movk	w1, #0xff00, lsl #16
++	mov		x2, #8
++	mov		x4, #(4320 - 32)
++Llavender_stage2_row:
++	mov		x3, #8
++Llavender_stage2_pixel:
++	str		w1, [x0], #4
++	subs	x3, x3, #1
++	b.ne	Llavender_stage2_pixel
++	add		x0, x0, x4
++	subs	x2, x2, #1
++	b.ne	Llavender_stage2_row
++	dsb		sy
++#endif
++
+ #if !VMAPPLE && !defined(SWEET)
+ 	MOV64   x1, SCTLR_EL1_DEFAULT
+ 	cmp		x0, x1
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+index 6928957..ecde5c9 100644
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -140,4 +140,55 @@ sweet_early_disable(void)
+ 	early_disabled = 1;
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+-#endif /* SWEET */
++#elif defined(ARM64_BOARD_CONFIG_LAVENDER)
++/* LAVENDER_XNU_GUARD_2026: first-entry stage markers and A53 watchdog cell. */
++#include <stdint.h>
++
++#define LAVENDER_FB_BASE 0x9d400000ULL
++#define LAVENDER_FB_WIDTH 1080u
++#define LAVENDER_FB_HEIGHT 2340u
++#define LAVENDER_FB_STRIDE 1080u
++static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
++static volatile uint32_t *early_guard_cell;
++
++void
++sweet_early_guard_init(uintptr_t boot_args_kva)
++{
++	/* The loader reserves this 16K page as part of topOfKernelData. */
++	early_guard_cell = (volatile uint32_t *)(boot_args_kva + 0x1000);
++	*early_guard_cell = 3;
++	__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
++}
++
++void
++sweet_early_mark(unsigned int stage, const char *label)
++{
++	(void)label;
++	if (stage > 20) {
++		return;
++	}
++	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
++	uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
++	unsigned int x0 = stage * 48u;
++	for (unsigned int y = LAVENDER_FB_HEIGHT - 24u; y < LAVENDER_FB_HEIGHT - 8u; y++) {
++		for (unsigned int x = x0; x < x0 + 40u; x++) {
++			early_fb[y * LAVENDER_FB_STRIDE + x] = color;
++		}
++	}
++	if (early_guard_cell != 0) {
++		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
++		*early_guard_cell = (stage == 20) ? (0x80000000u | stage) : (stage + 3u);
++		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
++	}
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++void sweet_early_putc(char c) { (void)c; }
++void sweet_early_panic(const char *fmt, va_list *args) { (void)fmt; (void)args; }
++void sweet_early_relocate(uint64_t base)
++{
++	early_fb = (volatile uint32_t *)(uintptr_t)base;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++void sweet_early_disable(void) { }
++#endif /* SWEET || ARM64_BOARD_CONFIG_LAVENDER */
+diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+index d7a25f2..da45607 100644
+--- a/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/sweet_early.h
+@@ -6,12 +6,17 @@
+ #include <stdarg.h>
+ #include <stdint.h>
+ 
+-#if defined(SWEET)
++#if defined(SWEET) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ void sweet_early_mark(unsigned int stage, const char *label);
+ void sweet_early_putc(char c);
+ void sweet_early_panic(const char *fmt, va_list *args);
+ void sweet_early_relocate(uint64_t base);
+ void sweet_early_disable(void);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++void sweet_early_guard_init(uintptr_t boot_args_kva);
++#else
++static inline void sweet_early_guard_init(uintptr_t boot_args_kva) { (void)boot_args_kva; }
++#endif
+ #else
+ static inline void sweet_early_mark(unsigned int stage, const char *label)
+ {
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 42362c5..7192b46 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -347,6 +347,9 @@ arm_init(
+ 	DTEntry chosen = NULL;
+ 	unsigned int dt_entry_size = 0;
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_guard_init((uintptr_t)args);
++#endif
+ 	sweet_early_mark(1, "arm_init entered (MMU on)");
+ 
+ 	arm_setup_pre_sign();
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+index 06bb568..c8cadcb 100644
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -1825,7 +1825,7 @@ init_ptpages(tt_entry_t *tt, vm_map_address_t start, vm_map_address_t end, bool
+ #define ARM64_PHYSMAP_ALIGNMENT_PADDING (PTOV_TABLE_SIZE * ARM_TT_TWIG_SIZE)
+ #endif
+ 
+-#if defined(SWEET)
++#if defined(SWEET) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ /*
+  * The reserved low-globals/kernel region is excluded from VM allocation.
+  * Use the otherwise empty 32MB block above low globals and below gVirtBase
+@@ -2179,7 +2179,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 
+ 	arm_set_user_tbi();
+ 
+-#if defined(SWEET)
++#if defined(SWEET) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	/* phystokv() must still refer to the bootstrap aperture here. */
+ 	sweet_early_map_final();
+ #endif
+@@ -2188,7 +2188,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 
+ 	ml_enable_monitor();
+ 
+-#if defined(SWEET)
++#if defined(SWEET) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	/* The final TTBR1 is live; leave the outgoing VA=PA framebuffer alias. */
+ 	sweet_early_relocate(SWEET_EARLY_FB_VA);
+ #endif

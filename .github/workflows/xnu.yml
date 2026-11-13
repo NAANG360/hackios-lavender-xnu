@@ -87,6 +87,16 @@ jobs:
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
         run: set -o pipefail; bash build.sh 2>&1 | tee ../xnu-build.log
 
+
+      - name: Require Lavender XNU entry-guard patch
+        if: success() && env.MACHINE_CONFIG == 'LAVENDER'
+        run: |
+          set -euo pipefail
+          grep -q 'LAVENDER_XNU_GUARD_2026' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'Llavender_stage1_pixel' dxb/xnu/osfmk/arm64/start.s
+          grep -q 'sweet_early_guard_init' dxb/xnu/osfmk/arm/arm_init.c
+          grep -q 'sweet_early_map_final' dxb/xnu/osfmk/arm64/arm_vm_init.c
+
       - name: Upload XNU build log
         if: always()
         uses: actions/upload-artifact@v4

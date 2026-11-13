@@ -147,6 +147,7 @@ jobs:
           set -euo pipefail
           bash shim/build.sh "$GITHUB_WORKSPACE/artifacts/lavender-payload.bin"
           test -s shim/out/shim-boot.img
+          cp shim/out/shim-boot.img iosboot.img
 
       - name: Verify boot image structure and payload identity
         run: |
@@ -193,6 +194,8 @@ jobs:
             echo "XNU workflow run: ${{ inputs.xnu_run_id }}"
             echo "Source commit: ${{ github.sha }}"
             echo "Boot mode: fastboot boot only; do not flash to a partition"
+            echo "Recovery: hold Volume Up + Volume Down for 3 seconds (A53 guardian)"
+            echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
             echo "XNU boot CPU MPIDR: 0x100 (Kryo 260 Gold cluster)"
             echo "Android boot metadata: ${OS_VERSION} / ${OS_PATCH_LEVEL}"
@@ -205,6 +208,7 @@ jobs:
           name: lavender-fastboot-boot-test
           path: |
             shim/out/shim-boot.img
+            iosboot.img
             artifacts/lavender-payload.bin
             artifacts/lavender.adt
             artifacts/SHA256SUMS

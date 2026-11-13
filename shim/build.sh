@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 case "$TARGET" in
   sweet) SOURCES=(start.S shim.c console.c mmu.c fdt.c loader.c ufs.c) ;;
-  lavender) SOURCES=(start.S shim.c console.c mmu.c fdt.c loader.c) ;;
+  lavender) SOURCES=(start.S shim.c console.c mmu.c fdt.c loader.c lavender_guardian.c) ;;
   *) echo "unsupported shim target: $TARGET" >&2; exit 2 ;;
 esac
 CC=aarch64-linux-gnu-gcc
