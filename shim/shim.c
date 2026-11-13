@@ -209,13 +209,13 @@ void secondary_main(uint64_t idx)
 
 #ifdef TARGET_LAVENDER
 	if (idx >= 4) {
-		static const uint64_t targets[NR_CPUS] = LAVENDER_CPU_MPIDRS;
+		uint64_t expected_mpidr = 0x100ULL | (idx - 4);
 		uint64_t mmfr0 = rsr("id_aa64mmfr0_el1");
 		lavender_a73_mpidr = actual_mpidr;
 		lavender_a73_mmfr0 = mmfr0;
 		sec_probe[0] = mmfr0;
 
-		if (idx != lavender_a73_request_idx || actual_mpidr != targets[idx])
+		if (idx != lavender_a73_request_idx || actual_mpidr != expected_mpidr)
 			lavender_a73_state = A73_STATE_BAD_CORE;
 		else
 			lavender_a73_state = A73_STATE_PROBED;
@@ -294,7 +294,6 @@ static void __attribute__((unused)) test_smp(void)
  */
 static __attribute__((noreturn)) void test_lavender_a73_psci(uintptr_t dtb)
 {
-	const uint64_t targets[NR_CPUS] = LAVENDER_CPU_MPIDRS;
 	uintptr_t secondary_entry_pa;
 	__asm__ volatile("adr %0, secondary_entry" : "=r"(secondary_entry_pa));
 
@@ -312,8 +311,9 @@ static __attribute__((noreturn)) void test_lavender_a73_psci(uintptr_t dtb)
 		lavender_a73_state = A73_STATE_IDLE;
 		__asm__ volatile("dsb sy" ::: "memory");
 
-		con_hex("A73 target MPIDR", targets[idx]);
-		int64_t ret = (int64_t)smc(PSCI_CPU_ON, targets[idx],
+		uint64_t target_mpidr = 0x100ULL | (idx - 4);
+		con_hex("A73 target MPIDR", target_mpidr);
+		int64_t ret = (int64_t)smc(PSCI_CPU_ON, target_mpidr,
 					  secondary_entry_pa, idx);
 		con_hex("PSCI CPU_ON ret", (uint64_t)ret);
 
