@@ -20,7 +20,7 @@ diff --git a/osfmk/arm64/lavender_early.c b/osfmk/arm64/lavender_early.c
 new file mode 100644
 --- /dev/null
 +++ b/osfmk/arm64/lavender_early.c
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,71 @@
 +/*
 + * First Lavender XNU-owned display mark.
 + *
@@ -95,25 +95,25 @@ new file mode 100644
 diff --git a/osfmk/conf/files.arm64 b/osfmk/conf/files.arm64
 --- a/osfmk/conf/files.arm64
 +++ b/osfmk/conf/files.arm64
-@@ -41,6 +41,7 @@
+@@ -41,2 +41,3 @@
  osfmk/arm64/sweet_early.c	standard
 +osfmk/arm64/lavender_early.c	standard
  osfmk/arm64/arm64_hypercall.c	standard
 diff --git a/osfmk/arm64/Makefile b/osfmk/arm64/Makefile
 --- a/osfmk/arm64/Makefile
 +++ b/osfmk/arm64/Makefile
-@@ -43,6 +43,7 @@
+@@ -43,2 +43,3 @@
  	sweet_early.h \
 +	lavender_early.h \
  	asm.h \
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -59,6 +59,7 @@
+@@ -59,2 +59,3 @@
  #include <arm64/proc_reg.h>
 +#include <arm64/lavender_early.h>
  #include <arm/pmap.h>
-@@ -348,6 +349,7 @@ arm_init(
+@@ -348,3 +348,4 @@ arm_init(
  	unsigned int dt_entry_size = 0;
  
 +	lavender_early_logo();
@@ -121,7 +121,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -651,6 +651,29 @@ Lkernelcache_base_found:
+@@ -651,4 +651,26 @@ Lkernelcache_base_found:
  #endif
  
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
