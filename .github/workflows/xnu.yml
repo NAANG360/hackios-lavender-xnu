@@ -207,3 +207,12 @@ jobs:
           name: xnu-kernel
           path: out/
           if-no-files-found: error
+
+  package:
+    name: Package RAM-only Lavender fastboot image
+    needs: build
+    if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.machine_config == 'LAVENDER') }}
+    uses: ./.github/workflows/package-lavender.yml
+    with:
+      xnu_run_id: ${{ github.run_id }}
+    secrets: inherit
