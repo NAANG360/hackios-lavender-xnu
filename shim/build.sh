@@ -80,5 +80,18 @@ else
 fi
 DTB_PATH="${DTB_PATH:-../dtb/boot_unpacked/dtb}"
 [[ -f "$DTB_PATH" ]] || { echo "missing DTB: $DTB_PATH (set DTB_PATH to a stock Lavender DTB)" >&2; exit 1; }
-mkbootimg --header_version 2 --kernel out/Image --ramdisk out/ramdisk.bin   --dtb "$DTB_PATH" --base 0 --kernel_offset 0x8000 --ramdisk_offset 0x1000000   --tags_offset 0x100 --dtb_offset 0x1f00000 --pagesize 4096   --os_version "$OS_VERSION" --os_patch_level "$OS_PATCH_LEVEL"   --cmdline "console=null" -o out/shim-boot.img
+# Place the DTB after the complete ramdisk, rounded up to a 2 MiB
+# boundary. The previous fixed 0x1f00000 address overlapped the 15.2 MiB
+# Lavender payload ramdisk loaded at 0x01000000.
+RAMDISK_ADDR=$((0x1000000))
+RAMDISK_SIZE=$(stat -c %s out/ramdisk.bin)
+RAMDISK_END=$((RAMDISK_ADDR + RAMDISK_SIZE))
+DTB_ADDR=$(((RAMDISK_END + 0x1fffff) & ~0x1fffff))
+printf 'RAMDISK: [%#x, %#x) (%s bytes)\n' "$RAMDISK_ADDR" "$RAMDISK_END" "$RAMDISK_SIZE"
+printf 'DTB:     [%#x, %#x)\n' "$DTB_ADDR" "$((DTB_ADDR + $(stat -c %s "$DTB_PATH")))"
+mkbootimg --header_version 2 --kernel out/Image --ramdisk out/ramdisk.bin \
+  --dtb "$DTB_PATH" --base 0 --kernel_offset 0x8000 --ramdisk_offset "$RAMDISK_ADDR" \
+  --tags_offset 0x100 --dtb_offset "$DTB_ADDR" --pagesize 4096 \
+  --os_version "$OS_VERSION" --os_patch_level "$OS_PATCH_LEVEL" \
+  --cmdline "console=null" -o out/shim-boot.img
 ls -l out/Image out/shim-boot.img
