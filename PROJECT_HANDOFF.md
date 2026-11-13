@@ -1922,3 +1922,37 @@ This failure does not invalidate run #84's already downloaded and statically ver
 The correction is committed as a new engineering-branch change and starts another XNU CI validation. The diagnostic-only MPIDR/TGran16 shim instrumentation is also committed separately and has its own Lavender shim compile workflow queued. Await both runs; do not infer success from dispatch/queue state.
 
 The canonical build evidence remains run #84 and binary SHA-256 `58ab0b425eed4b2134a126aa6a04c915bd44a4ee64096f51a20933485f7477b3`. No physical-device boot has occurred.
+
+
+---
+
+## 27. Lavender shim and ADT compile success — 2026-11-13
+
+### 27.1 Diagnostic shim build #17
+
+The diagnostic-only MPIDR/TGran16 instrumentation compiled successfully:
+
+- Workflow run: **#17 / `43354688449`**
+- Source commit: `5a3f1315c8f50d966d8673ddc9ea4c3370f83861`
+- Job: `131653787985`, conclusion: **success**.
+- Steps passed: Generate/validate Lavender ADT; ADT invariant tests; AArch64 shim compile.
+- The resulting ELF contains the diagnostic labels `BOOT MPIDR`, `MMFR0`, and `TGRAN16`, plus the 16 KiB refusal path.
+- Artifact: `lavender-shim-compile`, ID `14004684288`, 25,526 bytes, ZIP SHA-256 `a1a6f4087fc04b9f1f870e508f4356b92b2757020079304aca61260d0b3bf60b`.
+
+### 27.2 Downloaded artifact verification
+
+Downloaded and inspected the exact artifact:
+
+- `shim/out/Image`: 217,088 bytes; Linux ARM64 Image boot-header format, used here as the ABL/Android boot shim (not a Linux userspace/kernel payload).
+- `shim/out/shim.elf`: 22,056 bytes; ELF64 little-endian AArch64, statically linked, not stripped.
+- `artifacts/lavender.adt`: 10,072 bytes.
+- `artifacts/lavender.adt` passed RAM aperture, CPU MPIDR order, framebuffer, eMMC and NVT-touch invariants.
+- Image SHA-256: `0475d88290bb78fb358c5a8a080e1db10cf13bc5345a3f1451f8bbf59ca9b2cb`.
+- Shim ELF SHA-256: `1b098ed2d66e61fa7c559047ab28a075a4385525652bcffb5197241d994cb373`.
+- ADT SHA-256: `a41be87e39f7657a270f64e12ae4fc28d40470004a9ace9847fa6a80bec6c855`.
+
+This is **compile-only**. The workflow explicitly reports that no `boot.img` was packaged. It is not a device boot test and is not a flashable iOS image.
+
+### 27.3 Next CI status
+
+After removing the obsolete table-fix patches and correcting the validator, XNU run #86 (`43354920951`, commit `67839aa2055873ef7d6caac9d68415d4a0e34efc`) entered the machine-profile preflight. Its final result must be checked before treating the new workflow as healthy.
