@@ -2410,7 +2410,7 @@ Confirmed interpretation:
 
 Patch xnu/patches/0095-lavender-pre-mmu-instrumentation.patch adds progress checkpoints through early startup:
 - 1: first XNU instruction path after capturing the physical boot-arguments pointer.
-- 0x11: first early framebuffer pixel loop completed.
+- 0x11: pre-VBAR RAM-only checkpoint completed; no framebuffer I/O has been attempted.
 - 0x12: exception-vector base / VBAR setup completed.
 - 0x13: core boot arguments (virtual/physical bases, memory size, flags) loaded.
 - 0x14: stack/return-address setup and early address calculations completed.
@@ -2490,3 +2490,24 @@ Next test, only when safe recovery is sorted: use the run #18 image and record t
 - Do not flash any partition. The candidate remains RAM-only.
 - The handset's recovery/reset behavior is still unverified; the earlier physical test did not recover as expected. Do not ask for another long/hung test until the new guardian behavior and the recovery route have been reviewed.
 - An Apple-like diagnostic logo is drawn only after XNU reaches `arm_init()`. Stage value 5 proves the logo routine returned; it does not prove full iOS boot or SpringBoard.
+
+
+## 40. 2026-11-13 — Defer first framebuffer access until VBAR_EL1 is installed
+
+### Finding and source change
+
+The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffer write immediately after `start_first_cpu` begins, before the `MSR_VBAR_EL1_X0` instruction installs XNU's low exception-vector base. If that fixed physical display access causes an external abort, the kernel has not yet installed its own exception vectors to capture and diagnose it. This was a concrete avoidable early-boot risk, not a proven explanation of the previous stall.
+
+- New patch: `xnu/patches/0096-lavender-no-fb-before-vbar.patch`
+- Commit: `97cf7f9d69719afe71ed42394b728e9bf44d9e63`
+- The pre-VBAR pixel stores are removed. RAM-only markers 1 and 0x11 remain in the reserved boot-arguments page. Marker 0x12 still follows VBAR installation.
+- The XNU CI guard now checks the actual source interval from `LEXT(start_first_cpu)` to `MSR_VBAR_EL1_X0`: it rejects the old framebuffer loop / fixed FB address and requires the RAM-only 0x11 checkpoint.
+- Patch application was locally validated against the source tree extracted from successful XNU run 43432569041.
+
+### Current validation
+
+- XNU run 43450068726 (#119), source commit `97cf7f9d69719afe71ed42394b728e9bf44d9e63`: in progress at handoff update.
+- XNU run 43449540803 (#118), source commit `225e91146cbbfd8fab67bc9314dfe2c69b64d1ea`: also in progress, but it predates patch 0096 and should not be selected over #119.
+- The package job in the same XNU workflow is configured to package only after that run's kernel verification succeeds.
+- Physical test: not performed. The new patch is only a static/build-time risk reduction. No Apple logo or successful iOS boot has yet been confirmed.
+- Never flash a partition. Do not request a physical boot until the guardian's reset/recovery behavior is independently considered safe for this handset with its broken power button.
