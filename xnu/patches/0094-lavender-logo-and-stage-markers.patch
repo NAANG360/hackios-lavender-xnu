@@ -1,12 +1,14 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -655,2 +655,15 @@
- common_start:
- 
+@@ -751,6 +751,21 @@
+  *	SP_EL1 - KVA of CPU's exception stack
+  *	TPIDRRO_EL0 - CPU number
+  */
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
-+/* Publish the last completed XNU bootstrap milestone to the A53 guardian. */
++/* Preserve bootstrap scratch registers while publishing each milestone. */
 +.macro lavender_guard_mark value
++	stp	x0, x1, [sp, #-16]!
 +	add	x0, x20, x22
 +	sub	x0, x0, x23
 +	add	x0, x0, #0x1000
@@ -14,23 +16,34 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	str	w1, [x0]
 +	dc	cvac, x0
 +	dsb	sy
++	ldp	x0, x1, [sp], #16
 +.endm
 +#endif
 +
-@@ -807,6 +818,11 @@
--#if !VMAPPLE
+ common_start:
+ 
+ #if HAS_NEX_PG
+@@ -900,11 +915,17 @@
+ 	mov		x0, x5
+ #endif
+ 
+-#if !VMAPPLE && !defined(SWEET)
 +#if !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR)
-+	/* KTRR's pinst setter may clobber x0; compare only the direct-MSR path. */
++#if !defined(SWEET)
  	MOV64   x1, SCTLR_EL1_DEFAULT
  	cmp		x0, x1
  	bne		.
- #endif /* !VMAPPLE */
- 
+-#endif /* !VMAPPLE && !SWEET */
++#endif /* !SWEET */
++#endif /* !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR) */
++
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	lavender_guard_mark 3
 +#endif
-+
-@@ -835,3 +850,7 @@
+ 
+ #if (!CONFIG_KERNEL_INTEGRITY || (CONFIG_KERNEL_INTEGRITY && !defined(KERNEL_INTEGRITY_WT)))
+ 	/* Watchtower
+@@ -918,8 +939,16 @@
  	msr		CPACR_EL1, x0
  #endif
  
@@ -38,15 +51,17 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	lavender_guard_mark 4
 +#endif
 +
-@@ -850,3 +869,7 @@
  	// Clear thread pointer
  	msr		TPIDR_EL1, xzr						// Set thread register
- 
++
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	lavender_guard_mark 5
 +#endif
-+
-@@ -867,4 +890,8 @@
+ 
+ 
+ #if defined(APPLE_ARM64_ARCH_FAMILY)
+@@ -934,6 +963,10 @@
+ 
  	APPLY_TUNABLES x12, x13, x14
  
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -55,21 +70,22 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +
  
  #if HAS_CLUSTER
-@@ -887,6 +914,10 @@
+ 	// Unmask external IRQs if we're restarting from non-retention WFI
+@@ -944,6 +977,10 @@
+ 
  	// If x21 != 0, we're doing a warm reset, so we need to trampoline to the kernel pmap.
  	cbnz	x21, Ltrampoline
- 
++
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	lavender_guard_mark 7
 +#endif
-+
+ 
  	// Set KVA of boot args as first arg
  	add		x0, x20, x22
- 	sub		x0, x0, x23
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -150,5 +150,61 @@
+@@ -151,6 +151,55 @@
  static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
  static volatile uint32_t *early_guard_cell;
  
@@ -83,11 +99,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +	return dx * dx * ry2 + dy * dy * rx2 <= rx2 * ry2;
 +}
 +
-+/*
-+ * Draw a high-contrast Apple mark only after XNU has reached arm_init().
-+ * This deliberately uses the bootloader framebuffer and no IOKit, allocator,
-+ * locks, fonts, or platform services.
-+ */
++/* Draw a diagnostic Apple mark after arm_init has a live framebuffer mapping. */
 +void
 +sweet_early_logo(void)
 +{
@@ -96,7 +108,6 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +	const uint32_t black = 0xff000000u;
 +	const uint32_t white = 0xffffffffu;
 +
-+	/* Black field behind the mark, large enough to be unmistakable on red. */
 +	for (int y = cy - 250; y <= cy + 250; y++) {
 +		volatile uint32_t *line = early_fb + y * LAVENDER_FB_STRIDE;
 +		for (int x = cx - 190; x <= cx + 190; x++) {
@@ -112,15 +123,12 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +				lavender_logo_ellipse(x, y,  55, -52, 82, 96) ||
 +				lavender_logo_ellipse(x, y,   0,  34, 130, 132);
 +			int bite = lavender_logo_ellipse(x, y, 132, -8, 46, 55);
-+
-+			/* A small rotated leaf and short stem above the right lobe. */
 +			int dx = x - 37;
 +			int dy = y + 164;
 +			int u = dx + dy / 2;
 +			int v = dy - dx / 2;
 +			int leaf = u * u * 256 + v * v * 1444 <= 1444 * 256;
 +			int stem = (x >= -2 && x <= 5 && y >= -145 && y <= -117);
-+
 +			if ((body && !bite) || leaf || stem) {
 +				line[cx + x] = white;
 +			}
@@ -129,9 +137,15 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +	__asm__ volatile("dsb sy" ::: "memory");
 +}
 +
++
  void
  sweet_early_guard_init(uintptr_t boot_args_kva)
-@@ -17,5 +17,6 @@
+ {
+diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+--- a/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/sweet_early.h
+@@ -14,6 +14,7 @@
+ void sweet_early_disable(void);
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
  void sweet_early_guard_init(uintptr_t boot_args_kva);
 +void sweet_early_logo(void);
@@ -141,8 +155,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -350,7 +350,10 @@
- #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+@@ -351,6 +351,9 @@
  	sweet_early_guard_init((uintptr_t)args);
  #endif
  	sweet_early_mark(1, "arm_init entered (MMU on)");
@@ -151,3 +164,4 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 +#endif
  
  	arm_setup_pre_sign();
+ 
