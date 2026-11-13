@@ -30,6 +30,9 @@
 #define GPIO_STATUS_BIT 0x01U
 #define PON_RESIN_N_SET 0x02U
 #define PSCI_SYSTEM_RESET 0x84000009UL
+#define PSCI_FEATURES 0x8400000aUL
+#define QCOM_PSHOLD_BASE 0x010ac000UL
+#define SPMI_OP_EXT_READL 1U
 #define EARLY_TIMEOUT_SECONDS 60U
 #define CHORD_SECONDS 3U
 #define POLL_MS 10U
@@ -53,19 +56,38 @@ static void delay_ms(unsigned ms, uint64_t f)
 	uint64_t until = ticks() + (f / 1000U) * ms;
 	while (ticks() < until) __asm__ volatile("yield" ::: "memory");
 }
-static void __attribute__((noreturn)) reset_now(const char *why)
+static uint64_t smc_call(uint64_t fn, uint64_t a1, uint64_t a2, uint64_t a3)
 {
-	register uint64_t x0 __asm__("x0") = PSCI_SYSTEM_RESET;
-	register uint64_t x1 __asm__("x1") = 0;
-	register uint64_t x2 __asm__("x2") = 0;
-	register uint64_t x3 __asm__("x3") = 0;
-	con_skip();
-	con_str("LAVENDER RESET", why);
-	__asm__ volatile("dsb sy; isb; smc #0"
+	register uint64_t x0 __asm__("x0") = fn;
+	register uint64_t x1 __asm__("x1") = a1;
+	register uint64_t x2 __asm__("x2") = a2;
+	register uint64_t x3 __asm__("x3") = a3;
+	__asm__ volatile("smc #0"
 		: "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
 		:
 		: "x4","x5","x6","x7","x8","x9","x10","x11",
 		  "x12","x13","x14","x15","x16","x17","memory");
+	return x0;
+}
+
+static void __attribute__((noreturn)) reset_now(const char *why)
+{
+	uint64_t f = frequency();
+	con_skip();
+	con_str("RESET", why);
+	con_hex("PSCI RESET FEAT", smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0));
+
+	/* SDM660 qcom,pshold restart resource from the public SoC device tree.
+	 * Qualcomm's Linux restart path deasserts PS_HOLD by writing zero. */
+	write32(QCOM_PSHOLD_BASE, 0);
+	__asm__ volatile("dsb sy; isb" ::: "memory");
+	if (f)
+		delay_ms(250, f);
+
+	/* Firmware reset is a second, independent attempt if PS_HOLD returns. */
+	con_str("RESET", "PSCI fallback");
+	uint64_t ret = smc_call(PSCI_SYSTEM_RESET, 0, 0, 0);
+	con_hex("PSCI RESET RET", ret);
 	for (;;) __asm__ volatile("wfe");
 }
 struct spmi {
@@ -73,6 +95,8 @@ struct spmi {
 	uint32_t stride;
 	uint32_t pon_apid;
 	uint32_t gpio_apid;
+	uint32_t pon_sid;
+	uint32_t gpio_sid;
 };
 static int find_apid(uint32_t ppid, uint32_t n, uint32_t mapoff,
                      uint32_t owner_filter, uint32_t *out)
@@ -111,14 +135,21 @@ static int discover(struct spmi *s)
     if(find_apid(SPMI_PON_PPID,n,mapoff,owner_filter,&s->pon_apid)) return -1;
     if(find_apid(SPMI_GPIO7_PPID,n,mapoff,owner_filter,&s->gpio_apid)) return -1;
     s->obs=SPMI_OBS;
+    s->pon_sid=(SPMI_PON_PPID>>8)&0xfU;
+    s->gpio_sid=(SPMI_GPIO7_PPID>>8)&0xfU;
     con_hex("SPMI arbiter version",ver);
     con_hex2("SPMI key APIDs","PON=",s->pon_apid,"GPIO7=",s->gpio_apid);
     return 0;
 }
-static int read_byte(const struct spmi *s,uint32_t apid,uint16_t addr,uint8_t *out)
+static int read_byte(const struct spmi *s,uint32_t apid,uint32_t sid,
+                     uint16_t addr,uint8_t *out)
 {
 	uintptr_t c=s->obs+(uintptr_t)s->stride*apid;
-	uint32_t cmd=(1U<<27)|((uint32_t)(addr&0xffU)<<4);
+	/* PMIC-arb command format: opcode, SID, 8-bit peripheral address,
+	 * 8-bit register offset, byte count. Keep the full 16-bit address. */
+	uint32_t cmd=(SPMI_OP_EXT_READL<<27)|((sid&0xfU)<<20)|
+	             (((uint32_t)(addr>>8)&0xffU)<<12)|
+	             (((uint32_t)addr&0xffU)<<4);
 	uint64_t f=frequency(), deadline=ticks()+f/1000U+1U;
 	uint32_t st;
 	write32(c+SPMI_CMD,cmd);
@@ -132,13 +163,15 @@ static int read_byte(const struct spmi *s,uint32_t apid,uint16_t addr,uint8_t *o
 	*out=(uint8_t)(read32(c+SPMI_RDATA0)&0xffU);
 	return 0;
 }
-static int chord(const struct spmi *s)
+static int chord(const struct spmi *s,uint8_t *up_out,uint8_t *down_out)
 {
 	uint8_t mode,en,up,down;
-	if(read_byte(s,s->gpio_apid,GPIO7_MODE,&mode) ||
-	   read_byte(s,s->gpio_apid,GPIO7_ENABLE,&en) ||
-	   read_byte(s,s->gpio_apid,GPIO7_RT_STS,&up) ||
-	   read_byte(s,s->pon_apid,PON_RT_STS,&down)) return -1;
+	if(read_byte(s,s->gpio_apid,s->gpio_sid,GPIO7_MODE,&mode) ||
+	   read_byte(s,s->gpio_apid,s->gpio_sid,GPIO7_ENABLE,&en) ||
+	   read_byte(s,s->gpio_apid,s->gpio_sid,GPIO7_RT_STS,&up) ||
+	   read_byte(s,s->pon_apid,s->pon_sid,PON_RT_STS,&down)) return -1;
+	*up_out=up;
+	*down_out=down;
 	/* Fail closed: GPIO7 must already be an enabled digital input. */
 	if((mode&0x7fU)!=0U || !(en&GPIO_ENABLE_BIT)) return -1;
 	/* GPIO7 has pull-up (active-low); PON RESIN_N_SET reports VolDown. */
@@ -149,18 +182,21 @@ void lavender_guardian_run(void)
 	struct spmi s;
 	uint64_t f=frequency(), started=ticks(), progress=started, chord_since=0, probe_at=started;
 	uint32_t marker_last=0xffffffffU;
+	uint8_t last_up=0xffU,last_down=0xffU;
 	volatile uint32_t *cell=(volatile uint32_t *)0;
 	int ready=0;
 	if(!f) reset_now("timer unavailable");
 	for(;;) {
 		uint64_t now=ticks();
 		uintptr_t pa=lavender_guardian_cell_pa;
-		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; }
+		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; con_hex("GUARD CELL",marker_last); }
 		else if(cell) {
 			uint32_t marker=*cell;
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
 			/* Stage 20 ends the early timeout only after key guardian is ready. */
 			if(now-progress>f*EARLY_TIMEOUT_SECONDS) {
+				con_hex("XNU STAGE",marker);
+				con_hex("STALL SECONDS",(now-progress)/f);
 				if(marker&0x80000000U)
 					reset_now("XNU reached startup but key guardian unavailable");
 				else
@@ -174,9 +210,14 @@ void lavender_guardian_run(void)
 			probe_at=now+f;
 		}
 		if(ready) {
-			int pressed=chord(&s);
+			uint8_t up=0,down=0;
+			int pressed=chord(&s,&up,&down);
+			if(pressed>=0 && (up!=last_up || down!=last_down)) {
+				con_hex2("KEYS","GPIO7=",up,"PON=",down);
+				last_up=up; last_down=down;
+			}
 			if(pressed==1) {
-				if(!chord_since) chord_since=now;
+				if(!chord_since) { chord_since=now; con_str("KEYS","both pressed; hold 3s"); }
 				else if(now-chord_since>=f*CHORD_SECONDS)
 					reset_now("VolUp+VolDown held 3 seconds");
 			} else {
