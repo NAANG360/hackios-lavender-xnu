@@ -29,6 +29,7 @@ on:
       - "xnu/patches/**"
       - ".github/workflows/xnu.yml"
       - "tools/validate-lavender-profile.sh"
+      - "shim/**"
 
 # Each run receives a unique group so concurrent dispatches cannot cancel builds.
 concurrency:
