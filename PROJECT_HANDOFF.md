@@ -2521,25 +2521,16 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 - Shim compile run 43450644863 (#37) succeeded for commit `b521ba593b51749dedc1cd32a2fa3b89b8cc52c2`.
 - This corrects a diagnostic false-positive; it does not prove PSCI/watchdog reset or PMIC recovery behavior on the physical phone.
 
-
-## 41. 2026-11-13 — Guardian post-stage-20 timeout handling and exact-revision packaging
-
-### Guardian correction
-
-- Commit `b521ba593b51749dedc1cd32a2fa3b89b8cc52c2` updates `shim/lavender_guardian.c`.
-- When the shared marker has its high bit set (stage 20 complete) and PMIC/key guardian discovery has succeeded, the A53 now advances its local timeout baseline instead of repeatedly evaluating an expired pre-stage-20 timer.
-- It only paints `XNU EARLY BOOT STALLED` and resets for a real pre-stage-20 stall. If stage 20 has completed but key guardian discovery is unavailable, it paints a separate `KEY GUARDIAN UNAVAILABLE` diagnostic before reset.
-- Lavender shim compile run 43450644863 (#37), commit `b521ba593b51749dedc1cd32a2fa3b89b8cc52c2`: success. Artifact `lavender-shim-compile`, ID `14051520151`.
-
 ### Build/package trigger correction
 
 - Commit `5b0671b17ef417b15d22f9574b1ee594499e25e9` adds `shim/**` to the XNU workflow push path filter. Shim changes now trigger the combined XNU + RAM-image package workflow, preventing a packaged image from silently using a stale shim.
 - The XNU workflow grants `actions: read` and `contents: read` so the same-run package job can download the verified `xnu-kernel` artifact.
-- XNU run 43450875062 (#121), source/workflow commit `5b0671b17ef417b15d22f9574b1ee594499e25e9`: queued at handoff update. It includes patch 0096, the stage-20 guardian correction, and the automatic same-run packaging job.
-- Older XNU runs #118, #119 and #120 were already in progress when the latest shim change landed; none should be treated as containing the final guardian code. Prefer #121 if it completes successfully.
+- XNU run 43450875062 (#121), source/workflow commit `5b0671b17ef417b15d22f9574b1ee594499e25e9`: in progress at the latest check.
+- XNU run 43450939054 (#122), commit `75eea5a3876c0f93018a730d572f0d35138ed558`: queued at the latest check. It has the same kernel, guardian and packaging logic as #121; the workflow change only repeated the `shim/**` path filter.
+- Both #121 and #122 include patch 0096 and the corrected stage-20 guardian. Use whichever of these two completes successfully first; do not use older #118–#120 if a newer candidate succeeds.
 
 ### Acceptance state
 
 - Still no physical validation of PSCI reset, KPSS watchdog fallback, or Volume Up + Volume Down PMIC recovery.
 - No new physical boot requested. Do not flash any partition.
-- A successful #121 image will prove compilation, kernel identity, packaging and image structure only. The Apple diagnostic logo is physically confirmed only if the phone visibly displays it; stage value 5 is the firmware-side checkpoint that the logo draw routine returned.
+- A successful image proves compilation, kernel identity, packaging and image structure only. The Apple diagnostic logo is physically confirmed only if the phone visibly displays it; stage value 5 is the firmware-side checkpoint that the logo draw routine returned.
