@@ -2502,7 +2502,7 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 - Commit: `97cf7f9d69719afe71ed42394b728e9bf44d9e63`
 - The pre-VBAR pixel stores are removed. RAM-only markers 1 and 0x11 remain in the reserved boot-arguments page. Marker 0x12 still follows VBAR installation.
 - The XNU CI guard now checks the actual source interval from `LEXT(start_first_cpu)` to `MSR_VBAR_EL1_X0`: it rejects the old framebuffer loop / fixed FB address and requires the RAM-only 0x11 checkpoint.
-- Patch application was locally validated against the source tree extracted from successful XNU run 43432569041.
+- Patch application was locally validated against source trees extracted from successful XNU runs 43432569041 and 43449034676 (#115 and #116). The run-116 build tree also passed a post-apply structural check: no Lavender framebuffer address/pixel loop before VBAR, checkpoint 0x11 retained before VBAR, checkpoint 0x12 retained after VBAR.
 
 ### Current validation
 
@@ -2526,7 +2526,7 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 - Commit `5b0671b17ef417b15d22f9574b1ee594499e25e9` adds `shim/**` to the XNU workflow push path filter. Shim changes now trigger the combined XNU + RAM-image package workflow, preventing a packaged image from silently using a stale shim.
 - The XNU workflow grants `actions: read` and `contents: read` so the same-run package job can download the verified `xnu-kernel` artifact.
 - XNU run 43450875062 (#121), source/workflow commit `5b0671b17ef417b15d22f9574b1ee594499e25e9`: in progress at the latest check.
-- XNU run 43450939054 (#122), commit `75eea5a3876c0f93018a730d572f0d35138ed558`: queued at the latest check. It has the same kernel, guardian and packaging logic as #121; the workflow change only repeated the `shim/**` path filter.
+- XNU run 43450939054 (#122), commit `75eea5a3876c0f93018a730d572f0d35138ed558`: in progress at the latest check; XNU build step is running. It has the same kernel, guardian and packaging logic as #121; the workflow change only repeated the `shim/**` path filter.
 - Both #121 and #122 include patch 0096 and the corrected stage-20 guardian. Use whichever of these two completes successfully first; do not use older #118–#120 if a newer candidate succeeds.
 
 ### Acceptance state
