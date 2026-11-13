@@ -1,6 +1,10 @@
 name: Package Lavender fastboot test image
 
 on:
+  workflow_run:
+    workflows: ["xnu"]
+    types: [completed]
+    branches: [ci/lavender-machine-profile]
   workflow_dispatch:
     inputs:
       xnu_run_id:
@@ -14,11 +18,14 @@ permissions:
 
 jobs:
   package:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Check out matching source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Download XNU kernel artifact
         uses: actions/download-artifact@v4
@@ -27,7 +34,7 @@ jobs:
           path: out
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.xnu_run_id }}
+          run-id: ${{ inputs.xnu_run_id || github.event.workflow_run.id }}
 
       - name: Verify Lavender Mach-O kernel exists
         run: |
