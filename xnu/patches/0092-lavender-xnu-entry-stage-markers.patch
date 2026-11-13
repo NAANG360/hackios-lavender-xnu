@@ -2,29 +2,23 @@ From 6f5de9b9d9d7f6e7d9d8af4a1c7c3e9d8c1a6b20 Mon Sep 17 00:00:00 2001
 Subject: [PATCH] lavender: add XNU-owned framebuffer entry-stage markers
 
 The shim's final "XNU jumping" line is emitted before it branches to the
-Mach-O LC_UNIXTHREAD PC. Add two tiny, persistent marks to the audited
+Mach-O LC_UNIXTHREAD PC. Add two small persistent marks to the audited
 Lavender splash framebuffer:
 
-  green: start_first_cpu has executed, while MMU is still off
-  blue:  bootstrap MMU has been enabled and the V=P framebuffer mapping works
+  green: start_first_cpu executed while MMU is still off
+  blue: bootstrap MMU is enabled and the V=P framebuffer mapping works
 
-The existing arm_init() logo remains the third milestone and clears these
-diagnostic marks when reached. This patch does not bypass CPU/granule gates,
-alter the memory map, or touch persistent storage.
+The existing arm_init() logo is the third milestone and clears these
+diagnostic marks when reached. The patch changes no boot gates or storage.
 
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -1,2 +1,23 @@
- mov x20, x0
+@@ -400,2 +400,23 @@
  mov x20, x0
  mov x21, #0
-+	/*
-+	 * Stage 1: XNU's first-CPU entry stub is running with MMU off.
-+	 * Paint a 16x16 green marker near the lower-left edge of the
-+	 * known 1080x2340 physical framebuffer. x0 is free: boot_args
-+	 * was saved in x20 above.
-+	 */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Stage 1: first-CPU entry, with the MMU still off. */
 +	MOV64	x0, 0x9d400000 + (2308 * 4320) + 64
 +	MOV64	x1, 0xff00ff00
 +	mov	x2, #16
@@ -40,14 +34,10 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	b.ne	1b
 +	dsb	sy
 +#endif
-@@ -1,1 +1,22 @@
+@@ -700,1 +721,22 @@
  #endif /* !VMAPPLE */
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
-+	/*
- #endif /* !VMAPPLE */
-+	 * identity/V=P mapping must now make this same framebuffer
-+	 * reachable at its physical address.
-+	 */
++	/* Stage 2: the bootstrap MMU and caches are now enabled. */
 +	MOV64	x0, 0x9d400000 + (2308 * 4320) + 160
 +	MOV64	x1, 0xff0000ff
 +	mov	x2, #16
