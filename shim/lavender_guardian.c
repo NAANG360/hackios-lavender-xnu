@@ -78,7 +78,6 @@ static void __attribute__((noreturn)) reset_now(const char *why)
 	uint64_t f = frequency();
 	con_skip();
 	con_str("RESET", why);
-	con_hex("PSCI", smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0));
 
 	/* SDM660 watchdog block from qcom,msm-watchdog in the public SoC DT.
 	 * Program a one-tick secure bite; unlike PS_HOLD this requests a SoC
@@ -94,6 +93,8 @@ static void __attribute__((noreturn)) reset_now(const char *why)
 	if (f)
 		delay_ms(250, f);
 
+	/* Check firmware support only after the hardware watchdog attempt. */
+	con_hex("PSCI", smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0));
 	/* If the watchdog path returns, try PSCI SYSTEM_RESET as the fallback. */
 	con_str("RESET", "PSCI fallback");
 	uint64_t ret = smc_call(PSCI_SYSTEM_RESET, 0, 0, 0);
