@@ -354,6 +354,11 @@ static __attribute__((noreturn)) void test_lavender_a73_psci(uintptr_t dtb)
 	con_str("A73", "16K supported; launching XNU");
 	lavender_a73_state = A73_STATE_GO;
 	__asm__ volatile("dsb sy; sev" ::: "memory");
+
+	/* The paired ADT marks the original A53 boot CPU as stopped. Power it
+	 * off before XNU starts so CPU topology and PSCI state agree. */
+	con_str("BOOT CPU", "powering off for XNU");
+	smc(PSCI_CPU_OFF, 0, 0, 0);
 	for (;;)
 		__asm__ volatile("wfe");
 }
