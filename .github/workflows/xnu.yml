@@ -87,9 +87,19 @@ jobs:
 from pathlib import Path
 p = Path("xnu/osfmk/arm64/start.s")
 s = p.read_text()
-start = s.index("    lavender_early_mark 1", s.index("LEXT(start_first_cpu)"))
-end = s.index("    lavender_early_mark 0x11", start)
-s = s[:start] + "    lavender_early_mark 1\\n" + s[end:]
+import re
+start = s.index("LEXT(start_first_cpu)")
+vbar = s.index("MSR_VBAR_EL1_X0", start)
+pre = s[start:vbar]
+pre, count = re.subn(
+    r"(?ms)^([ \\t]*)lavender_early_mark 1\\n.*?^([ \\t]*)lavender_early_mark 0x11$",
+    r"\\1lavender_early_mark 1\\n\\2lavender_early_mark 0x11",
+    pre,
+    count=1,
+)
+if count != 1:
+    raise SystemExit("could not isolate the legacy pre-VBAR framebuffer block")
+s = s[:start] + pre + s[vbar:]
 p.write_text(s)
 check = s[s.index("LEXT(start_first_cpu)"):s.index("MSR_VBAR_EL1_X0", s.index("LEXT(start_first_cpu)"))]
 assert "0x9d400000" not in check and "Llavender_stage1_pixel" not in check
