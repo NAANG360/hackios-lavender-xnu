@@ -2188,3 +2188,32 @@ A local intermediate ZIP was created at `/mnt/data/LIOS-Lavender-Run87-Intermedi
 5. Only then package and test the first XNU-entry boot image. A green CI build or static payload is not a physical boot.
 
 Current status: XNU kernel compile/link **verified**; LAVENDRX payload **assembled and structurally checked**; shim/ADT compile **verified**; stock FDT provenance, live boot CPU gate, boot.img packaging, XNU runtime, display logo and userspace remain unverified.
+
+
+### 34.6 First Lavender fastboot boot-test image packaged (2026-11-13 11:51 IST)
+
+The earlier caution about packaging has now been resolved by validating the exact OTA source and extracted FDT against the live-device audit and the committed Lavender platform cross-check. The package workflow used the user's own published LucidOS Build 4 OTA, pinned by SHA-256, and extracted exactly one boot.img and the appended FDT selected by `qcom,sdm660` plus the model string containing `SDM 660`. The extracted DTB strings include model `Qualcomm Technologies, Inc. SDM 660 PM660 + PM660L MTP, Lavender`, compatible `qcom,sdm660-mtp` and `qcom,sdm660`; it is the F7A Lavender tree already cross-checked in section 34.2 against the live audit. No other device's DTB was used.
+
+Successful XNU source run #87:
+- Workflow run ID: `43373843354`; source commit: `6eb50162628b73f7e1493193c45c8d22e4c625ed`.
+- Artifact ID: `14013279960`, `xnu-kernel` (58,301,734 bytes compressed).
+- Kernel: `kernel.development.lavender`, 16,586,120 bytes; ARM64 Mach-O 64-bit, MH_EXECUTE, 26 load commands, LC_UNIXTHREAD present.
+- SHA-256: `8d216a3f65e1a28f34ba05115257298b02af32f6bbcbe21589590dfaf8bad627`.
+- LavenderPlatformExpert, qcom,sdm660-mtp and Redmi Note 7 identity strings verified. This kernel predates patch 0091's XNU-owned Apple logo; do not claim it contains the logo.
+
+Successful package workflow run #6:
+- Run ID: `43377913762`; artifact ID: `14015645108`; artifact name `lavender-fastboot-boot-test` (11,288,896 bytes compressed).
+- Image: `shim/out/shim-boot.img`, 16,592,896 bytes; Android boot header v2, 4096-byte pages, kernel address 0x8000, ramdisk address 0x01000000.
+- Boot image SHA-256: `843b949423f88c8b0e225045f3507b8d2cd213cd422fa8f738c1d3d50a2ea9ed`.
+- Payload SHA-256: `5d6cdae7b6122013ab5571b86b9f21c929b65aeb244412cd67819169fa148adb`; ADT SHA-256: `946a36a34f85c0f4c30b939e93e23b172de310d029ad6581a2e5a898abd152a8`.
+- Independently unpacked the downloaded artifact: shim kernel is an ARM64 Linux Image (`ARMd` magic), ramdisk starts with `LAVENDRX`, appended FDT has valid FDT magic `d00dfeed` and is 406,950 bytes. The package workflow's own verify and upload steps all passed.
+- Build manifest explicitly says `fastboot boot only; do not flash to a partition`. This is a structurally verified experimental boot-test image, **not yet a demonstrated physical boot**. Do not flash it. The shim refuses to jump into XNU if the live boot CPU does not advertise the required 16 KiB translation granule.
+- Local downloaded image for this ChatGPT session: `/mnt/data/lavenderboot/shim/out/shim-boot.img`; downloaded artifact ZIP: `/mnt/data/lavender-fastboot-boot-test.zip`.
+
+### 34.7 Apple-logo kernel build in progress
+
+- Run #88 / ID `43377238760` (commit `c266f1a4`), #89 / ID `43377282773` (commit `b993d0a5`), and #90 / ID `43377325690` (commit `a4029a29`) are concurrent XNU builds testing the Lavender early framebuffer/logo patch `0091-lavender-early-framebuffer-logo.patch` and subsequent patch-hunk corrections.
+- Run #90's profile validation and runner/toolchain setup passed; at the last check its XNU build step was still in progress. Check these runs before any new source write. If #90 succeeds and contains a verified kernel artifact, run `package-lavender.yml` with that exact run ID to produce a second boot image that includes the logo code.
+- Patch 0091 maps the two 32 MiB blocks containing the audited 0x9d400000 framebuffer as Normal-NC and draws a centered white Apple-like mark on black during early `arm_init()`. This is only a first display mark, not a full display driver, and remains unverified until the kernel build and physical screen output pass.
+
+Current status: real Lavender XNU ARM64 kernel **compiled and statically verified**; a complete Android boot.img v2 containing the shim, LAVENDRX kernel payload, generated Lavender ADT and audited stock FDT **packaged and structurally verified**; actual phone boot, XNU entry, TGran16 result, framebuffer output/logo, and iOS userspace remain unverified. Continue with run #90 and a logo-bearing package, then arrange a reversible RAM-only device test. Never flash a partition.
