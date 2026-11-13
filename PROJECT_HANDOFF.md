@@ -2347,3 +2347,47 @@ The guardian reset sequence is now PSCI SYSTEM_RESET first. If it returns, the S
 Latest XNU build for the corrected checkpoint patch: run 43432569041, commit a699f63aa75ac069f9979ab6f242e1201721a585; still running at last check. Latest shim compile after the timer-derived timeout change: run 43432762610, commit a3a4bae44257d1d78118661a36a5c0843101c8bf; queued at last check. The prior shim compile run 43432676526 succeeded for the preceding register-order revision.
 
 Do not retest the old image. Wait for run 43432569041 to finish successfully, wait for run 43432762610 to pass, then package from the exact successful XNU run while checking out the current branch so the current shim is included. Verify the complete image before proposing another RAM-only test. Do not flash any partition, and do not ask the user for another physical test until the reset behavior has been reviewed.
+
+## 38. 2026-11-13 — Instrumented Lavender fastboot image packaged successfully
+
+### Build/package result
+
+Package workflow run **43436477205** completed with conclusion `success` at 2026-11-13 13:47 UTC. The package job's complete step list passed, including source checkout, XNU artifact download, Mach-O verification, AArch64/Android image tooling setup, mkbootimg setup, published Lavender OTA download and verification, extraction of the stock boot image and DTB, Apple Device Tree generation/validation, XNU payload construction, non-flashing fastboot boot image creation, boot-image structure/payload identity validation, and artifact upload.
+
+- Workflow: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43436477205
+- Artifact name: `lavender-fastboot-boot-test`
+- Artifact ID: `14042828307`
+- Artifact size: `16,977,101` bytes (artifact archive; not the raw image size)
+- GitHub artifact archive digest: `sha256:ab535da4f1c1b9a5dde8bec87f488c6bb9c5491ec20bb4570246151831105bce`
+- Artifact expires: 2026-11-27 13:47:34 UTC
+- Source commit checked out by package workflow: `81ba53dbed5413326f0e7fd41e3393a671dfd599`.
+
+### Exact successful build inputs
+
+- XNU build run: `43432569041` — success, commit `a699f63aa75ac069f9979ab6f242e1201721a585`.
+- Shim build run: `43432762610` — success, commit `a3a4bae44257d1d78118661a36a5c0843101c8bf`.
+- Package workflow explicitly passed all image structure and payload-identity validation steps.
+
+### What this does and does not prove
+
+This is a newly packaged, structurally validated **RAM-only fastboot test image** containing the instrumented Lavender XNU payload and the revised shim. It is not evidence that XNU has reached `arm_init()`, displayed an Apple logo, or booted a usable iOS userspace. The earlier physical video still showed the old coarse `XNUSTAGE=1` marker before boot-argument loading, stack setup, page-table construction and MMU enable. The new stage markers have not yet been physically observed.
+
+The GitHub artifact digest above hashes the uploaded artifact archive, not the extracted `iosboot.img`. Do not label it as the raw image's SHA-256. Download and inspect the artifact archive, extract the image, record its exact byte size and compute its own SHA-256 before handing it to the user.
+
+### Next safe actions
+
+1. Download artifact `14042828307` from run `43436477205`; inspect archive contents and extract the actual boot image.
+2. Independently inspect Android boot header, page size, kernel/ramdisk/DTB placement, appended XNU payload identity and image size; compute raw image SHA-256.
+3. Recheck the exact guardian reset implementation in the packaged shim. PSCI SYSTEM_RESET is attempted first; the watchdog fallback is experimental and its hardware behavior is not physically verified.
+4. Only after static checks pass, ask the user to do a **RAM-only** `fastboot boot` test. Do not flash any partition. The user has a broken power button and previous reset attempts failed, so explain the recovery risk and do not imply automatic reset is guaranteed.
+5. On the next video, read the last `XNUSTAGE`/checkpoint value. Map it to patch 0095 to identify the exact early-start boundary.
+
+### Status snapshot
+
+- XNU compile: PASS.
+- Shim compile: PASS.
+- Fastboot test image package: PASS.
+- Image structure/payload validation in CI: PASS.
+- Extracted raw image SHA-256: NOT YET RECORDED.
+- Physical test of this new image: NOT YET DONE.
+- Apple logo / `arm_init()` / iOS userspace: NOT YET CONFIRMED.
