@@ -2299,3 +2299,37 @@ Final artifact was downloaded and independently rechecked in the working contain
 **Supersedes:** the earlier package artifact from run `43390817610` (artifact `14020204355`) did not power off the original A53 boot CPU. Do not test that earlier package; use the run `43391253726` artifact only.
 
 This remains a RAM-only **physical-test candidate**. No device report yet confirms the A73 TGran16 check, secondary-core trampoline, XNU entry, or kernel early-init success. The next physical boot should be performed with bootloader Fastboot and `fastboot boot`; never flash it.
+
+
+## 36. Physical XNU handoff diagnosis and early-start instrumentation — 2026-11-13
+
+### 36.1 Video findings
+
+The user supplied a 67-second recording of the current RAM-only boot-test image. The framebuffer log establishes that the phone:
+- Starts the shim on MPIDR 0x0 (A53), whose TGran16 field is 0; the shim correctly refuses to run the 16 KiB XNU build on that core.
+- Powers on the A73 target at MPIDR 0x100, observes TGran16=1, and releases that core to the XNU loader. ARM's TGran16 encoding 1 means 16 KiB granules are supported.
+- Loads ten XNU Mach-O segments, prepares boot_args at PA 0xA2420000, and jumps to entry VA 0xfffffe000747c488.
+- Shows entry VA 0xfffffe000747c488, which matches the compiled kernel's __start symbol. The image is an ARM64 Mach-O MH_EXECUTE, not a kernel collection.
+
+The guardian eventually reports XNUSTAGE=1 after 60 seconds. Stage 1 is written immediately after XNU captures x0 as the physical boot_args pointer. It is before VBAR setup, boot-argument loads, stack setup, page-table construction, and SCTLR/MMU enable. It does not prove arm_init() ran. The old GUARD PA label was also inaccurate: it printed marker_last, not the guard-cell address.
+
+### 36.2 Instrumentation and reset corrections
+
+Patch 0095 adds pre-MMU checkpoints 0x11–0x1E around the early framebuffer write, VBAR, boot_args loads, stack setup, page-table clearing, V=P mapping, KVA mapping, framebuffer descriptor, TCR, TTBR, MAIR/TLB setup, final VBAR, and the pre-SCTLR boundary. Marker 2 is written immediately after SCTLR/ISB using the V=P identity alias; marker 0x21 follows the subsequent framebuffer write.
+
+The later lavender_guard_mark macro was changed to use the identity alias directly and no longer pushes/pops through the KVA stack. This avoids hiding stage progress if the KVA stack is itself the fault. The guardian now prints CELL PA and GUARDMK separately.
+
+Guardian reset handling now queries PSCI SYSTEM_RESET support and tries PSCI SYSTEM_RESET before the Qualcomm watchdog fallback. The fallback avoids a watchdog MMIO readback that could itself stall. Neither reset path has yet been physically proven; do not assume it will recover the device.
+
+### 36.3 Source commits and CI
+
+- 0095 instrumentation initial commit: 7dc188e355d92d16ed776427ed86c278eeca166f.
+- PSCI-first reset: 8770ad874954197c308c9d583b7fa524a9ccab61.
+- Identity-mapped post-MMU marker refinement: a38f50eace391f28f5da6d6b99d21b7afb68625b.
+- Guardian diagnostic label correction: a13bfd76c608343cd4ff3279f37abd5d69faa318.
+- Shim compile including PSCI-first reset succeeded in run 43431286756 (artifact 14039917420).
+- XNU run 43431560794 is building the refined patch. Run URL: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43431560794.
+
+### 36.4 Next safe step
+
+Wait for XNU run 43431560794 to finish. If it passes, package using that exact run ID, verify the new image and shim, and only then consider a further RAM-only test. The next test must report the last checkpoint reached. Given the user's broken power button and prior failed reset attempts, do not request another physical boot before the replacement image and reset path have been reviewed. Never flash a partition.
