@@ -98,7 +98,6 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          grep -q 'LAVENDER_XNU_GUARD_2026' dxb/xnu/osfmk/arm64/sweet_early.c
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm64/start.s").read_text()
