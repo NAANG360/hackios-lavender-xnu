@@ -1,6 +1,6 @@
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -514,9 +514,14 @@
+@@ -514,9 +514,20 @@
  	mov		x21, #0
  
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -23,7 +23,7 @@
  	MOV64	x0, (0x9d400000 + 2308 * 4320 + 64)
  	movz	w1, #0xff00
  	movk	w1, #0xff00, lsl #16
-@@ -532,6 +537,7 @@
+@@ -532,6 +543,7 @@
  	subs	x2, x2, #1
  	b.ne	Llavender_stage1_row
  	dsb		sy
@@ -31,7 +31,7 @@
  #endif
  
  #if defined(SWEET)
-@@ -557,7 +563,9 @@
+@@ -557,7 +569,9 @@
  	adrp	x0, EXT(LowExceptionVectorBase)@page
  	add		x0, x0, EXT(LowExceptionVectorBase)@pageoff
  	MSR_VBAR_EL1_X0
@@ -42,7 +42,7 @@
  
  	// Get the kernel memory parameters from the boot args
  	ldr		x22, [x20, BA_VIRT_BASE]			// Get the kernel virt base
-@@ -565,6 +573,9 @@
+@@ -565,6 +579,9 @@
  	ldr		x24, [x20, BA_MEM_SIZE]				// Get the physical memory size
  	adrp	x25, EXT(bootstrap_pagetables)@page	// Get the start of the page tables
  	ldr		x26, [x20, BA_BOOT_FLAGS]			// Get the kernel boot flags
@@ -52,7 +52,7 @@
  
  	// Clear the registers that will be used to store the userspace thread pointer and CPU number.
  	// We may not actually be booting from ordinal CPU 0, so this register will be updated
-@@ -600,6 +611,9 @@
+@@ -600,6 +617,9 @@
  	add		lr, lr, EXT(arm_init)@pageoff
  	add		lr, lr, x22							// Convert to KVA
  	sub		lr, lr, x23
@@ -62,7 +62,7 @@
  
  	/*
  	 * Set up the bootstrap page tables with a single block entry for the V=P
-@@ -621,6 +635,9 @@
+@@ -621,6 +641,9 @@
  	str		x0, [x1], #(1 << TTE_SHIFT)			//   Invalidate and advance
  	subs	x2, x2, #1							//   entries--
  	b.ne	Linvalidate_bootstrap				// } while (entries != 0)
@@ -72,7 +72,7 @@
  
  	/*
  	 * In order to reclaim memory on targets where TZ0 (or some other entity)
-@@ -662,6 +679,9 @@
+@@ -662,6 +685,9 @@
  	sub		x24, x24, x18
  	add		x22, x22, x18
  	add		x23, x23, x18
@@ -82,7 +82,7 @@
  
  	/*
  	 * x0  - V=P virtual cursor
-@@ -694,10 +714,16 @@
+@@ -694,9 +720,15 @@
  	lsr		x5,  x24, #(ARM_TT_L2_SHIFT)
  	/* create_bootstrap_mapping(vbase, pbase, num_ents, L1 table, freeptr) */
  	create_bootstrap_mapping x0,  x4,  x5, x1, x2, x6, x10, x11, x12, x13
@@ -98,7 +98,7 @@
 +#endif
  
  #if defined(SWEET)
-@@ -727,6 +753,7 @@
+@@ -727,6 +759,7 @@
  	lsr		x12, x12, #(ARM_TT_L2_SHIFT)
  	add		x13, x25, #(2 * PGBYTES)
  	str		x11, [x13, x12, lsl #TTE_SHIFT]
@@ -106,7 +106,7 @@
  #endif
  
  	/* Ensure TTEs are visible */
-@@ -752,17 +779,13 @@
+@@ -752,17 +785,15 @@
   *	TPIDRRO_EL0 - CPU number
   */
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -128,7 +128,7 @@
  .endm
  #endif
  
-@@ -779,6 +806,9 @@
+@@ -779,6 +810,9 @@
  	add		x0, x0, EXT(sysreg_restore)@pageoff
  	ldr		x1, [x0, SR_RESTORE_TCR_EL1]
  	MSR_TCR_EL1_X1
@@ -138,7 +138,7 @@
  
  	/* Set up translation table base registers.
  	 *	TTBR0 - V=P table @ top of kernel
-@@ -796,6 +826,9 @@
+@@ -796,6 +830,9 @@
  	add		x0, x25, PGBYTES
  	and		x0, x0, #(TTBR_BADDR_MASK)
  	MSR_TTBR1_EL1_X0
@@ -148,7 +148,7 @@
  
  	// Set up MAIR attr0 for normal memory, attr1 for device memory
  	mov		x0, xzr
-@@ -819,6 +852,9 @@
+@@ -819,6 +856,9 @@
  	isb
  	tlbi	vmalle1
  	dsb		ish
@@ -158,7 +158,7 @@
  
  
  #if defined(BCM2837)
-@@ -876,12 +912,18 @@
+@@ -876,12 +916,18 @@
  	sub		x0, x0, x23
  1:
  	MSR_VBAR_EL1_X0
@@ -177,7 +177,7 @@
  	MOV64   x0, SCTLR_EL1_DEFAULT
  	MSR_SCTLR_EL1_X0
  	isb		sy
-@@ -889,10 +931,10 @@
+@@ -889,10 +935,10 @@
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
  	/* Preserve x0: the non-SWEET path verifies the SCTLR value below. */
  	mov		x5, x0
@@ -192,7 +192,7 @@
  	mov		w1, #2
  	str		w1, [x0]
  	dc		cvac, x0
-@@ -911,6 +953,12 @@
+@@ -911,6 +957,12 @@
  	add		x0, x0, x4
  	subs	x2, x2, #1
  	b.ne	Llavender_stage2_row
