@@ -126,14 +126,34 @@ static void delay_ms(unsigned ms)
 		;
 }
 
+#ifdef TARGET_LAVENDER
+/*
+ * Arm the SDM660 non-secure watchdog before every PSCI reset request.
+ * Keep this sequence identical to the independent A53 guardian path: if
+ * secure firmware blocks inside SMC, the watchdog must already be armed.
+ */
+static void lavender_arm_watchdog_reset(void)
+{
+	const uintptr_t base = 0x17817000UL;
+	*(volatile uint32_t *)(base + 0x08) = 0;  /* WDT0_EN */
+	*(volatile uint32_t *)(base + 0x14) = 1;  /* WDT0_BITE_TIME */
+	__asm__ volatile("dsb sy" ::: "memory");
+	*(volatile uint32_t *)(base + 0x08) = 1;  /* WDT0_EN */
+	*(volatile uint32_t *)(base + 0x04) = 1;  /* WDT0_RST */
+	__asm__ volatile("dsb sy; isb" ::: "memory");
+}
+#endif
+
 static void __attribute__((noreturn)) reset(unsigned after_s)
 {
+#ifndef TARGET_LAVENDER
 	con_skip();
 	con_str("RESET", after_s > 20 ? "in 40s" : "soon");
+#endif
 	delay_ms(after_s * 1000);
 #ifdef TARGET_LAVENDER
-	/* Use the PSCI conduit declared by the public SDM660 DT; do not poke
-	 * unverified restart-reason or PSHOLD registers on Lavender. */
+	/* No framebuffer dependency is allowed on this terminal reset path. */
+	lavender_arm_watchdog_reset();
 	smc(PSCI_SYSTEM_RESET, 0, 0, 0);
 #else
 	wr32(IMEM_RESTART_REASON, RESTART_BOOTLOADER);
