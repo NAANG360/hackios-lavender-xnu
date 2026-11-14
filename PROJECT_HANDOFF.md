@@ -3373,3 +3373,39 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 ### Current acceptance state and safety
 - Full XNU run **43606468548** (source commit above) is in progress at the XNU build step. Its post-build source guard, Mach-O verification, and fastboot packaging remain pending.
 - No updated image has been physically tested. Do not ask for another handset test until an independent recovery route that does not require the broken power button is established. No flashing or partition writes; any future test is RAM-only.
+
+## 44.32 — 2026-11-14: run #213 attempt 2 compiled XNU; source guard failed; CI cache remediation
+
+### Run #213 attempt 2 — actual result
+- Workflow run: `43606468548`, run #213, attempt 2, source commit `6b5c477d820656f4b029b005d63596cb54705c82`. Final conclusion: **failure**, but not an XNU compilation failure.
+- Build job `132487666362` completed `Build XNU 8796` with **success**. The following step `Require Lavender XNU entry-guard patch` failed. The job log shows the first pre-VBAR source assertion passed, then the Python source-order assertion raised `ValueError: substring not found` at stdin line 13.
+- Exact root cause: the validator loaded `dxb/xnu/osfmk/arm/arm_init.c` into `source`, then searched that C file for the assembly comment `// Set KVA of boot args as first arg`. That comment and the `lavender_guard_mark 8/9` instructions are in `dxb/xnu/osfmk/arm64/start.s`, not `arm_init.c`. The implementation is not missing the markers: the uploaded build-tree source confirms stage 8 after boot-args KVA calculation and stage 9 immediately before the `ret` into `arm_init()`.
+- The build's output collection step found `out/kernel.development.lavender`, **16,587,304 bytes**. However, because the source guard failed, `Verify Lavender kernel artifact` and the `xnu-kernel` artifact upload were skipped; the downstream RAM-only package job `132492800336` was also skipped. No new `iosboot.img` was produced by run #213. The collected kernel is not an accepted or downloadable boot image and must not be represented as verified.
+- Run #213 artifacts retained for diagnosis: build log artifact `14120260161` (2,912,815 bytes; digest `sha256:dc350dc10b95d5d9cfa37914a184d8368c2773cc31c35f7dacb56614d84c8824`) and build-tree artifact `14119559638` (22,587,864 bytes; digest `sha256:ff760bb6380c2a9bd5baa8059755acd84e20edb50396bd308c90445a552014d4`). The build-tree tar deliberately excludes `*.o`, `*.a`, and the built kernel, so it is source/build-state evidence, not a resumable compiled-object cache and not a kernel package.
+- This is the correction to prior status wording: run #213 attempt 2 was **not cancelled during XNU compilation**. It compiled XNU successfully, then failed in the repository's post-build source validator.
+
+### Build-time and cache evidence
+- The run log explicitly reports `Cache not found` for the exact key `xnu8796-13.5-DEVELOPMENT-LAVENDER-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-89345f324d41e01bad64f9f300b8432ff1aed977410aefa96726f54aa08b55e8`. This was a cold build, not an incremental-cache hit.
+- Runner-reported resources: **4 physical CPUs, 4 logical CPUs, 15,032,385,536 bytes RAM**. `XNU_MAKE_JOBS=4`; build tooling therefore used all four reported logical CPUs, rather than an arbitrary overcommitted `-j) value.
+- The build step took roughly 16–17 minutes in this cold-cache attempt (step log timestamps show the build finishing shortly before the 15:24:04 guard failure). The 16.6 MB kernel file size is not a measure of compile work: XNU builds a large dependency/source tree and links the final Mach-O.
+- Original cache design had two avoidable weaknesses: the workflow YAML itself was part of the cache hash (so validator-only workflow edits invalidated the object cache), and cache saving required the entire job to succeed (so a successful compilation followed by a validator failure discarded reusable objects).
+
+### Workflow remediation committed
+- Workflow-only commit: `4cb4eec5fd57c6bc678520e8178cf805ef36eb10` (branch HEAD at this commit before documentation updates).
+- The source-order validator now reads `start.s` into a separate `start_asm` value and searches for the stage-8/9 markers and the final `ret` in the correct assembly file. C-stage and logo-order checks continue to read `arm_init.c` / `sweet_early.c` respectively.
+- The required-patch check now explicitly rejects skipped `0106-lavender-verbose-boot-final.patch` **and** `0107-lavender-post-assembly-entry-trace.patch`.
+- Added `id: xnu-build` and changed the cache-save condition to save after a successful XNU compile even if a later source guard fails. A failed compile still does not save an incomplete cache.
+- Removed `.github/workflows/xnu.yml` from the build-cache key. The exact cache key continues to include the XNU build-tool pin, macOS version, kernel configuration, machine profile, and hashes of the actual XNU patch/script inputs. Added a restore-key prefix scoped to the same toolchain/configuration so an earlier compatible cache can be used for incremental dependency rebuilds after patch changes.
+- These are design improvements, not yet measured performance results. Do not claim a speedup until a later run demonstrates a cache hit and a shorter build duration.
+
+### Current Actions candidate
+- The workflow push triggered run **#220**, ID `43611119178`, source commit `4cb4eec5fd57c6bc678520e8178cf805ef36eb10`, attempt 1: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43611119178
+- At the latest inspection, run #220 is `in_progress`; build job `132496159699` had only reached `Inspect runner and select Xcode`. No cache-hit status, XNU build result, source-guard result, Mach-O verification, kernel artifact, package artifact, or image hash is yet confirmed.
+- Next acceptance gates for run #220: verify cache restore outcome; confirm both 0106/0107 are actually applied; XNU build success; source guard success; ARM64 Mach-O/Lavender identity verification; successful cache save (if needed); package job success; structural check of resulting `iosboot.img`; independently verify image SHA-256.
+- Keep the run source SHA distinct from later docs commits. AGENTS.md and PROJECT_HANDOFF.md updates must not be confused with the XNU source commit that run #220 builds.
+
+### Remaining physical-device boundary
+- The last packaged image actually tested on hardware remains run #203's artifact `14114386476`, SHA-256 `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`. Its crop is geometrically consistent with all five green tiles (stages 3–7), but the exact last marker is not proven by the blurred image.
+- Run #213 produced no new packaged image. Run #220 must pass every build and package gate before it can supply the next RAM-only test image.
+- The user's power button is broken; the independent recovery path is still not proven. Do not request another physical test until recovery is established. No flashing or writes to Android boot-critical partitions; any subsequent test remains RAM-only.
+
