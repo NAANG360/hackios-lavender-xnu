@@ -74,6 +74,7 @@ static uint64_t smc_call(uint64_t fn, uint64_t a1, uint64_t a2, uint64_t a3)
 
 static void __attribute__((noreturn)) reset_now(const char *why)
 {
+	(void)why;
 
 	/*
 	 * Arm the SDM660 watchdog BEFORE entering secure firmware. The earlier
@@ -184,11 +185,9 @@ static int chord(const struct spmi *s,uint8_t *up_out,uint8_t *down_out)
 	return (!(up&GPIO_STATUS_BIT) && (down&PON_RESIN_N_SET)) ? 1 : 0;
 }
 /*
- * The A73/XNU core owns the shared framebuffer after PSCI_CPU_ON.  This
- * A53 guardian must not emit routine console output after handoff; even a
- * single status line can corrupt XNU's logo or early diagnostics.
- * The only framebuffer messages below are fatal timeout/reset diagnostics,
- * emitted after the shared stage cell has stopped advancing.
+ * The A73/XNU core owns the framebuffer after PSCI_CPU_ON. This A53
+ * guardian never writes the display, including on fatal timeout paths:
+ * reset must remain independent of a framebuffer fault or console lock.
  */
 void lavender_guardian_run(void)
 {
