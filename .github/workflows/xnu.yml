@@ -113,7 +113,9 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('.github/workflows/xnu.yml', 'xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          restore-keys: |
+            xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
       - name: Detect runner capacity
         shell: bash
         run: |
@@ -137,6 +139,7 @@ jobs:
           sudo chmod +x /usr/local/bin/xcodes
 
       - name: Build XNU 8796
+        id: xnu-build
         working-directory: dxb
         env:
           MAKEFLAGS: ${{ inputs.keep_going == 'true' && '-k' || '' }}
@@ -147,10 +150,12 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          if grep -q 'Skipping patch .*0106-lavender-verbose-boot-final.patch' xnu-build.log; then
-            echo "Verbose boot console patch 0105 was skipped; refusing this build."
-            exit 1
-          fi
+          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch; do
+            if grep -q "Skipping patch .*${required_patch}" xnu-build.log; then
+              echo "Required Lavender diagnostic patch ${required_patch} was skipped; refusing this build."
+              exit 1
+            fi
+          done
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm64/start.s").read_text()
@@ -182,6 +187,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
+          start_asm = Path("dxb/xnu/osfmk/arm64/start.s").read_text()
           start = source.index("void arm_init(")
           entry = source.index('sweet_early_mark(1, "arm_init entered (MMU on)")', start)
           stage7 = source.index('sweet_early_mark(7, "entering arm_vm_init")', entry)
@@ -192,11 +198,11 @@ jobs:
           stage17 = source.index('sweet_early_mark(17, "Lavender diagnostic logo completed")', logo)
           if not (entry < stage7 < vm < stage15 < stage16 < logo < stage17):
               raise SystemExit("Lavender verbose checkpoints must follow arm_init and permanent VM mapping order")
-          handoff = source.index("// Set KVA of boot args as first arg")
-          stage8 = source.index("lavender_guard_mark 8", handoff)
-          stage9 = source.index("lavender_guard_mark 9", stage8)
-          handoff_ret = source.index("// Return to arm_init()", stage9)
-          ret_insn = source.index("ret", handoff_ret + len("// Return to arm_init()"))
+          handoff = start_asm.index("// Set KVA of boot args as first arg")
+          stage8 = start_asm.index("lavender_guard_mark 8", handoff)
+          stage9 = start_asm.index("lavender_guard_mark 9", stage8)
+          handoff_ret = start_asm.index("// Return to arm_init()", stage9)
+          ret_insn = start_asm.index("ret", handoff_ret + len("// Return to arm_init()"))
           if not (handoff < stage8 < stage9 < ret_insn):
               raise SystemExit("post-assembly stages 8/9 must bracket the final arm_init return")
           early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
@@ -344,14 +350,14 @@ jobs:
           PY
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
 
-      - name: Save exact-match XNU build cache
-        if: success() && steps.xnu-cache.outputs.cache-hit != 'true'
+      - name: Save XNU build cache after successful compilation
+        if: always() && steps.xnu-build.outcome == 'success' && steps.xnu-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('.github/workflows/xnu.yml', 'xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
