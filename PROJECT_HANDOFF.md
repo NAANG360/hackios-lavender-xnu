@@ -4,7 +4,7 @@
 >
 > Last consolidated: **2026-11-14 12:16 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active engineering branch: `ci/lavender-machine-profile` (always re-resolve live HEAD before source writes; verified current HEAD: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`)  
+> Active engineering branch: `ci/lavender-machine-profile` (always re-resolve live HEAD before source writes; latest successful build source commit: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`)  
 > Latest successful integrated XNU + package run: `43554970979` (#138), source commit `352f7c3cc61a7001c35edee4bccd5c91265a32d3`  
 > Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14098093027`; raw `iosboot.img` SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`
 
