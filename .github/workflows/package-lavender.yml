@@ -62,7 +62,7 @@ jobs:
           guardian = Path("shim/lavender_guardian.c").read_text()
 
           helper_start = shim.find("static void lavender_arm_watchdog_reset(void)")
-          reset_start = shim.find("static void __attribute__((noreturn)) reset(unsigned after_s)")
+          reset_start = shim.find("static void __attribute__((noreturn)) reset(unsigned after_s)", helper_start)
           if helper_start < 0 or reset_start < 0 or helper_start > reset_start:
               raise SystemExit("selected XNU source lacks the Lavender watchdog reset helper")
           helper = shim[helper_start:reset_start]
