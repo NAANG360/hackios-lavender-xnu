@@ -91,7 +91,12 @@ jobs:
           path = Path("dxb/build.sh")
           source = path.read_text()
           old = "    patches" + chr(10) + "    venv"
-          new = "    patches" + chr(10) + "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) + "    venv"
+          new = ("    patches" + chr(10) +
+                 "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
+                 "    if [ \\"$MACHINE_CONFIG\\" = \\"LAVENDER\\" ]; then" + chr(10) +
+                 "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c" + chr(10) +
+                 "    fi" + chr(10) +
+                 "    venv")
           if old not in source:
               raise SystemExit("pinned build.sh main() patch/venv insertion point changed")
           path.write_text(source.replace(old, new, 1))
@@ -105,7 +110,7 @@ jobs:
       - name: Validate selected machine profile
         run: bash tools/validate-lavender-profile.sh "$MACHINE_CONFIG"
 
-      # Cache only for the exact patch set and Xcode runner image.
+      # v2 cache: only binary-verified kernels are accepted as exact hits. Legacy-prefix restores are object-cache inputs only.
       - name: Restore exact-match XNU build cache
         id: xnu-cache
         uses: actions/cache/restore@v4
@@ -113,8 +118,9 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v2-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
           restore-keys: |
+            xnu8796-v2-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
       - name: Detect runner capacity
         shell: bash
@@ -138,12 +144,48 @@ jobs:
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
 
+      - name: Invalidate legacy cached kernel product when cache is not an exact v2 hit
+        if: steps.xnu-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          kernel_config="$(printf '%s' "$KERNEL_CONFIG" | tr '[:upper:]' '[:lower:]')"
+          machine_config="$(printf '%s' "$MACHINE_CONFIG" | tr '[:upper:]' '[:lower:]')"
+          cached_kernel="dxb/build/xnu.obj/kernel.${kernel_config}.${machine_config}"
+          if [[ -f "$cached_kernel" ]]; then
+            echo "Removing stale cached final kernel product: $cached_kernel"
+            rm -f "$cached_kernel"
+          else
+            echo "No completed cached kernel product at $cached_kernel"
+          fi
+          # Preserve object files and support libraries; patched start.s and sweet_early.c
+          # are touched after patch application so their cached objects rebuild.
+
       - name: Build XNU 8796
         id: xnu-build
         working-directory: dxb
         env:
           MAKEFLAGS: ${{ inputs.keep_going == 'true' && '-k' || '' }}
         run: set -o pipefail; bash build.sh 2>&1 | tee ../xnu-build.log
+
+      - name: Require the expected cache-aware XNU build path
+        id: xnu-rebuild
+        if: success()
+        env:
+          EXACT_CACHE_HIT: ${{ steps.xnu-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [[ "$EXACT_CACHE_HIT" == "true" ]]; then
+            grep -q 'XNU kernel.kernel.' xnu-build.log
+            grep -q 'already built' xnu-build.log
+            echo "Exact v2 cache hit; binary-stage verification will validate the cached kernel."
+          else
+            if grep -q 'already built' xnu-build.log; then
+              echo "ERROR: a non-exact/legacy cache restore skipped the kernel rebuild."
+              exit 1
+            fi
+            grep -q 'Building XNU kernel TARGET_CONFIGS=' xnu-build.log
+            echo "Cache miss/prefix restore correctly entered make install."
+          fi
 
 
       - name: Require Lavender XNU entry-guard patch
@@ -314,6 +356,7 @@ jobs:
 
 
       - name: Verify Lavender kernel artifact
+        id: xnu-kernel-verify
         if: success()
         run: |
           set -euo pipefail
@@ -340,10 +383,36 @@ jobs:
           missing = [item.decode() for item in required if item not in data]
           if missing:
               raise SystemExit("missing Lavender identity strings: " + ", ".join(missing))
+          # Verify the actual ARM64 text contains the two handoff markers.
+          # Source grep alone is insufficient: a cached completed kernel can bypass make.
+          off = 32
+          text_section = None
+          for _ in range(ncmds):
+              cmd, cmdsize = struct.unpack_from("<II", data, off)
+              if cmd == 0x19:  # LC_SEGMENT_64
+                  segname = data[off + 8:off + 24].split(b"\\0", 1)[0].decode()
+                  nsects = struct.unpack_from("<I", data, off + 64)[0]
+                  sec_off = off + 72
+                  for _ in range(nsects):
+                      sectname = data[sec_off:sec_off + 16].split(b"\\0", 1)[0].decode()
+                      sec_segname = data[sec_off + 16:sec_off + 32].split(b"\\0", 1)[0].decode()
+                      sec_size, file_off = struct.unpack_from("<QI", data, sec_off + 40)
+                      if segname == "__TEXT_EXEC" and sectname == "__text" and sec_segname == "__TEXT_EXEC":
+                          text_section = data[file_off:file_off + sec_size]
+                      sec_off += 80
+              off += cmdsize
+          if not text_section:
+              raise SystemExit("could not locate __TEXT_EXEC,__text for binary stage verification")
+          words = struct.unpack("<" + "I" * (len(text_section) // 4), text_section[:len(text_section) // 4 * 4])
+          common = (0x91400680, 0xb9000001, 0xd50b7a20, 0xd5033f9f)
+          for stage, mov_imm in ((8, 0x52800101), (9, 0x52800121)):
+              pattern = (common[0], mov_imm, *common[1:])
+              if not any(tuple(words[i:i + len(pattern)]) == pattern for i in range(len(words) - len(pattern) + 1)):
+                  raise SystemExit(f"compiled __TEXT_EXEC,__text is missing Lavender stage-{stage} guard instructions")
           result = (
               f"PASS: Mach-O 64-bit ARM64 executable; size={len(data)} bytes; "
               f"ncmds={ncmds}; flags=0x{flags:08x}; "
-              "LavenderPlatformExpert, qcom,sdm660-mtp, Redmi Note 7 present"
+              "Lavender identity strings and compiled stage-8/stage-9 instructions present"
           )
           print(result)
           Path("out/KERNEL-VERIFICATION.txt").write_text(result + "\\n", encoding="utf-8")
@@ -351,7 +420,7 @@ jobs:
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
 
       - name: Save XNU build cache after successful compilation
-        if: always() && steps.xnu-build.outcome == 'success' && steps.xnu-cache.outputs.cache-hit != 'true'
+        if: always() && steps.xnu-build.outcome == 'success' && steps.xnu-rebuild.outcome == 'success' && steps.xnu-kernel-verify.outcome == 'success' && steps.xnu-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
