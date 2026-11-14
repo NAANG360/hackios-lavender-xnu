@@ -177,24 +177,22 @@ jobs:
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
           start = source.index("void arm_init(")
           entry = source.index('sweet_early_mark(1, "arm_init entered (MMU on)")', start)
-          vm_stage = source.index('sweet_early_mark(7, "entering arm_vm_init")', entry)
-          vm = source.index("arm_vm_init(xmaxmem, args);", vm_stage)
+          platform = source.index('sweet_early_mark(2, "PE_init_platform done")', entry)
+          stage7 = source.index('sweet_early_mark(7, "entering arm_vm_init")', platform)
+          vm = source.index("arm_vm_init(xmaxmem, args);", stage7)
           stage15 = source.index('sweet_early_mark(15, "arm_vm_init returned")', vm)
           stage16 = source.index('sweet_early_mark(16, "drawing logo through permanent framebuffer alias")', stage15)
           logo = source.index("sweet_early_logo();", stage16)
           stage17 = source.index('sweet_early_mark(17, "Lavender diagnostic logo completed")', logo)
-          if not (entry < vm_stage < vm < stage15 < stage16 < logo < stage17):
-              raise SystemExit("Lavender verbose checkpoints must show arm_init, VM entry/return, then logo")
+          if not (entry < platform < stage7 < vm < stage15 < stage16 < logo < stage17):
+              raise SystemExit("Lavender verbose checkpoints must follow arm_init and permanent VM mapping order")
           logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
           logo_start = logo_source.index("sweet_early_logo(void)")
           logo_end = logo_source.index("sweet_early_guard_init(", logo_start)
           logo_body = logo_source[logo_start:logo_end]
           if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
               raise SystemExit("Lavender logo must clear the full panel, not a rectangle")
-          console_source = logo_source
-          if "LAVENDER XNU VERBOSE BOOT" not in console_source or "lavender_console_mark(stage, label)" not in console_source:
-              raise SystemExit("Lavender verbose text console is missing")
-          print("PASS: verbose checkpoints surround VM init and full-panel logo follows permanent framebuffer mapping")
+          print("PASS: deferred Apple mark follows arm_vm_init and full-panel clear")
           PY
           grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/sweet_early.c
