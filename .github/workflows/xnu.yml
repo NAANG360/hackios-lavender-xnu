@@ -93,7 +93,7 @@ jobs:
           old = "    patches" + chr(10) + "    venv"
           new = ("    patches" + chr(10) +
                  "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
-                 "    if [ \\"$MACHINE_CONFIG\\" = \\"LAVENDER\\" ]; then" + chr(10) +
+                 '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
                  "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c" + chr(10) +
                  "    fi" + chr(10) +
                  "    venv")
