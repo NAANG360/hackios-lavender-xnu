@@ -24,6 +24,10 @@ jobs:
           XNU_RUN_ID: ${{ inputs.xnu_run_id }}
         run: |
           set -euo pipefail
+          if [[ ! "$XNU_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "XNU run ID must be numeric" >&2
+            exit 1
+          fi
           run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${XNU_RUN_ID}")"
           conclusion="$(jq -r '.conclusion // empty' <<<"$run_json")"
           branch="$(jq -r '.head_branch // empty' <<<"$run_json")"
