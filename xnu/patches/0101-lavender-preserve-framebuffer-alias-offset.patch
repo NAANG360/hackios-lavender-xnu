@@ -9,7 +9,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +#define LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)
  static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
  static volatile uint32_t *early_guard_cell;
-@@ -235,7 +237,10 @@
+@@ -237,6 +239,10 @@
  void sweet_early_relocate(uint64_t base)
  {
 -	early_fb = (volatile uint32_t *)(uintptr_t)base;
