@@ -1,7 +1,8 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -779,6 +779,27 @@
+@@ -778,8 +778,29 @@
+ 	mov	w1, #\value
  	str	w1, [x0]
  	dc	cvac, x0
  	dsb	sy
@@ -29,17 +30,17 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  	ldr	x0, [x20, #0x1008]
  	ldr	x1, [x20, #0x1010]
  .endm
+ #endif
 
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -234,6 +234,19 @@
+@@ -233,8 +233,19 @@
+ 		if (early_guard_cell != 0 && stage > 2) {
  			*early_guard_cell = stage + 3u;
  			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
  		}
-+		/* The bootstrap V=PA mapping is live until arm_vm_init replaces it.
-+		 * Leave a tiny per-stage tile at the top edge so a pre-VM stall is
-+		 * distinguishable from the permanent-alias/logo path. Stage 16 clears it. */
++		/* Bootstrap V=PA mapping stays live until arm_vm_init replaces it. */
 +		if (stage >= 1 && stage <= 15) {
 +			const unsigned int x0 = 16u + (stage - 1u) * 24u;
 +			const uint32_t color = 0xffff8000u;

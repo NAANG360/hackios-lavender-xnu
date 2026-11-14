@@ -188,7 +188,7 @@ jobs:
           logo_body = logo_source[logo_source.index("sweet_early_logo(void)"):logo_source.index("sweet_early_guard_init(")]
           if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
               raise SystemExit("Lavender logo must clear the full panel, not a rectangle")
-          print("PASS: logo is deferred until permanent framebuffer alias is live")
+          print("PASS: Apple mark is drawn at first C entry while bootstrap V=PA framebuffer mapping is live")
           PY
           grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/sweet_early.c
@@ -196,6 +196,9 @@ jobs:
           grep -q 'sweet_early_map_final();' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q '0x9c000000ULL | ARM_TTE_VALID' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q 'lavender_guard_mark 7' dxb/xnu/osfmk/arm64/start.s
+          grep -q 'Visible 8x8 progress tile' dxb/xnu/osfmk/arm64/start.s
+          grep -q 'Bootstrap V=PA mapping stays live' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'const unsigned int x0 = 16u + (stage - 1u) * 24u' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q '#if !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR)' dxb/xnu/osfmk/arm64/start.s
           grep -q 'SPMI_OP_EXT_READL' shim/lavender_guardian.c
           grep -q 'QCOM_WDT_BASE 0x17817000' shim/lavender_guardian.c
@@ -502,6 +505,7 @@ jobs:
             echo "Reset path: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
             echo "Reset caveat: watchdog register sequence is source-grounded; this watchdog-first ordering still needs physical validation"
             echo "XNU logo: full-panel black clear and Apple mark are drawn at first arm_init C entry using the bootstrap V=PA framebuffer mapping; no claim of full iOS boot"
+            echo "XNU entry diagnostics: visible assembly milestones 3-7 and C milestones 1-15 are drawn as 8x8 tiles before the Apple mark clear"
             echo "Framebuffer console: bypassed for this isolation build by lavender_no_fbcon=1; remove that boot arg only after early bootstrap is stable"
             echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
