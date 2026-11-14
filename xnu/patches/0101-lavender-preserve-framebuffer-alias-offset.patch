@@ -1,0 +1,23 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -147,6 +147,8 @@
+ #define LAVENDER_FB_WIDTH 1080u
+ #define LAVENDER_FB_HEIGHT 2340u
+ #define LAVENDER_FB_STRIDE 1080u
++#define LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL
++#define LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)
+ static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
+ static volatile uint32_t *early_guard_cell;
+@@ -235,7 +237,10 @@
+ void sweet_early_relocate(uint64_t base)
+ {
+-	early_fb = (volatile uint32_t *)(uintptr_t)base;
++	/*
++	 * The permanent 32MB alias maps PA 0x9c000000, while scanout begins
++	 * at PA 0x9d400000. Preserve that 20MB offset after TTBR0 teardown.
++	 */
++	early_fb = (volatile uint32_t *)(uintptr_t)(base + LAVENDER_FB_ALIAS_OFFSET);
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+ void sweet_early_disable(void) { }
