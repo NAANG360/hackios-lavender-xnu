@@ -1,44 +1,46 @@
 # Agent instructions — Lavender XNU port
 
-**Read PROJECT_HANDOFF.md first.** It is the canonical, current cross-session record for the Redmi Note 7 / Lavender / SDM660 XNU port. It contains the project goal, hardware audit facts, source references, exact CI failures, artifacts, and next actions.
+**Read `PROJECT_HANDOFF.md` first.** It is the canonical engineering record. At every session start, re-resolve live branch HEAD, the newest Actions run, its attempt, jobs, artifacts, and source SHA before acting.
 
-README.md and NOTES.md in this repository contain inherited IOS-Sweet / Redmi Note 10 Pro / SM7150 documentation. Use them only as XNU engineering references where explicitly relevant; do not treat their hardware facts or boot status as Lavender facts. Do not overwrite their historical content without a reason.
+Repository: `NAANG360/hackios-lavender-xnu`  
+Branch: `ci/lavender-machine-profile`  
+Target: Xiaomi Redmi Note 7 / Redmi Note 7S, codename `lavender`, Qualcomm Snapdragon 660 (SDM660).
 
-Working rules:
-- At session start, inspect current branch HEAD and newest GitHub Actions run; handoff details can become stale.
-- Keep the target on the physical Redmi Note 7 (lavender, SDM660). QEMU may support isolated tests but is not proof of device compatibility.
-- Use HakiOS, IOS-Sweet, and public Lavender / SDM660 sources as documented in PROJECT_HANDOFF.md. Transfer methods, not other devices' MMIO addresses, IRQs, CPU topology, panel/touch, regulators or storage assumptions.
-- Make small, evidence-based source changes; commit completed work; run relevant validation and CI; record exact run IDs, commit SHAs, diagnostics, artifact hashes and verification.
-- A profile preflight, build tree or artifact upload is not a kernel. Require a real ARM64 Mach-O XNU kernel and verify it before reporting success.
-- Never claim a build or device test passed without tool/device evidence.
-- Keep raw device dumps, serials, calibration data, firmware blobs and personal data out of Git.
-- Preserve the user's Android/recovery path. Do not flash or erase boot-critical partitions or repartition without explicit confirmation. Prefer RAM-only temporary boot for bring-up.
-- Update PROJECT_HANDOFF.md after every meaningful milestone and before ending a session.
+## Non-negotiable engineering rules
 
+- The objective is a working Darwin/XNU boot on physical Lavender, ultimately reaching a usable Darwin userspace. A compile, Mach-O, package, Apple-like logo, emulator, or static source assertion is not a complete boot.
+- Keep milestones distinct: source committed; patch applied; XNU compiled; source guard passed; ARM64 Mach-O verified; RAM-only image packaged; image structurally verified; physical stage observed; Apple logo observed; Darwin userspace reached.
+- Never claim a physical stage without actual device evidence. Separate observed facts, hypotheses and unverified assumptions.
+- Read the newest handoff section and then inspect current GitHub Actions. Historical summaries below older headings are not authoritative over live CI.
+- Preserve the physical target. Do not transplant MMIO, IRQ, CPU topology, display, regulator, touch or storage assumptions from unrelated devices.
+- Do not spend time on emulator work as a substitute for physical bring-up. QEMU may be used only for isolated tests where useful.
+- Preserve Android and the recovery path. Never flash or erase boot-critical partitions for this experiment. Prefer temporary RAM-only `fastboot boot`. The user's power button is broken; do not request another handset test until a recovery path independent of that button is actually established.
+- Make small, testable changes. Inspect actual build logs and generated source before modifying code. Do not respond to an assertion failure by weakening/removing the assertion; fix the faulty check or the implementation.
+- After every meaningful milestone, record exact source SHA, workflow run ID/attempt, job IDs and conclusions, artifact IDs, byte sizes, SHA-256 hashes, and physical observations in `PROJECT_HANDOFF.md`.
+- Use the exact output filename **`iosboot.img`** for any user-facing image. Do not append dates, timestamps, build numbers or suffixes to the filename.
 
-## Latest verified state — 2026-11-14 (Asia/Kolkata)
+## Latest verified state — 2026-11-14, Asia/Kolkata
 
-- Latest successful integrated XNU/package source remains run #203 at `e9890318f144df763a3ff655a16ca5b5b5447eb5`; this is the last verified physical-test image, not the current source tip.
-- Current source changes are committed through `6b5c477d820656f4b029b005d63596cb54705c82`: patch 0107 adds assembly stages 8/9, unique 0x100 C-entry/C-stage markers, publish-before-console ordering, and newline-separated `dc cvac`/`dsb sy` in all four C marker publication sites. The newline form was verified by an `arm64-apple-macos11` Clang compile; the exact remote patch passes `git apply --check` against the run #203 XNU tree. The A53 guardian displays its last shared marker on early timeout. Dedicated shim compile run `43604570915` passed. Earlier incomplete 0107 revisions were skipped as corrupt; corrected full XNU run `43606468548` is queued/starting and is the only current acceptance candidate. No kernel containing this final patch has yet passed the workflow source guard or been packaged.
-- Latest successful integrated XNU + RAM-only package run: **#203**, ID `43594864654`, source commit `e9890318f144df763a3ff655a16ca5b5b5447eb5`. Build job `132447103223` and package job `132451071971` both succeeded: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43594864654
-- The final ordered Lavender verbose diagnostics patch is `xnu/patches/0106-lavender-verbose-boot-final.patch` (blob SHA `8dcb9b2f2ddc9dd43771986b1e61906ab32601b0`). Run #203's build log explicitly shows patch 0106 being applied; the entry-guard job then passed its source assertions and the ARM64 Mach-O kernel verification.
-- Kernel SHA-256 from package manifest: `be2cdd6b08d8d687aa00d32b3b901878fd8d4d9fe49f2ae121d5b1f9046a61d8`.
-- Latest fastboot artifact: `lavender-fastboot-boot-test`, artifact ID `14114386476`, 16,979,730 bytes, expires 2026-11-28. It contains `iosboot.img` (16,527,360 bytes), independently SHA-256 verified as `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`. It is a **RAM-only fastboot boot image**; do not flash it to a partition.
-- Other run #203 artifacts: kernel ID `14114156891`; build log ID `14114141998`; build tree ID `14114590813`. The build log is 3,058,984 bytes; the build-tree artifact expires 2026-11-21.
-- Verbose diagnostics design: assembly stages 3–7 paint green 16×16 tiles beside the existing blue stage-2 tile. C checkpoints 1–15 write a persistent 8×16 glyph text history into the lower framebuffer panel using `iso_font`; the Apple logo is deferred until after `arm_vm_init()` and the permanent framebuffer alias is established (stage 16/17). The kernel command line still includes `lavender_no_fbcon=1`, which suppresses the legacy pexpert framebuffer serial console; it does not disable the new direct early-checkpoint renderer.
-- **Manifest wording defect:** run #203's `BUILD-MANIFEST.txt` incorrectly says C milestones 1–15 are 8×8 tiles before the Apple mark. The actual 0106 source renders C milestones as text glyphs; only assembly stages 3–7 are tiles. Correct the manifest wording in a future workflow-only commit and ensure it does not imply that the legacy serial fbcon is the new early console.
-- The package workflow's structural verification passed. The image hash and successful CI prove build/package integrity, **not** physical boot success.
-- **Physical status is unchanged:** last confirmed device checkpoint remains `XNUSTAGE=1`; no physical stage 2, verbose console, Apple logo, stable `arm_init()`, or iOS userspace is confirmed. Do not claim a successful handset boot.
-- Watchdog-first reset code remains source/build-validated but not physically validated. The Volume Up + Volume Down 3-second chord requests reset only; it does not select recovery. Because the user's power button is broken, independently establish a reliable recovery route before requesting another handset test. Never flash or erase boot-critical partitions; prefer RAM-only boot.
-- Known non-fatal upstream patch skips in run #203 include inherited Sweet HFS patches targeting absent `bsd/sweet_hfs` paths and upstream compatibility patches for APIs already changed in XNU 8796. Review only if they affect Lavender build/runtime; do not conflate them with the Lavender 0106 patch, which was explicitly applied.
-- Older entries below this section in `PROJECT_HANDOFF.md` are historical. Use section **44.25** for the latest diagnostics implementation and run #203 evidence. Always re-resolve live HEAD and Actions state at session start.
+- Latest known successful XNU + RAM-only package remains run #203, ID `43594864654`, source commit `e9890318f144df763a3ff655a16ca5b5b5447eb5`. Its image artifact was `14114386476`; its extracted `iosboot.img` was 16,527,360 bytes with SHA-256 `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`. It is the last known packaged physical-test image, not proof of a successful boot.
+- Current XNU instrumentation source commit: `6b5c477d820656f4b029b005d63596cb54705c82`. Patch 0107 adds assembly stages 8/9 immediately before the return into `arm_init()`, a namespaced C marker scheme (`0x100` entry, `0x100 | stage` C progress), marker publication before framebuffer console output, and explicit `dc cvac` then `dsb sy` sequence. Patch 0106 is the verbose framebuffer diagnostic implementation. The latest cropped run #203 image is geometrically consistent with five green tiles (stages 3–7), but blur prevents an exact marker readback.
+- Run #213, ID `43606468548`, attempt 2, source commit `6b5c477d820656f4b029b005d63596cb54705c82`, **completed with failure in the source guard, not in XNU compilation**. Build job `132487666362` reports `Build XNU 8796` success and collected a 16,587,304-byte `kernel.development.lavender`. The guard then raised `ValueError: substring not found` because it searched the assembly comment `// Set KVA of boot args as first arg` in `arm_init.c`, rather than `start.s`. Kernel verification and package were skipped; no new `iosboot.img` exists from this run. See PROJECT_HANDOFF section 44.32.
+- Workflow fix commit: `4cb4eec5fd57c6bc678520e8178cf805ef36eb10`. It moves stage 8/9 assertions to a separately loaded `start.s` source; checks required patch skips for both 0106 and 0107; adds `id: xnu-build`; removes workflow YAML from the cache hash; adds compatible cache restore prefixes; and saves compiled cache when the XNU build succeeded even if a later source guard failed.
+- Current candidate run #220: ID `43611119178`, attempt 1, source commit `4cb4eec5fd57c6bc678520e8178cf805ef36eb10`; build job `132496159699`. At last check it was in progress at runner setup. No XNU compile, validator, Mach-O, artifact, or package success has yet been established for #220.
+- The run #213 log shows a cold cache miss. Runner reported 4 physical CPUs, 4 logical CPUs and 15,032,385,536 bytes RAM; the build used `XNU_MAKE_JOBS=4`. This is already all reported logical CPUs. Do not blindly raise `-j` beyond memory/CPU capacity. Judge cache improvements only from actual cache restore output and measured build duration.
+- Run #213 artifacts retained: build log `14120260161`; build tree `14119559638`. The build-tree package excluded `*.o`, `*.a`, and the kernel, so it cannot be treated as an incremental object cache or bootable artifact.
 
-## Working rules for the next session
+## Immediate next actions
 
-- Read `PROJECT_HANDOFF.md` first, then inspect current branch HEAD and latest Actions run before editing.
-- Preserve the physical target: Redmi Note 7/7S `lavender`, SDM660. QEMU is never device-compatibility proof.
-- Do not infer physical success from compile, package, Mach-O, boot-header, or static source checks.
-- Inspect the run #203 artifact and exact log before requesting a handset test. The next useful device observation is whether the screen displays assembly stage tiles, then the C-stage text panel, then the deferred Apple logo.
-- If the phone is tested, capture the full boot sequence and note the last visible checkpoint. Do not alter the reset/recovery path without independently reviewing the broken-power-button recovery plan.
-- Correct the #203 manifest's stale description of C-stage diagnostics in a workflow-only change; keep the build's `lavender_no_fbcon=1` isolation setting until the early path is proven stable.
-- Record each meaningful source change, run ID, job IDs, artifact IDs, hashes, and physical observations in `PROJECT_HANDOFF.md`. Keep observations, hypotheses, and proven results separate.
+1. Inspect live branch HEAD and run #220 state. Confirm its source SHA matches the workflow-fix commit or identify newer commits.
+2. Check the XNU cache restore logs: exact hit, restore-prefix hit, or cold miss. Record the cache key and duration.
+3. Inspect the XNU build log for explicit application of 0106 and 0107; ensure neither is skipped.
+4. Confirm `Build XNU 8796` succeeds, then inspect the corrected source guard. It must read C milestones from `arm_init.c` and assembly handoff markers from `start.s`.
+5. Require the ARM64 Mach-O verification to pass. Confirm the generated kernel identity and hash.
+6. Confirm the cache-save step ran after successful compilation where applicable.
+7. Confirm the package job succeeds, extracts the expected kernel/ADT payload, and creates exactly `iosboot.img`. Verify its structure and SHA-256 independently. Present the user a download named exactly `iosboot.img` — no date in the filename.
+8. Do not claim the build-time fix worked until a cache hit and reduced elapsed time are evidenced.
+9. Do not request a physical test until the broken-power-button recovery route is independently established. Then use RAM-only boot and record the last visible tile/marker, C console and Apple-logo status.
+
+## Required reporting
+
+Be direct and precise. The user expects the image, not another generic progress explanation. Report exactly what passed and failed. Never substitute a partial build tree or unverified kernel for `iosboot.img`, and never claim Darwin userspace without evidence.
