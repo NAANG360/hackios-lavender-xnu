@@ -171,6 +171,7 @@ jobs:
           grep -q 'lavender-fbcon' dxb/xnu/pexpert/arm/pe_serial.c
           grep -q 'lavender_no_fbcon' dxb/xnu/pexpert/arm/pe_serial.c
           grep -q 'lavender_no_fbcon=1' .github/workflows/xnu.yml
+          grep -q 'if (stage < 16)' dxb/xnu/osfmk/arm64/sweet_early.c
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
