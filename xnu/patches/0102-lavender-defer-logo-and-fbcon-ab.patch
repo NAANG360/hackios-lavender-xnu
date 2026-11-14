@@ -1,23 +1,82 @@
-diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
---- a/osfmk/arm64/sweet_early.c
-+++ b/osfmk/arm64/sweet_early.c
-@@ -147,5 +147,7 @@
- #define LAVENDER_FB_WIDTH 1080u
- #define LAVENDER_FB_HEIGHT 2340u
- #define LAVENDER_FB_STRIDE 1080u
-+#define LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL
-+#define LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)
- static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
- static volatile uint32_t *early_guard_cell;
-@@ -237,6 +239,10 @@
- void sweet_early_relocate(uint64_t base)
- {
--	early_fb = (volatile uint32_t *)(uintptr_t)base;
-+	/*
-+	 * The permanent 32MB alias maps PA 0x9c000000, while scanout begins
-+	 * at PA 0x9d400000. Preserve that 20MB offset after TTBR0 teardown.
-+	 */
-+	early_fb = (volatile uint32_t *)(uintptr_t)(base + LAVENDER_FB_ALIAS_OFFSET);
- 	__asm__ volatile("dsb sy" ::: "memory");
- }
- void sweet_early_disable(void) { }
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -351,11 +351,6 @@
+ 	sweet_early_guard_init((uintptr_t)args);
+ #endif
+ 	sweet_early_mark(1, "arm_init entered (MMU on)");
+-#if defined(ARM64_BOARD_CONFIG_LAVENDER)
+-	sweet_early_logo();
+-	/* Stage 2 separates arm_init entry from completion of the logo draw. */
+-	sweet_early_mark(2, "Lavender diagnostic logo completed");
+-#endif
+ 
+ 	arm_setup_pre_sign();
+ 
+@@ -532,3 +527,9 @@
+ 	sweet_early_mark(7, "entering arm_vm_init");
+ 	arm_vm_init(xmaxmem, args);
+ 	sweet_early_mark(15, "arm_vm_init returned");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Draw only after the permanent alias is installed and TTBR0 is gone. */
++	sweet_early_mark(16, "drawing logo through permanent framebuffer alias");
++	sweet_early_logo();
++	sweet_early_mark(17, "Lavender diagnostic logo completed");
++#endif
+ 
+@@ -544,9 +544,7 @@
+ 	PE_consistent_debug_inherit();
+ 
+ 	/* Setup debugging output. */
+-	sweet_early_mark(16, "calling serial_init");
+ 	const unsigned int serial_exists = serial_init();
+-	sweet_early_mark(19, "serial_init returned");
+ 	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
+ 	kprintf("kprintf initialized\n");
+ 	sweet_early_mark(20, "kprintf startup complete");
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -817,8 +817,14 @@
+ 	uint64_t const *reg;
+ 	uint32_t const *val;
+ 	unsigned int size;
++	const char *fbcon_node_name = "sweet-fbcon";
+ 
+-	if (SecureDTFindEntry("name", "sweet-fbcon", &entry) != kSuccess ||
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Lavender's generated ADT uses a target-specific node name. */
++	fbcon_node_name = "lavender-fbcon";
++#endif
++
++	if (SecureDTFindEntry("name", fbcon_node_name, &entry) != kSuccess ||
+ 	    SecureDTGetProperty(entry, "reg", (void const **)&reg, &size) != kSuccess || size < 16) {
+ 		return;
+ 	}
+@@ -834,9 +840,9 @@
+ 	if (!fbcon_width || !fbcon_height || fbcon_stride < fbcon_width * 4) {
+ 		return;
+ 	}
+-	sweet_early_mark(17, "fbcon config read; mapping");
++	sweet_early_mark(18, "fbcon config read; mapping");
+ 	fbcon_base = (volatile uint32_t *)ml_io_map_wcomb(reg[0], reg[1]);
+-	sweet_early_mark(18, "fbcon mapping returned");
++	sweet_early_mark(19, "fbcon mapping returned");
+ 	if (fbcon_base != NULL) {
+ 		register_serial_functions(&sweet_fbcon_serial_functions);
+@@ -923,7 +929,15 @@
+ 	PE_parse_boot_argn("disable-uart-irq", &disable_uart_irq, sizeof(disable_uart_irq));
+ 
+-	fbcon_probe();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* A boot-arg opt-out lets first boots isolate the fbcon mapping path. */
++	int lavender_no_fbcon = 0;
++	PE_parse_boot_argn("lavender_no_fbcon", &lavender_no_fbcon, sizeof(lavender_no_fbcon));
++	if (!lavender_no_fbcon) {
++		fbcon_probe();
++	}
++#else
++	fbcon_probe();
++#endif
+ 
+ #ifdef PI3_UART
