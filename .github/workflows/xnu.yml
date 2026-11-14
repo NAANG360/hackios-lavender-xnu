@@ -96,14 +96,13 @@ jobs:
 
       # Cache only for the exact patch set and Xcode runner image.
       - name: Restore exact-match XNU build cache
-        uses: actions/cache@v4
+        id: xnu-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             dxb/build
             dxb/fakeroot
-          key: lavender-xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', '.github/workflows/xnu.yml') }}
-          save-always: true
-
+          key: xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('.github/workflows/xnu.yml', 'xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
       - name: Detect runner capacity
         shell: bash
         run: |
@@ -263,6 +262,15 @@ jobs:
           Path("out/KERNEL-VERIFICATION.txt").write_text(result + "\\n", encoding="utf-8")
           PY
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
+
+      - name: Save exact-match XNU build cache
+        if: success() && steps.xnu-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            dxb/build
+            dxb/fakeroot
+          key: xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('.github/workflows/xnu.yml', 'xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
