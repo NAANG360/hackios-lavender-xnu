@@ -3259,3 +3259,25 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - Do not flash this image. It is packaged for RAM-only fastboot boot. Before requesting another device test, independently establish a recovery route that does not depend on the broken power button; the volume-up + volume-down chord is reset-only, not a recovery selector.
 - Next: correct the #203 manifest's stale description of C-stage diagnostics in workflow source; then, once recovery safety is independently established, use the run #203 image for a controlled RAM-only observation and record the last visible checkpoint. If the image still shows only the blue tile, distinguish whether the C console's direct framebuffer stores are reached and whether the guardian's shared RAM marker advances. Never infer the freeze stage from the blue tile alone.
 - No physical test has been performed as part of this documentation update.
+
+## 44.26 — 2026-11-14: run #203 physical handoff test stalls before visible XNU console
+
+### Device evidence
+- Reviewed the user-uploaded handset recording `1000317644.mp4` (64.468 seconds), showing the run #203 RAM-only `iosboot.img` test.
+- The ABL-loaded shim starts on MPIDR `0x0`; that core reports `ID_AA64MMFR0_EL1=0x1122` and `TGran16=0`, so it correctly declines to run XNU on that A53.
+- PSCI `CPU_ON` for target MPIDR `0x100` returns `0`. The A73 reports `ID_AA64MMFR0_EL1=0x101122` and `TGran16=1`; the shim prints `16K supported; launching XNU`.
+- On the A73, the loader finds initrd `0x446c6000..0x455fe4d0`, accepts the `LAVENDRX` payload, reports physical base `0xa0400000`, virtual base `0xfffffe0006000000`, entry VA `0xfffffe000747c488`, boot-args PA `0xa2420000`, and jumps to PA `0xa187c488`.
+- The recording remains at the shim's final `XNU handoff; awaiting XNU bootstrap marks` line. It does not show the new lower-panel XNU C-stage text console, the deferred Apple logo, or iOS userspace. The screen becomes dark near the end of the recording. **Physical boot result: failed / not demonstrated.** The successful compile and package jobs did not translate into a successful handset boot.
+
+### Independent entry-point and source audit
+- Extracted run #203's actual XNU build-tree and kernel artifacts. The Mach-O `LC_UNIXTHREAD` entry is `0xfffffe000747c488`, matching the linked `__start` symbol. `__start` branches to `start_first_cpu`; applying the payload's VA-to-PA offset yields `0xa187c488`, exactly matching the shim's displayed jump address.
+- This rules out a simple mismatch between the payload's recorded entry and the kernel's linked entry symbol. It does **not** prove that the A73 executed the first XNU instruction or progressed beyond it.
+- In the built `start.s`, the first Lavender path writes RAM-only marker values 1 and `0x11` before installing VBAR, then writes further early markers and eventually assembly framebuffer checkpoints. In `arm_init`, the first C checkpoint initializes the marker cell and writes the lower-panel text console. Those checkpoints are not printed by the A53 guardian; the guardian only observes the shared word.
+- The A53 guardian resets after 60 seconds without a marker change before the terminal stage-20 flag. The dark screen near the end is consistent with that timeout/reset path, but the video alone does not prove which marker value was last reached or prove the exact reset cause.
+
+### Required next diagnostic
+- Do not rebuild the same payload or change the Mach-O entry address speculatively. The entry VA/PA calculation is internally consistent.
+- Before another physical attempt, make the independent A53 guardian expose the last observed marker (and whether the marker address was ever published) when it declares an early XNU stall. Preserve the watchdog/reset fallback and avoid letting diagnostic framebuffer output become a prerequisite for reset.
+- Use that readback to distinguish: no first XNU marker; pre-VBAR/VBAR/boot-argument setup stall; MMU-transition stall; or entry into `arm_init` followed by an early C/framebuffer fault. Keep the numeric marker and visible assembly/C checkpoint evidence separate.
+- No exact final XNU marker is known from this recording. Do not claim stage 1, stage 2, `arm_init`, Apple logo, or any later checkpoint was reached based only on the static shim handoff screen.
+
