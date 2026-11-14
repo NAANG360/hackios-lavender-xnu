@@ -62,3 +62,14 @@ Working rules:
 - `reset_now()` no longer paints status text before reset. It first configures the SDM660 watchdog, then invokes PSCI. The `why` argument is intentionally ignored to avoid any display/log side effects.
 - Final source commit: `f9555af4660a854ec03fb8d82e5a0ec94d9f566d`. Integrated run #43 (ID `43572760628`) is the queued run for that exact commit. Cancelled the prior #147 / #148 / run #42 builds so they cannot be mistaken for validation.
 - Do not use any older artifact for the next device trial. Require the final commit's integrated XNU and packaging jobs to succeed first; then inspect its manifest and hashes. Still no confirmed Apple logo or physical validation of this revision. Never flash a partition.
+
+
+## 2026-11-14 final-framebuffer-alias correction
+
+- Source audit found a second distinct framebuffer bug at the permanent TTBR alias transition. `arm_vm_init.c` maps a 32 MiB VA block to PA `0x9c000000`, while Lavender scanout begins at PA `0x9d400000` (offset `0x01400000`, 20 MiB). The Lavender `sweet_early_relocate(base)` previously set `early_fb=base`, dropping the PA offset. Subsequent progress markers after TTBR0 teardown were therefore written to the wrong location.
+- Added `xnu/patches/0101-lavender-preserve-framebuffer-alias-offset.patch`, which defines `LAVENDER_FB_ALIAS_OFFSET` and relocates to `base + LAVENDER_FB_ALIAS_OFFSET`.
+- `xnu.yml` now checks the PA alias base, computed offset, adjusted relocation expression, and the mapping's 0x9c000000 physical base after patch application.
+- The exact committed patch passed `patch --dry-run -p1` against the #141 build-tree version of `sweet_early.c`; both hunks applied (first with fuzz 1, second exact).
+- Latest source commit for the integrated run: `d863da08a707353e73166502dcdaee3f5a117fdc`; integrated run #153 / ID `43573274639` is the selected build. Runs #149 and #152 were cancellation-requested as superseded.
+- The shim compile-only run #43 (source commit `f9555af...`) had passed, but that run predates patch 0101; do not treat it as verification of the adjusted XNU alias. Require #153 to finish its XNU compile and RAM-only image packaging.
+- No new image for patch 0101 and no physical test yet. No Apple logo has been confirmed. Never flash a partition.
