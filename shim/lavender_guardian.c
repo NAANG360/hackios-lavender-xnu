@@ -78,32 +78,27 @@ static void __attribute__((noreturn)) reset_now(const char *why)
 	con_skip();
 	con_str("RESET", why);
 
-	/* Use the firmware reset service before touching unverified MMIO. */
-	int64_t feature = (int64_t)smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0);
-	con_hex("PSCI RESET FEAT", (uint64_t)feature);
-	if (feature >= 0) {
-		con_str("RESET", "PSCI system reset");
-		__asm__ volatile("dsb sy; isb" ::: "memory");
-		uint64_t ret = smc_call(PSCI_SYSTEM_RESET, 0, 0, 0);
-		con_hex("PSCI RET", ret);
-	}
-
 	/*
-	 * SDM660's qcom,msm-watchdog is driven by watchdog_v2.c. Its
-	 * msm_trigger_wdog_bite() path programs BITE_TIME=1, then resets
-	 * the counter. CNTFRQ_EL0 is the architectural timer rate, not the
-	 * watchdog clock; never derive watchdog ticks from it.
-	 * Enable the block and request the driver's one-tick bite sequence.
-	 * No MMIO readback: a stalled peripheral read must not trap here.
+	 * Arm the SDM660 watchdog BEFORE entering secure firmware. The earlier
+	 * PSCI-first order could never reach its watchdog fallback if an SMC
+	 * blocked. Qualcomm's watchdog_v2.c emergency path writes BITE_TIME=1,
+	 * orders that write, then resets the counter. Configure/enable the
+	 * non-secure block first so it can reset the handset even if PSCI hangs.
+	 * CNTFRQ_EL0 is not the watchdog clock; use the vendor one-tick value.
 	 */
-	con_str("RESET", "watchdog one-tick bite fallback");
 	write32(QCOM_WDT_BASE + WDT0_EN, 0);
-	write32(QCOM_WDT_BASE + WDT0_RST, 1);
 	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 1);
 	__asm__ volatile("dsb sy" ::: "memory");
 	write32(QCOM_WDT_BASE + WDT0_EN, 1);
 	write32(QCOM_WDT_BASE + WDT0_RST, 1);
 	__asm__ volatile("dsb sy; isb" ::: "memory");
+
+	/* PSCI remains a fast reset request, but the watchdog is already armed. */
+	int64_t feature = (int64_t)smc_call(PSCI_FEATURES, PSCI_SYSTEM_RESET, 0, 0);
+	if (feature >= 0) {
+		__asm__ volatile("dsb sy; isb" ::: "memory");
+		(void)smc_call(PSCI_SYSTEM_RESET, 0, 0, 0);
+	}
 	for (;;) __asm__ volatile("wfe");
 }
 struct spmi {
