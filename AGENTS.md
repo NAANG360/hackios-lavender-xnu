@@ -73,3 +73,7 @@ Working rules:
 - Latest source commit for the integrated run: `d863da08a707353e73166502dcdaee3f5a117fdc`; integrated run #153 / ID `43573274639` is the selected build. Runs #149 and #152 were cancellation-requested as superseded.
 - The shim compile-only run #43 (source commit `f9555af...`) had passed, but that run predates patch 0101; do not treat it as verification of the adjusted XNU alias. Require #153 to finish its XNU compile and RAM-only image packaging.
 - No new image for patch 0101 and no physical test yet. No Apple logo has been confirmed. Never flash a partition.
+
+
+### Ordered patch-chain verification
+- Replayed the exact committed patch files 0100 then 0101 against the #141 build-tree copy of `xnu/osfmk/arm64/sweet_early.c`. Patch 0100 applied; patch 0101 then applied with its relocation hunk offset by the expected added marker lines. The ordered series succeeds, not just each patch independently.
