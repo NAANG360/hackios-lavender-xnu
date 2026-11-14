@@ -3437,3 +3437,25 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - The only previously packaged image remains Run #203 artifact `14114386476`, SHA-256 `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`, whose physical boot was unsuccessful.
 - Next: inspect #221/#222; require 0107 to apply without a skip warning; require the source guard and ARM64 Mach-O checks to pass; confirm kernel artifact upload; then allow the RAM-only package job to complete. Verify the final image structure and SHA-256 independently. User-facing filename must be exactly `iosboot.img`.
 - Preserve the existing safety boundary: no flashing or erasing boot-critical partitions. Do not request physical testing until an independent recovery path for the broken power button is established.
+
+
+## 44.34 — 2026-11-14: Hardware videos identify stale cached kernel as the stage-7 stop
+
+### Physical evidence from the two user videos
+- Both clips display a coherent A53-to-A73 handoff. The A53/boot core reports MPIDR=0, MMFR0=0x1122, TGran16=0 and chooses the A73 secondary. PSCI CPU_ON returns 0; the A73 reports MPIDR=0x100, MMFR0=0x101122, TGran16=1. The shim then reports "16K supported; launching XNU" and jumps to physical entry 0xA187C488.
+- Both videos later show the A53 guardian overlay A53 LAST MARK=0x00000007. This is a live shared-cell read by the independent guardian, not a dynamically updated loader status. It proves XNU reached assembly checkpoint 7. It does not show C arm_init, the Apple logo, or Darwin userspace.
+- Stage 7 is emitted after the warm-reset branch in common_start, immediately before calculation of the boot-args KVA. Stage 8 is designed to follow that calculation; stage 9 is intended immediately before ret into arm_init().
+
+### Run #224 binary/source mismatch — confirmed root cause
+- Run #224: workflow 43618521367, source 5a64c0761dc3bcfee390ec2a1501b6ed3850c5da; all jobs and the RAM-only package job reported success. Its kernel artifact was 14122987795, size 16,587,136 bytes, SHA-256 4f5e3da26632f0dd1c2e934e05ab8fd71329c6ed08c1c30959e0c17b91306a32.
+- The compiled Mach-O was independently disassembled. In __TEXT_EXEC,__text, the stage-7 marker sequence exists, but stage-8 and stage-9 marker sequences do not. The code after the stage-7 marker restores scratch registers, calculates boot-args KVA, and immediately executes ret.
+- The source tree in the same build contains the 0107 stage-8 and stage-9 calls, and the source guard passed. The XNU build log (artifact 14123311806) ends with "XNU kernel.development.lavender already built". This is the decisive reason: the legacy prefix cache restored dxb/build/xnu.obj/kernel.development.lavender; the pinned build script checks for that file and skips make install when present. The patch had been applied to fresh source but the compiler/linker were not run. Packaging then wrapped the stale binary.
+- Therefore Run #224's image is a structurally valid package but is not a valid test of the 0107 stage-8/9 changes. Do not ask the user to boot it again.
+
+### CI correction and current run state
+- Commit b5c16d33e2486023de5b4cbd7a9c68d8e9b13e90 introduces a versioned xnu8796-v2- cache namespace, allows legacy-prefix cache restore only as a source of reusable intermediate build objects, removes the completed cached kernel product on a non-exact v2 hit, and touches patched start.s and sweet_early.c after patch application to make their objects rebuild. Intermediate objects and support libraries are preserved to avoid an unnecessary full cold build.
+- A post-build gate distinguishes an exact v2 cache hit from a legacy restore that must enter make install. Kernel verification now parses the actual Mach-O __TEXT_EXEC,__text and looks for the ARM64 instruction sequences that publish stages 8 and 9. The cache-save step is gated on those checks.
+- Runs #225 (43622736668, commit b5c16d33...) and #226 (43622763975, commit 67182b69...) failed in the workflow preparation step, before build/cache restore, because the injected Python string that adds source-touch commands was incorrectly quoted. Neither run attempted XNU compilation.
+- The quoting was corrected in ae26598100060260224837dfe76e4d296c3c451f; the exact-cache log match was corrected in 560a6fde4b3fe670c247532fffca2a5c818df599. At the time of this record, #227 (43622824076) and #228 (43622868931) are in progress. #228 is the canonical workflow revision containing both corrections. Avoid launching another build while these are active.
+- Next gates: establish #228 cache restore result; ensure a legacy cached final product is deleted while object cache remains; ensure log proves make install actually runs; ensure source guard passes; verify stages 8 and 9 in the compiled Mach-O; verify that exact kernel is used in the new package; independently inspect final iosboot.img size/hash. Only then request a new RAM-only fastboot boot iosboot.img test.
+- Continue to distinguish kernel compile, Mach-O/marker verification, image packaging, physical boot, Apple logo, and Darwin userspace. No boot-critical partitions are to be flashed or erased.
