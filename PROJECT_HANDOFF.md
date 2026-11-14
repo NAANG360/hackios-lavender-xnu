@@ -2,11 +2,11 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-14 12:16 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-14 13:45 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active engineering branch: `ci/lavender-machine-profile` (always re-resolve live HEAD before source writes; latest successful build source commit: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`)  
-> Latest successful integrated XNU + package run: `43554970979` (#138), source commit `352f7c3cc61a7001c35edee4bccd5c91265a32d3`  
-> Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14098093027`; raw `iosboot.img` SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`
+> Active engineering branch: `ci/lavender-machine-profile` (documentation-only commits have advanced branch HEAD; latest verified build source commit: `d863da08a707353e73166502dcdaee3f5a117fdc`; re-resolve live HEAD before source writes)  
+> Latest successful integrated XNU + package run: `43573274639` (#153), source commit `d863da08a707353e73166502dcdaee3f5a117fdc`  
+> Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14105179582`; raw `iosboot.img` SHA-256 `5160f44e77df55641654b7dfbcd0006ba64c1765afecd6248b6ff5ad42901dcd`
 
 ---
 
@@ -3114,3 +3114,6 @@ Before packaging, `.github/workflows/package-lavender.yml` was corrected: the ge
 - Last previously confirmed physical XNU checkpoint remains `XNUSTAGE=1` only. No physical Apple logo, stage 2, stable arm_init, or successful XNU boot is confirmed.
 - No new physical test is requested here. The watchdog-first guardian sequence is source-grounded but not physically validated; the early PSCI-only reset path and reliable recovery path with the broken power button still require review. Volume Up + Volume Down for 3 seconds is a reset request, not a recovery-boot selector.
 - Next engineering work: review the early shim reset path and recovery safety, inspect the marker-cell address/alias/cache coherency end-to-end, investigate whether the missing ADT product node matters, then measure a cache-hit build. Use artifact 14105179582 only as the current structurally verified image for future controlled testing after those safety gates.
+
+
+Documentation follow-through: `PROJECT_HANDOFF.md` run #153 evidence was committed as `1dfc7138e93abb18128241c5ddd40645c6edeefe`; the refreshed `AGENTS.md` summary was committed as `ccde816caf0f4a84e62d529e9de8232470222e6a`. These commits change documentation only; the image remains built from source commit `d863da08a707353e73166502dcdaee3f5a117fdc`.
