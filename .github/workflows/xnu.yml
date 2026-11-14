@@ -143,11 +143,14 @@ jobs:
           start = source.index("LEXT(start_first_cpu)")
           vbar = source.index("MSR_VBAR_EL1_X0", start)
           pre_vbar = source[start:vbar]
-          # Inspect executable assembly only; comments and labels are not writes.
-          instructions = "\n".join(line.split("//", 1)[0] for line in pre_vbar.splitlines())
-          import re
-          unsafe_fb_base = re.search(r"(?mi)^\s*MOV64\s+x0,\s*\(0x9d400000", instructions)
-          unsafe_fb_store = re.search(r"(?mi)^\s*str\s+w1,\s*\[x0\]", instructions)
+          # Normalize executable instructions and strip // comments before checking.
+          instructions = []
+          for line in pre_vbar.splitlines():
+              line = line.split("//", 1)[0].strip()
+              if line:
+                  instructions.append(" ".join(line.split()).lower())
+          unsafe_fb_base = any(line.startswith("mov64 x0, (0x9d400000") for line in instructions)
+          unsafe_fb_store = any(line.startswith("str w1, [x0]") for line in instructions)
           if unsafe_fb_base and unsafe_fb_store:
               raise SystemExit("unsafe Lavender framebuffer write sequence remains before VBAR_EL1")
           if "lavender_early_mark 0x11" not in pre_vbar:
