@@ -192,6 +192,26 @@ jobs:
           stage17 = source.index('sweet_early_mark(17, "Lavender diagnostic logo completed")', logo)
           if not (entry < stage7 < vm < stage15 < stage16 < logo < stage17):
               raise SystemExit("Lavender verbose checkpoints must follow arm_init and permanent VM mapping order")
+          handoff = source.index("// Set KVA of boot args as first arg")
+          stage8 = source.index("lavender_guard_mark 8", handoff)
+          stage9 = source.index("lavender_guard_mark 9", stage8)
+          handoff_ret = source.index("// Return to arm_init()", stage9)
+          ret_insn = source.index("ret", handoff_ret)
+          if not (handoff < stage8 < stage9 < ret_insn):
+              raise SystemExit("post-assembly stages 8/9 must bracket the final arm_init return")
+          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          guard_init = early.index("sweet_early_guard_init(uintptr_t boot_args_kva)")
+          early_mark = early.index("sweet_early_mark(unsigned int stage", guard_init)
+          early_end = early.find("\\nstatic ", early_mark)
+          early_body = early[early_mark:early_end if early_end >= 0 else len(early)]
+          if "*early_guard_cell = 0x100u" not in early[guard_init:early_mark]:
+              raise SystemExit("C-entry guard initialization marker is missing")
+          if "0x100u | stage" not in early_body or "0x80000100u | stage" not in early_body:
+              raise SystemExit("C checkpoint marker namespace is missing or stage 20 is not encoded")
+          if early_body.index("0x100u | stage") > early_body.index("lavender_console_mark(stage, label)"):
+              raise SystemExit("C checkpoint marker must be published before framebuffer text I/O")
+          if "stage + 3u" in early_body:
+              raise SystemExit("ambiguous legacy C checkpoint marker encoding remains")
           logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
           logo_start = logo_source.index("sweet_early_logo(void)")
           logo_end = logo_source.index("sweet_early_guard_init(", logo_start)
@@ -206,6 +226,10 @@ jobs:
           grep -q 'sweet_early_map_final();' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q '0x9c000000ULL | ARM_TTE_VALID' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q 'lavender_guard_mark 7' dxb/xnu/osfmk/arm64/start.s
+          grep -q 'lavender_guard_mark 8' dxb/xnu/osfmk/arm64/start.s
+          grep -q 'lavender_guard_mark 9' dxb/xnu/osfmk/arm64/start.s
+          grep -q 'A53 LAST MARK=0x' shim/lavender_guardian.c
+          grep -q 'delay_ms(2500U, f)' shim/lavender_guardian.c
           grep -q 'LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'lavender_console_mark(stage, label)' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
@@ -518,9 +542,11 @@ jobs:
             echo "Volume-key chord: hold Volume Up + Volume Down for 3 seconds; this requests a reset only and does not select a recovery boot target (physical validation pending)"
             echo "Reset path: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
             echo "Reset caveat: watchdog register sequence is source-grounded; this watchdog-first ordering still needs physical validation"
-            echo "XNU logo: full-panel black clear and Apple mark are drawn at first arm_init C entry using the bootstrap V=PA framebuffer mapping; no claim of full iOS boot"
-            echo "XNU entry diagnostics: visible assembly milestones 3-7 and C milestones 1-15 are drawn as 8x8 tiles before the Apple mark clear"
-            echo "Framebuffer console: bypassed for this isolation build by lavender_no_fbcon=1; remove that boot arg only after early bootstrap is stable"
+            echo "XNU logo: full-panel clear and Apple mark are deferred until arm_vm_init returns and the permanent framebuffer alias is installed; no claim of full iOS boot"
+            echo "XNU entry diagnostics: assembly stages 3-7 are green tiles; stages 8-9 trace boot-args KVA setup and the instruction immediately before ret to arm_init"
+            echo "XNU C diagnostics: checkpoints 1-15 are text glyphs; guardian words use 0x100+stage so C and assembly markers cannot collide"
+            echo "Framebuffer console: lavender_no_fbcon=1 disables only the legacy pexpert serial fbcon; the direct early checkpoint text renderer remains active"
+            echo "A53 stall report: last shared marker is printed at y=580 for 2.5 seconds before the watchdog reset"
             echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
             echo "XNU boot CPU MPIDR: 0x100 (Kryo 260 Gold cluster)"
