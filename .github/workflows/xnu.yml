@@ -40,10 +40,11 @@ on:
       - "tools/adt.py"
       - "tests/test_lavender_adt.py"
 
-# One active XNU build per branch; newer commits supersede stale queued/running builds.
+# Give each commit its own run group; diagnostic fix commits must not cancel
+# an active XNU build before its logs and artifacts can be inspected.
 concurrency:
-  group: xnu-${{ github.ref }}
-  cancel-in-progress: true
+  group: xnu-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 env:
   DXB_REPO: https://github.com/blacktop/darwin-xnu-build
