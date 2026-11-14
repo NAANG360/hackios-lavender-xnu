@@ -2714,3 +2714,51 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 - Physical XNU progress: last confirmed physical checkpoint remains `XNUSTAGE=1`; no later MMU checkpoint, `arm_init()`, logo completion marker, or visible Apple logo has been confirmed.
 - Overall milestone: compiled and packaged diagnostic boot image; not yet a verified physical XNU boot or usable iOS environment.
 - Branch HEAD at this update: `d3bdbeb2e83220476a4d86f75f971ffd8449c6b9`.
+
+
+### 43.8 Run #138 patched-start.s forensic trace — source-level checkpoints
+
+The run #138 build-tree artifact (artifact `14097838784`) was downloaded and its nested `buildtree.tgz` extracted. The actual post-patch source, not merely the patch text, was inspected:
+
+- `xnu/osfmk/arm64/start.s` confirms the pre-VBAR transform was applied: immediately after `lavender_early_mark 1`, the source contains `lavender_early_mark 0x11`; no Lavender framebuffer loop remains before the first `MSR_VBAR_EL1_X0`.
+- At `start_first_cpu`, register roles are:
+  - `x20`: physical address of the boot_args page;
+  - `x21`: zero on cold boot;
+  - `x22`: kernel virtual base;
+  - `x23`: kernel physical base;
+  - `x24`: managed physical memory size;
+  - `x25`: physical address of the bootstrap page-table root.
+- The low exception vector base is installed before boot-argument loads, stack setup, or page-table work. XNU then loads virtBase / physBase / memSize, sets SP_EL1 to the exception stack and SP_EL0 to the interrupt stack using KVA = symbol + x22 - x23, and computes the `arm_init` return address.
+- The bootstrap path clears the four-page V=P/KVA L1/L2 table area, computes the kernel slide/base adjustment, creates the V=P mapping and KVA mapping, then inserts a 32 MiB framebuffer block mapping at physical `0x9c000000`. The physical display aperture `0x9d400000` lies inside that block.
+- The framebuffer block uses the XNU write-combine / Normal-NC attribute. This is the mapping that allows the early logo routine to use the physical framebuffer address as an identity-mapped VA after MMU activation.
+- The translation setup sequence in the actual built source is:
+  1. load `TCR_EL1` from `sysreg_restore` (checkpoint `0x1A`);
+  2. call `set_mmu_ttb` for TTBR0, then install the KVA table in `TTBR1_EL1` (checkpoint `0x1B`);
+  3. construct `MAIR_EL1` attributes, execute `tlbi vmalle1` and `dsb ish` (checkpoint `0x1C`);
+  4. install the kernel exception-vector VA in `VBAR_EL1` (checkpoint `0x1D`);
+  5. write `SCTLR_EL1_DEFAULT`, execute `isb sy`, publish the MMU-on marker, perform the 8×8 framebuffer write, then publish `0x21`.
+- The post-MMU marker macro uses the active V=P identity alias at `x20 + 0x1000`, saves/restores x0/x1 in the reserved boot_args page, cleans the marker cache line with `dc cvac`, and executes `dsb sy`. The pre-MMU macro uses the same reserved-page scratch slots but does not need cache clean while data caches are off.
+- This source trace verifies ordering and register intent; it does not prove the register writes completed on physical Lavender. The values in TCR/TTBR/MAIR/SCTLR and the exact fault boundary still require live hardware telemetry.
+
+### 43.9 Boot-argument reservation, framebuffer transition, and marker protocol
+
+- `shim/loader.c` statically asserts the boot_args structure is 736 bytes. It aligns `ba_pa` to `PAGE_16K = 0x4000`, zeroes the complete 16 KiB page, and sets `topOfKernelData = ba_pa + 0x4000`. The page is therefore reserved above the boot_args structure and below topOfKernelData.
+- The guardian cell is set to physical `ba_pa + 0x1000`. The pre-MMU XNU markers preserve x0/x1 at `ba_pa + 0x1008` and `ba_pa + 0x1010`; these are inside the same reserved 16 KiB page and do not overlap the 736-byte boot_args structure.
+- In `arm_init.c`, `sweet_early_guard_init((uintptr_t)args)` receives the KVA boot_args pointer and sets the marker pointer to `args + 0x1000`. The guardian watches the corresponding physical cell. The XNU marker writes clean the cache line to PoC before returning.
+- Lavender `sweet_early_mark(stage, ...)` stores `stage + 3` in the shared cell; stage 20 is special and stores `0x80000014`. Therefore:
+  - stage 1 (`arm_init entered`) is cell value 4;
+  - stage 2 (logo draw returned) is cell value 5;
+  - stage 20 (kprintf startup complete) is `0x80000014`, the high-bit terminal marker used by the guardian to defer PMIC/SPMI polling until later startup.
+- Stage 2 is also emitted after `PE_init_platform()`. Thus cell value 5 unambiguously implies the logo routine already returned, but it does not distinguish “logo returned” from the later “PE_init_platform returned” point.
+- The logo routine runs after MMU activation and before `PE_init_platform()`, using the bootstrap identity mapping of the 0x9c000000 framebuffer block. During `arm_vm_init()`, `sweet_early_map_final()` installs a 32 MiB Normal-NC alias at `VM_MIN_KERNEL_ADDRESS + ARM_TT_L2_SIZE`; after the final TTBR1 is live, `sweet_early_relocate()` changes the early framebuffer pointer to that VA, then TTBR0 is invalidated and the TLB flushed. This is the source-level framebuffer transition that must succeed for later early marks.
+- The stage-20 marker occurs only after `arm_vm_init()` returns, `serial_init()` returns, and `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)` completes. This is later than initial `arm_init()` entry and logo completion.
+- The actual stage values emitted from `arm_init.c` are 1 (entry), 2 (logo return), 2 (PE init return), 3 (CPU topology), 4 (cpu_bootstrap), 5 (kernel_startup_bootstrap), 6 (cpu_init), 7 (enter arm_vm_init), 15 (arm_vm_init returned), 16 (serial_init called), 19 (serial_init returned), and 20 (kprintf startup complete). With the Lavender encoding, the guardian sees the corresponding +3 values, except the high-bit stage-20 terminal value.
+- This establishes the marker offsets and source-level milestone meanings. No #138 marker beyond the old physical `XNUSTAGE=1` has been observed on the actual phone.
+
+### 43.10 Updated continuation priorities
+
+1. Re-resolve the branch tip (the branch was at `d3bdbeb2e83220476a4d86f75f971ffd8449c6b9` immediately before this addendum).
+2. Check whether the cache-key commit `7504257...` actually created an Actions run; the commit-status query previously returned no checks.
+3. If the build ran, verify the source SHA, cache miss/hit, runner resources, compile duration, entry-guard, kernel artifact, and package job. If no run exists, use an authorized workflow-dispatch action; do not claim a build is underway without a run ID.
+4. Keep the #138 image as the current verified package until a newer run passes all XNU, shim, payload, and image checks.
+5. Do not request another physical boot until PSCI reset, watchdog fallback timing/clock, and the PMIC volume-key recovery path have a dependable non-destructive recovery plan.
