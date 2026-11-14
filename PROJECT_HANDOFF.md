@@ -2937,3 +2937,16 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
   - explicit warning that the watchdog fallback is unreachable if the PSCI SMC blocks without returning.
 - This manifest correction does not fix the reset-path reachability issue; it prevents future images from misrepresenting it. The #141 source still uses PSCI-first ordering. A bounded watchdog must be armed before entering the potentially non-returning SMC, or the vendor watchdog bite must become the primary reset path with PSCI secondary. Use the vendor `WDT_HZ=32765` default only as an explicitly grounded source value, not `CNTFRQ_EL0`; verify exact target clock assumptions before implementing a timed fallback.
 - The package workflow change does not trigger XNU compilation. It will be used when #141 succeeds and is manually packaged.
+
+
+### 44.12 Physical key mapping audit — Volume Up / Volume Down recovery chord
+
+- The current guardian's two inputs are correctly mapped in upstream Lavender Linux device-tree evidence:
+  - Volume Up: `pm660l_gpios 7 GPIO_ACTIVE_LOW`.
+  - Volume Down: `&pon_resin` with `linux,code = <KEY_VOLUMEDOWN>`.
+  - Source: `https://cos.googlesource.com/third_party/kernel/%2B/8728db3137ba424551b6ec2f9395b1f216a82a13/arch/arm64/boot/dts/qcom/sdm660-xiaomi-lavender.dts`.
+- The Qualcomm `qpnp-power-on.c` driver defines `QPNP_PON_RESIN_N_SET BIT(1)`; the guardian's `PON_RESIN_N_SET 0x02` therefore matches the Linux definition. Source: `https://android.googlesource.com/kernel/msm/%2B/a70fac8a1606e46484717ac9f39f3348d4b47e6e/drivers/input/misc/qpnp-power-on.c`.
+- The current `chord()` implementation reads PM660L GPIO7 as active-low Volume Up and PON `RESIN_N_SET` as Volume Down, then requires both for 3 seconds before calling `reset_now()`. The electrical/logical mapping is now grounded in the device tree and driver, not merely a schematic guess.
+- The guardian deliberately defers all PMIC/SPMI discovery and key polling until the high-bit stage-20 marker. Therefore the Volume Up + Volume Down recovery chord is **not available during the earlier boot stages**, including the previously observed `XNUSTAGE=1` stall. Before stage 20, only the 60-second stall monitor can request reset.
+- The chord handler requests a reset; it does not program an explicit PMIC recovery boot reason. The assumption is that the physical keys remain held across reset and the bootloader then selects recovery. That bootloader behavior has not been verified on this handset.
+- This confirms the key register mapping but does not clear the physical-test gate: early-stage reset still depends on the PSCI/watchdog path, the PSCI-first call can block before watchdog fallback, and the key chord is unavailable until stage 20. Do not request a physical test yet.
