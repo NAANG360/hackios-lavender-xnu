@@ -3128,44 +3128,6 @@ Documentation follow-through: `PROJECT_HANDOFF.md` run #153 evidence was committ
 - The Volume Up + Volume Down chord invokes a reset only; it does not select a recovery boot target. Continue to withhold physical test requests until watchdog MMIO behavior and a reliable recovery path with the broken power button are independently reviewed.
 
 
-## 44.23 — 2026-11-14: run #154 verified; watchdog-first reset integrated
-
-### Repository and Actions state
-- Branch: `ci/lavender-machine-profile`. Branch HEAD at inspection start: `df64388a15b6b2f3a1e20fb05556df6ba3fe7c32` (documentation-only commit after source change).
-- Latest source change: `08cb637c6bfc5215d1bb0307eb348add9f285070`, `fix(lavender): arm watchdog before every PSCI reset`.
-- XNU workflow run #154: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211 — completed successfully. Build job `132388179225`; integrated package job `132389050961`.
-- Separate shim compile #44: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320169 — completed successfully, including ADT invariant tests and shim compilation.
-- Run #154 source commit is exactly `08cb637c6bfc5215d1bb0307eb348add9f285070`. This is the first integrated XNU + package run containing the early shim reset fix.
-
-### Build/cache evidence
-- XNU cache was an exact-key hit: `xnu8796-13.5-DEVELOPMENT-LAVENDER-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-3e0de0d1fdbcfdb5597fbec945e1b74058b8ba02d6b70916236cd98b26736235`.
-- Restored cache size: approximately 228 MB; restore completed successfully. Cache save was correctly skipped because this was a hit.
-- Runner exposed 4 physical CPUs, 4 logical CPUs and 15,032,385,536 bytes RAM; selected `make -j4`, `KERNEL_PARALLELISM_OVERRIDE=4`.
-- XNU build, Lavender entry-guard validation and Mach-O verification all passed. Kernel remains 16,570,168 bytes, ARM64 Mach-O `MH_EXECUTE`, 26 load commands.
-- Kernel artifact ID `14105787768`; artifact ZIP digest `e179263db40e4d32740335653d36f845ab263d86e1b6138086e1fd3d691ad3dd`. Independently downloaded the artifact and verified kernel SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
-
-### Fresh RAM-only image
-- Package artifact: `lavender-fastboot-boot-test`, ID `14105988012`; run #154 artifact route: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211/artifacts/14105988012
-- Artifact ZIP size 16,977,049 bytes; ZIP SHA-256 `7dcc37ae921db3b4797856f94b2c5592b58b61b9c6cb6e01c8d864e3d19145a3`.
-- Extracted `iosboot.img`: 16,527,360 bytes; independent SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`.
-- Independently inspected the downloaded file: Android boot image v2, 4096-byte page size, ARM64 shim header, `LAVENDRX` payload, valid FDT magic. The workflow independently checked payload identity and non-overlapping kernel/ramdisk/DTB load ranges. The `iosboot.img` and `shim/out/shim-boot.img` are identical in the artifact.
-- Manifest binds the image to XNU run `43575320211` and source `08cb637c6bfc5215d1bb0307eb348add9f285070`. This is RAM-only `fastboot boot`; do not flash it.
-
-### Remaining caveats and corrections required
-- `tools/mkadt-lavender.py` still warns that `research/ipsw-x/d22ap.adt` is missing and omits the ADT `/product` node. The image package passes, but later iOS userspace/product-property needs remain unverified.
-- **Integrated workflow manifest wording defect:** `.github/workflows/xnu.yml` still emits `Recovery chord: Volume Up + Volume Down for 3 seconds`. This is incorrect. The implemented PMIC chord requests a reset only; it does not select recovery. The separate manual `.github/workflows/package-lavender.yml` already has the corrected wording. Fix the integrated manifest before the next image release.
-- **Push-filter coverage gap:** `.github/workflows/xnu.yml` push paths omit build/package-affecting tools such as `tools/fix-lavender-pre-vbar.py`, `tools/mkadt-lavender.py`, `tools/adt.py`, `tools/mkpayload.py`, `tools/unpack_bootv2.py`, and `tools/extract_appended_fdt.py`. Changes to those files can fail to trigger the integrated workflow. Extend the path list; keep `shim/**` only once.
-- The ADT builder uses `os.urandom(64)` for its random seed, so package image checksums are expected to differ across packaging invocations even with the same XNU source. Record each exact image hash; do not infer image mismatch means a different kernel.
-- The early shim reset path now arms the same watchdog-first sequence as the A53 guardian before PSCI. Shim #44 and integrated run #154 compile/package this code successfully. This is source/build validation only; watchdog operation and key-chord behavior remain physically unverified.
-- No Apple logo has been observed. Last confirmed physical XNU checkpoint remains `XNUSTAGE=1`. Do not request another device test until reset and recovery behavior with the broken power button are independently reviewed.
-
-### Next actions
-1. Correct the integrated workflow's reset-only key-chord manifest wording and expand its push path filters.
-2. Preserve exact-key cache safety; distinguish a cache hit from measured compiler parallelism. Run #154 is a cache-hit result, not proof that CPU parallelism alone caused the speedup.
-3. Investigate whether the missing ADT `/product` node is needed for later startup.
-4. Continue source-level marker/alias/cache-coherency review. Do not claim physical Apple logo, `arm_init()` success or usable iOS boot without device evidence.
-
-
 ## 44.23 — 2026-11-14: run #154 verifies watchdog-first shim reset and fresh image
 
 ### Live source and Actions evidence
@@ -3202,3 +3164,24 @@ Documentation follow-through: `PROJECT_HANDOFF.md` run #153 evidence was committ
 
 
 Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-filter and manifest corrections were committed as `c58cfb886b47514229ac2a421bfd9440949e65bb`.
+
+## 44.24 — 2026-11-14: workflow hardening and run #155
+
+### Additional commits after run #154
+- `03ed9bf773aaad33b82745921eb87124e6fd8390` adds a pre-package source guard to the separate manual `.github/workflows/package-lavender.yml`. It checks that both the early shim reset and the A53 guardian arm the SDM660 watchdog before PSCI.
+- `235f3501a5c4cbe968c835a436c2992159d34df0` fixes that guard's search to find the reset function definition after the watchdog helper rather than matching the earlier forward declaration.
+- `c58cfb886b47514229ac2a421bfd9440949e65bb` corrects the integrated image manifest to describe the volume-key chord as reset-only and expands `.github/workflows/xnu.yml` push filters to include the pre-VBAR transformer, ADT/payload/boot tools, tests and related workflow files.
+- Current branch HEAD at this inspection: `1d5fba3e836cf5f788f2f848687110051ec32252` (documentation-only commit after the workflow change).
+
+### Run #155
+- Integrated XNU run #155: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575805150
+- Source/workflow commit: `c58cfb886b47514229ac2a421bfd9440949e65bb`.
+- At inspection time, the build job was in progress at `Build XNU 8796`; no #155 kernel or package artifact was available yet. Do not treat it as passed until both the build and package jobs complete successfully.
+- The exact-key cache includes the whole `.github/workflows/xnu.yml` file. Since c58cfb8 changes that file, this new key will not match #154's cache key; expect a cold cache unless a matching cache already exists. This is a cache-key consequence, not an XNU source change.
+- The new watchdog-first source guard currently exists in the separate manual `package-lavender.yml` workflow. The integrated `xnu.yml` package job does not yet run the same guard. Shim compilation and source review passed for #154, but copy the guard into the integrated package job before relying on it to catch future reset-order regressions.
+- Run #154's image remains the latest fully verified artifact until #155 package validation finishes. Its manifest still has the historical incorrect “Recovery chord” label; the image binary itself requests reset only and contains no recovery-target selection.
+
+### Current engineering state
+- Patches 0100 and 0101 remain the latest numbered Lavender XNU patches; the repository has no 0102/0103 patch. There is no 0096 patch in this branch: pre-VBAR framebuffer removal is performed by `tools/fix-lavender-pre-vbar.py`.
+- Last physical XNU checkpoint remains `XNUSTAGE=1`. No physical Apple logo, stage 2, stable `arm_init()`, or iOS userland is confirmed.
+- Do not request another handset test until watchdog MMIO operation and a recovery route independent of the broken power button are reviewed. The volume-key chord is reset-only.
