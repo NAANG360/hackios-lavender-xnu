@@ -52,6 +52,53 @@ jobs:
         with:
           ref: ${{ steps.source.outputs.head_sha }}
 
+      - name: Require watchdog-first reset implementation in selected source
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          shim = Path("shim/shim.c").read_text()
+          guardian = Path("shim/lavender_guardian.c").read_text()
+
+          helper_start = shim.find("static void lavender_arm_watchdog_reset(void)")
+          reset_start = shim.find("static void __attribute__((noreturn)) reset(unsigned after_s)")
+          if helper_start < 0 or reset_start < 0 or helper_start > reset_start:
+              raise SystemExit("selected XNU source lacks the Lavender watchdog reset helper")
+          helper = shim[helper_start:reset_start]
+          reset_end = shim.find("/* ---- exceptions ---- */", reset_start)
+          reset_body = shim[reset_start:reset_end if reset_end >= 0 else len(shim)]
+
+          required_shim_writes = [
+              "const uintptr_t base = 0x17817000UL;",
+              "*(volatile uint32_t *)(base + 0x14) = 1;",
+              "*(volatile uint32_t *)(base + 0x08) = 1;",
+              "*(volatile uint32_t *)(base + 0x04) = 1;",
+          ]
+          if any(item not in helper for item in required_shim_writes):
+              raise SystemExit("shim watchdog helper does not match the expected SDM660 bite/reset sequence")
+          if "lavender_arm_watchdog_reset();" not in reset_body:
+              raise SystemExit("shim terminal reset does not arm watchdog")
+          if reset_body.index("lavender_arm_watchdog_reset();") > reset_body.index("smc(PSCI_SYSTEM_RESET"):
+              raise SystemExit("shim calls PSCI before arming watchdog")
+
+          guardian_start = guardian.find("static void __attribute__((noreturn)) reset_now")
+          guardian_end = guardian.find("struct spmi", guardian_start)
+          if guardian_start < 0 or guardian_end < 0:
+              raise SystemExit("guardian reset implementation not found")
+          guardian_reset = guardian[guardian_start:guardian_end]
+          ordered = [
+              "write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 1);",
+              "write32(QCOM_WDT_BASE + WDT0_EN, 1);",
+              "write32(QCOM_WDT_BASE + WDT0_RST, 1);",
+              "smc_call(PSCI_SYSTEM_RESET",
+          ]
+          positions = [guardian_reset.find(item) for item in ordered]
+          if any(pos < 0 for pos in positions) or positions != sorted(positions):
+              raise SystemExit("guardian reset does not arm the SDM660 watchdog before PSCI")
+          print("PASS: shim terminal reset and A53 guardian both arm watchdog before PSCI")
+          PY
+
       - name: Download XNU kernel artifact
         uses: actions/download-artifact@v4
         with:
@@ -227,8 +274,8 @@ jobs:
             echo "Source commit: ${{ steps.source.outputs.head_sha }}"
             echo "Boot mode: fastboot boot only; do not flash to a partition"
             echo "Volume-key reset chord: hold Volume Up + Volume Down for 3 seconds; this requests a reset and does not select a recovery boot target"
-            echo "Reset path: arm SDM660 watchdog one-tick bite at 0x17817000 before calling PSCI SYSTEM_RESET"
-            echo "Reset caveat: watchdog-first order follows Qualcomm watchdog_v2.c; physical validation remains pending"
+            echo "Reset path: shim terminal reset and A53 guardian both arm SDM660 watchdog before PSCI SYSTEM_RESET"
+            echo "Reset detail: WDT0_BITE_TIME is set to register value 1 at 0x17817000; physical reset validation remains pending"
             echo "Reset validation: shim source compiles in the package job; physical reset still unverified"
             echo "XNU logo: drawn only after XNU reaches arm_init; no claim of full iOS boot"
             echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
