@@ -3014,3 +3014,29 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
 - The generic `tlbi vmalle1; dsb ish` follows MAIR programming. The apparent lack of a DSB/ISB after `ic iallu` is not a Lavender defect: the actual exported `apple_arm64_common.h` defines `__ARM_IC_NOALIAS_ICACHE__=1`, so the conditional I-cache invalidation block in `start.s` is compiled out for this Apple arm64 target. The later `isb sy` synchronizes the SCTLR/MMU context change.
 - The first low VBAR is installed before MMU activation; after TTBR setup and mappings, the kernel KVA exception vector base is installed again before SCTLR.M is enabled. The marker sequence distinguishes these operations.
 - Source-level configuration now appears internally consistent with the A73's 16 KiB / 40-bit translation capabilities. Runtime register values and exception behavior remain unobserved on the phone.
+
+
+## 44.18 — 2026-11-14: video diagnosis, framebuffer race, marker ordering, reset hardening
+
+### Device evidence from the two newly uploaded recordings
+
+- Both videos (approximately 39.5 s and 62.6 s) show the red shim diagnostic framebuffer, not a stable blue full-screen panic. They display the same sequence: the A53 lacks TGran16, the A73 MPIDR 0x100 advertises TGran16=1, the shim reports `16k supported; launching XNU`, and the loader prints its payload, memory, boot_args, and jump values before `XNU jumping (fbcon clears screen)`.
+- The console rows after A73 release are visibly corrupted/overwritten. Source inspection confirms the A53's `lavender_guardian_run()` continued writing `CELL PA`, `GUARDMK`, SPMI discovery, and key-state lines while the A73 was printing loader output and XNU owned the display. The shim console has a shared global cursor and no inter-core lock. This is a concrete framebuffer ownership race, not evidence that the boot image is failing to load its payload.
+- The longer recording remains red through roughly 59 s, goes dark at roughly 60 s, and shows a charging icon by roughly 62 s. This is consistent with the 60-second guardian timeout causing a reset, but the clip does not prove which reset mechanism completed it. No Apple logo is visible in either clip.
+- The device recordings themselves are the evidence for the above. Do not reinterpret the red diagnostic framebuffer as an Apple logo or claim XNU reached `arm_init()`.
+
+### Source corrections committed on `ci/lavender-machine-profile`
+
+1. `shim/shim.c`: move the A53 `guardian active` line before setting `A73_STATE_GO`. After signaling the A73, the A53 does not write to the framebuffer.
+2. `shim/lavender_guardian.c`: remove normal-operation console output for the shared cell, SPMI discovery, and key-state changes. Keep framebuffer diagnostics only on fatal timeout/reset paths, after progress has stopped.
+3. New patch `xnu/patches/0100-lavender-stage-entry-marker-order.patch`: publish stage 1 (arm_init entry) and stage 2 (logo-draw completion) to the uncached/shared guard cell before their framebuffer bar writes. Stages 3–19 remain after the display operation; stage 20's terminal high bit remains after the final display operation. This ensures a display fault does not erase the evidence that arm_init was entered.
+4. `reset_now()`: configure the SDM660 watchdog's one-tick bite before calling PSCI SYSTEM_RESET. The source sequence is grounded in Qualcomm `watchdog_v2.c`: BITE_TIME=1, barrier, RST=1, barrier; the shim additionally disables/re-enables the non-secure block while programming the bite. This addresses the old failure mode where a blocking PSCI SMC made the watchdog fallback unreachable. Treat the new watchdog-first order as source-validated, not physically validated.
+5. `.github/workflows/xnu.yml`: update the build manifest to reflect watchdog-first reset ordering and its remaining physical-validation caveat.
+
+### Verification and current state
+
+- Patch 0100 passed a local dry-run and application against the exact `sweet_early.c` from the #141 build-tree artifact.
+- Latest branch source commit for this set: `59e6024ab1d17c5bd7d293b2ed7305df54ba3ed7`.
+- Integrated XNU build run #147: ID `43572507408`; at handoff update time its build job was in progress. Earlier overlapping runs for intermediate commits were cancelled; their status is not evidence for this final source set.
+- No new `iosboot.img` from the final source set has been validated yet. No physical test has been run with these changes. There is still no confirmed Apple logo, no confirmed stage 1/2 marker observation from the device, and no claim of a usable iOS userland.
+- Next: wait only by checking the live run (no background assumptions); require XNU build and RAM-only packaging jobs to both pass; inspect the resulting artifact's manifest, hashes, and image structure. Only then decide whether another user-controlled `fastboot boot iosboot.img` is appropriate. Never flash `boot`, `recovery`, or any other partition.
