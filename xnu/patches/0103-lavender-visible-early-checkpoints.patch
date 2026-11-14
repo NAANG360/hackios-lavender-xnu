@@ -77,7 +77,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -152,6 +152,90 @@
+@@ -152,6 +152,96 @@
  #define LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)
  static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)LAVENDER_FB_BASE;
  static volatile uint32_t *early_guard_cell;
@@ -174,7 +174,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  
  static int
  lavender_logo_ellipse(int x, int y, int cx, int cy, int rx, int ry)
-@@ -215,7 +299,6 @@
+@@ -215,7 +305,6 @@
  void
  sweet_early_mark(unsigned int stage, const char *label)
  {
@@ -182,7 +182,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  	if (stage > 20) {
  		return;
  	}
-@@ -228,12 +311,15 @@
+@@ -228,12 +317,15 @@
  		*early_guard_cell = stage + 3u;
  		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
  	}
