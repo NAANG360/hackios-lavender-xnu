@@ -10,7 +10,7 @@ index 0a9ee9f..89f80b8 100644
 +	/* Stage 8: boot-args KVA is ready for the arm_init handoff. */
 +	lavender_guard_mark 8
 +#endif
-@@ -1064,3 +1064,7 @@ Llavender_stage2_pair:
+@@ -1064,3 +1068,7 @@ Llavender_stage2_pair:
  	mov	x0, x20
  	mov	lr, x21
  #endif
@@ -54,7 +54,7 @@ index 5319b0b..6f4eda7 100644
  		return;
  	}
  	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
-@@ -317,7 +317,7 @@ sweet_early_mark(unsigned int stage, const char *label)
+@@ -317,7 +318,7 @@ sweet_early_mark(unsigned int stage, const char *label)
  	}
  	if (early_guard_cell != 0 && stage > 2) {
  		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
