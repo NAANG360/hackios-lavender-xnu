@@ -39,7 +39,6 @@ index 5319b0b..6f4eda7 100644
  }
  
  void
- sweet_early_mark(unsigned int stage, const char *label)
 @@ -294,17 +294,18 @@ sweet_early_mark(unsigned int stage, const char *label)
  	 * arm_init/VM stall from a pre-MMU/start.s stall.
  	 */
@@ -52,14 +51,15 @@ index 5319b0b..6f4eda7 100644
  	/* arm_init runs with the bootstrap identity mapping active. Keep a
  	 * readable checkpoint history in the lower panel before VM remapping. */
  	if (stage < 16) {
- 		/* Publish before framebuffer I/O so a console fault cannot hide this stage. */
+-		lavender_console_mark(stage, label);
++		/* Publish before framebuffer I/O so a console fault cannot hide this stage. */
  		if (early_guard_cell != 0 && stage > 2) {
 -			*early_guard_cell = stage + 3u;
 -			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
 +			*early_guard_cell = 0x100u | stage;
 +			__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
  		}
- 		lavender_console_mark(stage, label);
++		lavender_console_mark(stage, label);
  		return;
  	}
  	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
