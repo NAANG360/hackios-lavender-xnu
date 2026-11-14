@@ -196,9 +196,13 @@ jobs:
           grep -q 'sweet_early_map_final();' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q '0x9c000000ULL | ARM_TTE_VALID' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q 'lavender_guard_mark 7' dxb/xnu/osfmk/arm64/start.s
-          grep -q 'Visible 8x8 progress tile' dxb/xnu/osfmk/arm64/start.s
-          grep -q 'Bootstrap V=PA mapping stays live' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'const unsigned int x0 = 16u + (stage - 1u) * 24u' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'Stage 3..7: green 16x16 tiles' dxb/xnu/osfmk/arm64/start.s
+          grep -q 'LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'lavender_console_mark(stage, label)' dxb/xnu/osfmk/arm64/sweet_early.c
+          if grep -q 'Skipping patch .*0103-lavender-visible-early-checkpoints.patch' xnu-build.log; then
+            echo "Verbose checkpoint patch was skipped; refusing to package a non-verbose kernel."
+            exit 1
+          fi
           grep -q '#if !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR)' dxb/xnu/osfmk/arm64/start.s
           grep -q 'SPMI_OP_EXT_READL' shim/lavender_guardian.c
           grep -q 'QCOM_WDT_BASE 0x17817000' shim/lavender_guardian.c
