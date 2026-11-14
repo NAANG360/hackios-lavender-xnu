@@ -12,7 +12,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  
  #if KASAN
  	mov	x20, x0
-@@ -808,6 +812,10 @@
+@@ -808,6 +812,11 @@
  	mov	x0, x20
  	mov	lr, x21
  #endif
