@@ -17,8 +17,36 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      - name: Resolve exact source revision from XNU run
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XNU_RUN_ID: ${{ inputs.xnu_run_id }}
+        run: |
+          set -euo pipefail
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${XNU_RUN_ID}")"
+          conclusion="$(jq -r '.conclusion // empty' <<<"$run_json")"
+          branch="$(jq -r '.head_branch // empty' <<<"$run_json")"
+          head_sha="$(jq -r '.head_sha // empty' <<<"$run_json")"
+          if [[ "$conclusion" != "success" ]]; then
+            echo "Refusing to package from XNU run with conclusion: ${conclusion:-unknown}" >&2
+            exit 1
+          fi
+          if [[ "$branch" != "ci/lavender-machine-profile" ]]; then
+            echo "Refusing unexpected XNU source branch: ${branch:-unknown}" >&2
+            exit 1
+          fi
+          if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "XNU run did not report a valid source commit" >&2
+            exit 1
+          fi
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved successful XNU run $XNU_RUN_ID to $head_sha"
+
       - name: Check out matching source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
 
       - name: Download XNU kernel artifact
         uses: actions/download-artifact@v4
@@ -192,7 +220,7 @@ jobs:
           sha256sum "$KERNEL_PATH" shim/out/shim-boot.img artifacts/lavender-payload.bin artifacts/lavender.adt > artifacts/SHA256SUMS
           {
             echo "XNU workflow run: ${{ inputs.xnu_run_id }}"
-            echo "Source commit: ${{ github.sha }}"
+            echo "Source commit: ${{ steps.source.outputs.head_sha }}"
             echo "Boot mode: fastboot boot only; do not flash to a partition"
             echo "Recovery chord: Volume Up + Volume Down for 3 seconds (PMIC SPMI read path corrected; physical validation pending)"
             echo "Reset path: SDM660 watchdog bite at 0x17817000, then PSCI SYSTEM_RESET fallback"
