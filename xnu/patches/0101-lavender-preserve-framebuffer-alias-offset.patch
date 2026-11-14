@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -147,6 +147,8 @@
+@@ -147,5 +147,7 @@
  #define LAVENDER_FB_WIDTH 1080u
  #define LAVENDER_FB_HEIGHT 2340u
  #define LAVENDER_FB_STRIDE 1080u
