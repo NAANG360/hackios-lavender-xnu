@@ -101,7 +101,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: lavender-xnu8796-macos15-xcode16-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh') }}
+          key: lavender-xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', '.github/workflows/xnu.yml') }}
           save-always: true
 
       - name: Detect runner capacity
