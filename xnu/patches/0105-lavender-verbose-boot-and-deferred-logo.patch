@@ -210,7 +210,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -353,11 +353,6 @@
+@@ -353,11 +353,4 @@
  #endif
  	sweet_early_mark(1, "arm_init entered (MMU on)");
 -#if defined(ARM64_BOARD_CONFIG_LAVENDER)
