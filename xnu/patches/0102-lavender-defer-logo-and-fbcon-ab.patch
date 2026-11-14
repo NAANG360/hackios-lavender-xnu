@@ -13,7 +13,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  	arm_setup_pre_sign();
  
-@@ -532,3 +527,9 @@
+@@ -532,6 +527,12 @@
  	sweet_early_mark(7, "entering arm_vm_init");
  	arm_vm_init(xmaxmem, args);
  	sweet_early_mark(15, "arm_vm_init returned");
@@ -24,7 +24,9 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 +	sweet_early_mark(17, "Lavender diagnostic logo completed");
 +#endif
  
-@@ -544,9 +544,7 @@
+ 	if (debug_boot_arg) {
+ 		patch_low_glo();
+@@ -544,9 +545,7 @@
  	PE_consistent_debug_inherit();
  
  	/* Setup debugging output. */
@@ -64,10 +66,11 @@ diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
 +	sweet_early_mark(19, "fbcon mapping returned");
  	if (fbcon_base != NULL) {
  		register_serial_functions(&sweet_fbcon_serial_functions);
-@@ -923,7 +929,15 @@
+ 	}
+@@ -922,7 +928,16 @@
+ 
  	PE_parse_boot_argn("disable-uart-irq", &disable_uart_irq, sizeof(disable_uart_irq));
  
--	fbcon_probe();
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	/* A boot-arg opt-out lets first boots isolate the fbcon mapping path. */
 +	int lavender_no_fbcon = 0;
@@ -76,7 +79,7 @@ diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
 +		fbcon_probe();
 +	}
 +#else
-+	fbcon_probe();
+ 	fbcon_probe();
 +#endif
  
  #ifdef PI3_UART
