@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -770,17 +770,38 @@
+@@ -770,17 +770,42 @@
   *	TPIDRRO_EL0 - CPU number
   */
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -23,7 +23,11 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 -	ldr	x0, [x20, #0x1008]
 -	ldr	x1, [x20, #0x1010]
 +	/* Stage 3..7: green 16x16 tiles, left-to-right below the shim log. */
-+	MOV64	x0, (0x9d400000 + 560 * 4320 + 24 + ((\value - 2) * 24))
++	MOV64	x0, (0x9d400000 + 560 * 4320 + 24)
+	mov	x4, #\value
+	sub	x4, x4, #2
+	add	x4, x4, x4, lsl #1
+	add	x0, x0, x4, lsl #3
 +	movz	w1, #0xff00
 +	movk	w1, #0xff00, lsl #16
 +	mov	x2, #16
@@ -45,7 +49,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  .endm
  #endif
  
-@@ -930,21 +951,21 @@
+@@ -930,21 +955,21 @@
  	str		w1, [x0]
  	dc		cvac, x0
  	dsb		sy
