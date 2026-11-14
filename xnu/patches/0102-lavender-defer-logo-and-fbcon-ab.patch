@@ -39,20 +39,22 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -221,9 +221,18 @@
- 	 * Publish the arm_init entry and logo-start markers before any framebuffer
- 	 * access. If the first display store faults, the A53 guardian must still
- 	 * distinguish "arm_init entered" from a pre-MMU/start.s stall.
+@@ -219,14 +219,22 @@
+ 		return;
+ 	}
+ 	/*
+-	 * Publish the arm_init entry and logo-start markers before any framebuffer
+-	 * access. If the first display store faults, the A53 guardian must still
+-	 * distinguish "arm_init entered" from a pre-MMU/start.s stall.
++	 * Publish early C checkpoints before touching the display. If the
++	 * first framebuffer store faults, the A53 guardian can distinguish an
++	 * arm_init/VM stall from a pre-MMU/start.s stall.
  	 */
  	if (early_guard_cell != 0 && stage <= 2) {
  		*early_guard_cell = stage + 3u;
  		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
  	}
-+	/*
-+	 * Keep arm_init and arm_vm_init framebuffer-silent. The early stages
-+	 * update only the shared guard cell; display markers and the logo start
-+	 * after arm_vm_init has installed the permanent Normal-NC alias.
-+	 */
++	/* Keep stages 1-15 framebuffer-silent until the permanent alias exists. */
 +	if (stage < 16) {
 +		if (early_guard_cell != 0 && stage > 2) {
 +			*early_guard_cell = stage + 3u;
@@ -63,3 +65,50 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
  	uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
  	unsigned int x0 = stage * 48u;
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -817,8 +817,14 @@
+ 	uint64_t const *reg;
+ 	uint32_t const *val;
+ 	unsigned int size;
++	const char *fbcon_node_name = "sweet-fbcon";
+ 
+-	if (SecureDTFindEntry("name", "sweet-fbcon", &entry) != kSuccess ||
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Lavender's generated ADT uses a target-specific node name. */
++	fbcon_node_name = "lavender-fbcon";
++#endif
++
++	if (SecureDTFindEntry("name", fbcon_node_name, &entry) != kSuccess ||
+ 	    SecureDTGetProperty(entry, "reg", (void const **)&reg, &size) != kSuccess || size < 16) {
+ 		return;
+ 	}
+@@ -834,9 +840,9 @@
+ 	if (!fbcon_width || !fbcon_height || fbcon_stride < fbcon_width * 4) {
+ 		return;
+ 	}
+-	sweet_early_mark(17, "fbcon config read; mapping");
++	sweet_early_mark(18, "fbcon config read; mapping");
+ 	fbcon_base = (volatile uint32_t *)ml_io_map_wcomb(reg[0], reg[1]);
+-	sweet_early_mark(18, "fbcon mapping returned");
++	sweet_early_mark(19, "fbcon mapping returned");
+ 	if (fbcon_base != NULL) {
+ 		register_serial_functions(&sweet_fbcon_serial_functions);
+ 	}
+@@ -922,7 +928,16 @@
+ 
+ 	PE_parse_boot_argn("disable-uart-irq", &disable_uart_irq, sizeof(disable_uart_irq));
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* A boot-arg opt-out lets first boots isolate the fbcon mapping path. */
++	int lavender_no_fbcon = 0;
++	PE_parse_boot_argn("lavender_no_fbcon", &lavender_no_fbcon, sizeof(lavender_no_fbcon));
++	if (!lavender_no_fbcon) {
++		fbcon_probe();
++	}
++#else
+ 	fbcon_probe();
++#endif
+ 
+ #ifdef PI3_UART
