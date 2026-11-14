@@ -3071,3 +3071,8 @@ A deeper source audit found a second distinct bug beyond the A53/A73 shared-fram
 
 
 Patch-sequence validation addendum: replayed the committed 0100 stage-marker patch first and 0101 alias-offset patch second against the #141 build-tree source. Both apply in the actual ordered sequence; 0101's relocation hunk applies at the expected line offset introduced by 0100. This is a local source-application check only; the integrated #153 compile remains the compiler/packaging validation gate.
+
+
+### Packaging manifest correction addendum
+
+Before packaging, `.github/workflows/package-lavender.yml` was corrected: the generated build manifest now states that the SDM660 watchdog is armed before PSCI, and that Volume Up + Volume Down held for 3 seconds requests a reset only. It does **not** select a recovery boot target, so it must not be called a recovery chord. The package workflow is a separate manual dispatch after a successful XNU workflow run, using that exact run ID. Run #153 remains the selected XNU build.
