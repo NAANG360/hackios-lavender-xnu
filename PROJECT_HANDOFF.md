@@ -2610,3 +2610,63 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 4. Review the new dynamic build settings and ensure the pinned builder actually consumes all exported overrides. The log confirms `make -j4` for the main install step; do not assume all recursive sub-builds honor the overrides until verified.
 5. Measure a subsequent same-patch build with an actual cache hit before claiming build-time improvement. The #138 cache was cold.
 6. Keep the device unflashed and do not request a physical test until the reset/recovery path is safer than the previously failed implementation.
+
+
+## 43. 2026-11-14 — Session continuation: current build truth, provenance hardening, and cache-key correction
+
+### 43.1 Current source and verified image baseline
+
+- The latest successful integrated XNU + RAM-only package remains run **#138**, ID `43554970979`, source commit `352f7c3cc61a7001c35edee4bccd5c91265a32d3`.
+- The branch `ci/lavender-machine-profile` has advanced beyond that source commit through documentation and CI-workflow changes. The changes after #138 do not modify XNU patches, shim source, ADT generator, or payload builder; the #138 kernel/image source inputs therefore remain unchanged.
+- The latest verified image remains artifact ID `14098093027`, `iosboot.img` 16,527,360 bytes, SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`. The artifact is not expired at this update (retention expiry: 2026-11-28 04:27:02 UTC).
+- Do not describe #138 as a physical boot. The last physical observation remains the earlier `XNUSTAGE=1` handoff marker; no later pre-MMU checkpoint, `arm_init()`, logo completion, or visible Apple logo has been physically confirmed.
+
+### 43.2 Reconciliation of the reported #126 failure
+
+- Run #126 / ID `43462868674`, source commit `67a4e2fa2ebb8882099f5f9639800a78074bee38`, successfully completed the XNU compilation step.
+- It failed in the subsequent `Require Lavender XNU entry-guard patch` validation with the exact diagnostic: `unsafe Lavender framebuffer access remains before VBAR_EL1`. Kernel artifact verification and packaging were skipped.
+- The later #138 build passed both the entry-guard validation and kernel artifact verification. Therefore #126's recorded blocker is not the current compile blocker.
+- The operative current build-time pre-VBAR transformation is `tools/fix-lavender-pre-vbar.py`. It runs after the pinned patch application and before the build environment setup. It removes the legacy framebuffer loop between the initial `lavender_early_mark 1` and `lavender_early_mark 0x11`, then verifies that the fixed framebuffer address / legacy pixel loop is absent before `MSR_VBAR_EL1_X0` and that marker `0x11` remains.
+- Historical Section 40 names `xnu/patches/0096-lavender-no-fb-before-vbar.patch`; that exact path currently returns 404 on the active branch. Treat the post-patch helper above as the current source of truth unless the patch is deliberately restored. Do not claim the historical patch file is currently present.
+
+### 43.3 Runner parallelism — pinned builder inspection
+
+- Inspected the pinned `blacktop/darwin-xnu-build` `build.sh` at commit `663906528d1cd5ea8fde7de6f16de73db9511549` (file blob `fb3441520d8b11a5c47308adb9a12da7d0a25780`).
+- The script declares `MEMORY_SIZE_OVERRIDE`, `PHYS_CPU_OVERRIDE`, `LOGICAL_CPU_OVERRIDE`, and `KERNEL_PARALLELISM_OVERRIDE`. Its `ensure_hw_env_overrides` function preserves supplied values when all four are non-empty; it otherwise falls back to a conservative internal parallelism value of 1.
+- The script passes those values into XNU make invocations as `MEMORY_SIZE`, `SYSCTL_HW_PHYSICALCPU`, `SYSCTL_HW_LOGICALCPU`, and `KERNEL_BUILDS_IN_PARALLEL`. The workflow sets all four values before building. The workflow's sed transformation changes all three pinned `make install -j8` occurrences (not just the primary kernel invocation) to use `XNU_MAKE_JOBS`.
+- Run #138 confirmed the runner exposed 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; the main build used `make -j4`. The internal hardware overrides are passed through rather than being ignored by the pinned script.
+- CPU saturation, peak memory pressure, and a cache-hit speedup have not been measured. Run #138 logged a cold cache. Do not claim a measured speed improvement until a comparable warm-cache build is complete.
+
+### 43.4 Cache correctness correction
+
+- The previous cache key hashed only `xnu/patches/*.patch` and `xnu/patches/*.sh`. It omitted the post-patch source transformer, the workflow's build-script mutations, the pinned build-tool revision, and the selected macOS / kernel / machine configuration. That was not a sufficiently exact key for reusing `dxb/build` and `dxb/fakeroot`.
+- Commit `7504257b192e1711d1f111a6ef7e0437a705635a` updates the XNU cache key to include:
+  - macOS XNU source version, kernel configuration, and machine configuration;
+  - macOS 15 / Xcode 16 build environment;
+  - pinned `DXB_SHA=663906528d1cd5ea8fde7de6f16de73db9511549`;
+  - all XNU patches/scripts, `tools/fix-lavender-pre-vbar.py`, and `.github/workflows/xnu.yml`.
+- This prevents stale object/fakeroot reuse when the actual transformed XNU source or build configuration changes. The first run using the new key is expected to be cold; measure a subsequent hit before claiming faster builds.
+- The cache-key commit changes `.github/workflows/xnu.yml`, which is in the workflow's push path filter. A new run ID / completed result was not returned by the commit-status query during this session; do not invent one or report a rebuild as started/completed without checking Actions again.
+
+### 43.5 Manual packaging provenance correction
+
+- The manual `.github/workflows/package-lavender.yml` previously checked out the current branch tip while downloading a kernel artifact from an arbitrary supplied XNU run ID. That could combine a kernel with a newer shim, ADT generator, or payload builder.
+- Commit `6f4203cfc85a01c1cd3eb846fd618ac9763553bd` adds resolution of the selected XNU run's `head_sha`, checks that the run succeeded and came from `ci/lavender-machine-profile`, checks the SHA format, and checks out that exact source revision before downloading and packaging the kernel.
+- Commit `ebb654597be43d6c0beebfb8b3d90acd62a18c5e` additionally validates that the supplied run ID is numeric before calling the API.
+- The package manifest now records the resolved XNU source SHA rather than the manual workflow-dispatch SHA. The workflow text was re-fetched and its resolution / checkout / manifest anchors were statically inspected. This manual workflow has not yet been dispatched after the change; runtime validation remains pending.
+
+### 43.6 Current physical safety gate
+
+- `shim/lavender_guardian.c` still attempts PSCI `SYSTEM_RESET` before the SDM660 KPSS watchdog fallback. The watchdog fallback uses `CNTFRQ_EL0` as a proxy for the watchdog input clock; that clock relationship and reset behavior are not physically verified.
+- PMIC/SPMI probing is deferred until the XNU marker's high bit indicates the later startup milestone. This keeps the potentially blocking PMIC transactions out of the fragile early-MMU path, but does not prove the PMIC mapping or Volume Up + Volume Down input behavior.
+- The earlier physical trial did not recover through the then-current reset/key paths and the handset remained frozen until battery depletion. The power button is broken. No new physical boot should be requested until a reliable, independently reviewed reset/recovery route is demonstrated. Never flash a partition.
+
+### 43.7 Current honest state and next actions
+
+- **XNU compile:** latest verified run #138 passed.
+- **Shim / guardian:** included in the #138 RAM-only package; compiled as part of the packaging job.
+- **Packaging:** #138 passed; artifact and raw image hashes are recorded above.
+- **Physical boot:** not verified beyond the earlier `XNUSTAGE=1` observation.
+- **Apple logo:** not physically observed. The kernel's logo routine and its completion marker are compiled, not physically proven.
+- **Next:** check the Actions run triggered by cache-key commit `7504257...`; if it ran, inspect exact source SHA, cache outcome, build duration, and all job conclusions. If no run exists, trigger the XNU workflow through an authorized workflow-dispatch path. Then measure a second same-key build for a real cache hit. Keep #138 as the last verified image until a newer same-source XNU + package run passes.
+- **Current branch tip at the time of this addendum:** `6efa1d070e46c9cbc8c6ad5fa2d542bcd8975a17`. Re-resolve before any further write.
