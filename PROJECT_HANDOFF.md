@@ -3297,6 +3297,7 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 ### Source changes committed
 - Added `xnu/patches/0107-lavender-post-assembly-entry-trace.patch`, blob SHA `679bc8fbe9f594181c5e25de04707b76fbbbb26a`, commit `48dffdda8a8810f65f685d061fab0c8376c6752a`.
   - Adds visible/shared assembly checkpoints 8 and 9: stage 8 after calculating the boot-arguments KVA, stage 9 immediately before the `ret` into `arm_init()`.
+- Static audit of the run #203 Mach-O confirms the linked C target `_arm_init` at KVA `0xfffffe0007a57160`. With the recorded `virtBase=0xfffffe0006000000` and `physBase=0xa0400000`, its corresponding physical address is `0xa1e57160`. The run #203 generated configuration has `CONFIG_KASAN 0`, so there is no KASAN bootstrap block between the boot-args KVA setup and the final `ret` in this configuration; stage 9 will be the last assembly checkpoint before that C entry.
   - Changes the C-entry initialization marker from the assembly namespace to `0x100`, which is only written once `arm_init()` calls `sweet_early_guard_init()`.
   - Changes C checkpoints to `0x100 | stage` and the terminal stage-20 marker to `0x80000100 | 20`. This avoids the old numeric overlap between assembly markers and C checkpoints.
   - Publishes each C-stage marker before the framebuffer text rendering call, so a fault while writing text cannot conceal the most recent C checkpoint from the A53 guardian.
