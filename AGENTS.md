@@ -18,18 +18,15 @@ Working rules:
 
 ## Latest verified state — 2026-11-14
 
-- Current branch: `ci/lavender-machine-profile`.
-- Current branch HEAD: always re-resolve the live `ci/lavender-machine-profile` ref before editing; the latest branch pointer and session evidence are recorded in `PROJECT_HANDOFF.md`.
-- Latest successful build source commit: `352f7c3cc61a7001c35edee4bccd5c91265a32d3` (documentation commits may advance branch HEAD without changing the built source).
-- Latest successful integrated build/package: GitHub Actions run **#138**, ID `43554970979`:
-  https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43554970979
-- Both XNU build and RAM-only packaging jobs passed. The kernel artifact is ID `14098277391`; the fastboot package artifact is ID `14098093027`.
-- Raw `iosboot.img`: 16,527,360 bytes; SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`.
-- Independently extracted kernel: Mach-O 64-bit ARM64 executable, 16,586,552 bytes; SHA-256 `6579b074f0942115ab5eb179aa1d0c3e277d677379fbfe35c485b30dea5972b0`.
-- Build runner exposed 4 physical / 4 logical CPUs and ~15 GB RAM. Main XNU build used `make -j4`. Run #138 took 20m35s end-to-end and had a cold cache; do not claim a speedup until a same-configuration cache-hit build is measured.
-- The image is for `fastboot boot` only. Never flash a partition. No physical Apple logo or successful XNU device boot has been confirmed.
-- Before any physical boot request, review recovery/reset safety. The power button is broken and earlier automatic/volume-key recovery failed to recover the handset.
-- For all further work, re-resolve live HEAD and latest Actions runs before editing. Read the entire PROJECT_HANDOFF.md, including appended sections, and all repository instructions. Record every meaningful commit, build run, artifact ID and hash in PROJECT_HANDOFF.md.
+- Current working branch at the verified build: `ci/lavender-machine-profile`, source commit `d863da08a707353e73166502dcdaee3f5a117fdc`.
+- Latest verified integrated XNU + RAM-only packaging run: #153, ID `43573274639`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43573274639. Build job `132382003804` and package job `132384831631` both succeeded.
+- Kernel artifact ID `14105541904`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
+- Fastboot package artifact ID `14105179582`; contains `iosboot.img` (16,527,360 bytes; SHA-256 `5160f44e77df55641654b7dfbcd0006ba64c1765afecd6248b6ff5ad42901dcd`). The artifact ZIP digest is `eec103ee5e3e2461b9eb533e8b18d772aac4f842e4c9aa31c97ee0cccfe12afc`.
+- Patches 0100 and 0101 are included and passed the integrated XNU build/entry-guard checks. The image independently parses as Android boot v2 with ARM64 shim, LAVENDRX payload, 10 XNU segments and a valid FDT; this is structural verification only.
+- Runner exposed 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; Make used `-j4` and XNU internal parallelism 4. Exact-key cache was cold and saved; no cache-hit speedup has been measured.
+- Packaging warned that `research/ipsw-x/d22ap.adt` was absent and omitted the ADT `/product` node; package still passed. Assess whether later startup needs it.
+- **No physical Apple logo or successful XNU boot is confirmed.** Last confirmed physical checkpoint remains `XNUSTAGE=1`. Do not request another device test until the early PSCI-only `shim.c::reset()` path and recoverability with the broken power button have been reviewed. Volume Up + Volume Down for 3 seconds requests reset only; it does not select recovery.
+- Full run evidence and independent image checks are recorded in `PROJECT_HANDOFF.md` section 44.21. Documentation-only commits may advance branch HEAD without changing the built source commit.
 
 ## Latest engineering delta — 2026-11-14
 
