@@ -77,3 +77,9 @@ Working rules:
 
 ### Ordered patch-chain verification
 - Replayed the exact committed patch files 0100 then 0101 against the #141 build-tree copy of `xnu/osfmk/arm64/sweet_early.c`. Patch 0100 applied; patch 0101 then applied with its relocation hunk offset by the expected added marker lines. The ordered series succeeds, not just each patch independently.
+
+
+### Packaging manifest reset semantics
+- Corrected `.github/workflows/package-lavender.yml` so `BUILD-MANIFEST.txt` reflects watchdog-first reset ordering, with physical validation pending.
+- Corrected the key-chord wording: Volume Up + Volume Down held for 3 seconds requests a hardware reset only; it does not set a recovery boot target. Do not instruct the user that this chord enters recovery.
+- Package workflow is manually dispatched after a successful XNU run, with that XNU run ID. The selected XNU run #153 has not completed yet.
