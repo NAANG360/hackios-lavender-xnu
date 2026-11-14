@@ -80,9 +80,8 @@ jobs:
           git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
           git -C dxb checkout -q FETCH_HEAD
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
-          # Upstream 0104 reintroduces the pre-VM framebuffer logo and undoes
-          # our 0102 safe deferral. Keep 0102 authoritative for Lavender.
-          rm -f dxb/patches/0104-lavender-early-first-entry-logo.patch
+          # Keep upstream 0104 in the patch chain: final 0106 deliberately
+          # overrides its first-entry logo and moves the draw after arm_vm_init.
           # The pinned upstream script hardcodes -j8; use every logical CPU
           # exposed by the hosted runner for its major build steps.
           sed -i '' 's/make install -j8/make install -j"${XNU_MAKE_JOBS:-8}"/g' dxb/build.sh
