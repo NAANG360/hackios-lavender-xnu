@@ -177,13 +177,13 @@ jobs:
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
           start = source.index("void arm_init(")
           entry = source.index('sweet_early_mark(1, "arm_init entered (MMU on)")', start)
-          stage16 = source.index('sweet_early_mark(16, "drawing Apple mark at first C entry")', start)
-          logo = source.index("sweet_early_logo();", start)
-          stage17 = source.index('sweet_early_mark(17, "Lavender Apple mark completed")', start)
-          pre_sign = source.index("arm_setup_pre_sign();", start)
           vm = source.index("arm_vm_init(xmaxmem, args);", start)
-          if not (entry < stage16 < logo < stage17 < pre_sign < vm):
-              raise SystemExit("Apple mark must be drawn at first C entry before platform and VM initialization")
+          stage15 = source.index('sweet_early_mark(15, "arm_vm_init returned")', vm)
+          stage16 = source.index('sweet_early_mark(16, "drawing logo through permanent framebuffer alias")', vm)
+          logo = source.index("sweet_early_logo();", vm)
+          stage17 = source.index('sweet_early_mark(17, "Lavender diagnostic logo completed")', vm)
+          if not (entry < vm < stage15 < stage16 < logo < stage17):
+              raise SystemExit("Lavender logo must follow arm_vm_init and the permanent framebuffer alias")
           logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
           logo_body = logo_source[logo_source.index("sweet_early_logo(void)"):logo_source.index("sweet_early_guard_init(")]
           if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
