@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include "lavender_guardian.h"
+#include "console.h"
+#include "font.h"
 
 #define SPMI_CORE 0x0800f000UL
 #define SPMI_CNFG 0x0800a000UL
@@ -185,10 +187,47 @@ static int chord(const struct spmi *s,uint8_t *up_out,uint8_t *down_out)
 	return (!(up&GPIO_STATUS_BIT) && (down&PON_RESIN_N_SET)) ? 1 : 0;
 }
 /*
- * The A73/XNU core owns the framebuffer after PSCI_CPU_ON. This A53
- * guardian never writes the display, including on fatal timeout paths:
- * reset must remain independent of a framebuffer fault or console lock.
+ * The A73/XNU core owns the framebuffer during normal execution. The A53
+ * guardian only writes one bounded status line after the 60-second progress
+ * deadline, below the assembly tiles and above the XNU text console. The
+ * reset path remains watchdog-first after that diagnostic snapshot.
  */
+static void show_last_marker(uint32_t marker, int have_cell)
+{
+	char text[40];
+	unsigned int n = 0;
+	static const char prefix[] = "A53 LAST MARK=0x";
+	static const char missing[] = "A53 MARKER CELL=NULL";
+	if (have_cell) {
+		for (unsigned int i = 0; i < sizeof(prefix) - 1; i++)
+			text[n++] = prefix[i];
+		static const char hex[] = "0123456789ABCDEF";
+		for (int shift = 28; shift >= 0; shift -= 4)
+			text[n++] = hex[(marker >> shift) & 0xfU];
+	} else {
+		for (unsigned int i = 0; i < sizeof(missing) - 1; i++)
+			text[n++] = missing[i];
+	}
+	text[n] = '\0';
+
+	/* y=580..595 is the 16-pixel guard band between tiles (y=560..575)
+	 * and the XNU C-stage console (which starts at y=600). */
+	volatile uint32_t *fb = (volatile uint32_t *)FB_BASE;
+	const unsigned int x0 = 24U, y0 = 580U;
+	for (unsigned int col = 0; col < n; col++) {
+		unsigned char ch = (unsigned char)text[col];
+		if (ch < 0x20U || ch > 0x7eU)
+			ch = '?';
+		const unsigned char *glyph = font8x16[ch - 0x20U];
+		for (unsigned int gy = 0; gy < 16U; gy++) {
+			volatile uint32_t *line = fb + (y0 + gy) * (FB_STRIDE / 4U) + x0 + col * 8U;
+			for (unsigned int gx = 0; gx < 8U; gx++)
+				line[gx] = (glyph[gy] & (0x80U >> gx)) ? WHITE : 0xff000000U;
+		}
+	}
+	__asm__ volatile("dsb sy" ::: "memory");
+}
+
 void lavender_guardian_run(void)
 {
 	struct spmi s;
@@ -206,6 +245,8 @@ void lavender_guardian_run(void)
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
 			/* Stage 20 ends the early timeout only after key guardian is ready. */
 			if(now-progress>f*EARLY_TIMEOUT_SECONDS) {
+				show_last_marker(marker, 1);
+				delay_ms(2500U, f); /* Leave the final checkpoint readable on video. */
 				if(!(marker&0x80000000U)) {
 					reset_now("XNU early boot stalled");
 				} else if(!ready) {
@@ -217,6 +258,8 @@ void lavender_guardian_run(void)
 				}
 			}
 		} else if(now-started>f*EARLY_TIMEOUT_SECONDS) {
+			show_last_marker(0, 0);
+			delay_ms(2500U, f);
 			reset_now("XNU handoff did not start");
 		}
 		/*
