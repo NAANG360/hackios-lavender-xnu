@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -770,17 +770,37 @@
+@@ -770,17 +770,38 @@
   *	TPIDRRO_EL0 - CPU number
   */
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -45,7 +45,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  .endm
  #endif
  
-@@ -930,21 +950,20 @@
+@@ -930,21 +951,21 @@
  	str		w1, [x0]
  	dc		cvac, x0
  	dsb		sy
