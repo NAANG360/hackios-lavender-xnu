@@ -3076,3 +3076,41 @@ Patch-sequence validation addendum: replayed the committed 0100 stage-marker pat
 ### Packaging manifest correction addendum
 
 Before packaging, `.github/workflows/package-lavender.yml` was corrected: the generated build manifest now states that the SDM660 watchdog is armed before PSCI, and that Volume Up + Volume Down held for 3 seconds requests a reset only. It does **not** select a recovery boot target, so it must not be called a recovery chord. The package workflow is a separate manual dispatch after a successful XNU workflow run, using that exact run ID. Run #153 remains the selected XNU build.
+
+
+## 44.21 — 2026-11-14: run #153 verified; patches 0100/0101 integrated
+
+### Live source and Actions evidence
+- Run #153: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43573274639
+- Exact checked-out source commit: `d863da08a707353e73166502dcdaee3f5a117fdc` on `ci/lavender-machine-profile` (confirmed from the run checkout log).
+- Build job `132382003804`: success. Profile validation, XNU build, post-build Lavender entry-guard validation, Mach-O verification, and cache save all succeeded.
+- Integrated package job `132384831631`: success. It downloaded the kernel artifact from the same run, generated the Lavender ADT/payload, built the ARM64 shim and RAM-only Android boot image, checked non-overlapping load ranges and uploaded the package.
+- XNU kernel artifact: `xnu-kernel`, ID `14105541904`; kernel size 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
+- Fastboot package artifact: `lavender-fastboot-boot-test`, ID `14105179582`; ZIP size 16,977,045 bytes; artifact ZIP digest `eec103ee5e3e2461b9eb533e8b18d772aac4f842e4c9aa31c97ee0cccfe12afc`.
+- Additional run artifacts: `xnu-build-log` ID `14105074607`; `xnu-buildtree` ID `14105975452`.
+
+### Exact image verification
+- Extracted `iosboot.img` from artifact 14105179582 and independently hashed it: 16,527,360 bytes; SHA-256 `5160f44e77df55641654b7dfbcd0006ba64c1765afecd6248b6ff5ad42901dcd`.
+- Independently parsed Android boot header v2, 4096-byte page size, ARM64 Image shim header, `LAVENDRX` payload v1, 10 XNU segments, 406,950-byte FDT (valid FDT magic), and ADT bounds.
+- Embedded XNU is Mach-O 64-bit ARM64 `MH_EXECUTE`, 26 load commands. Its entry `0xfffffe000747c488` lies inside a mapped segment. The payload ADT bounds and all segment file bounds validate.
+- Kernel/ramdisk/DTB load ranges are non-overlapping: shim `[0x8000,0x2d000)`, payload `[0x1000000,0x1f38290)`, DTB `[0x2000000,0x20635a6)`.
+- The package is a RAM-only `fastboot boot` image. Never flash it to a partition. Structural verification is not physical boot verification.
+
+### Patch/source findings
+- `xnu/patches/0100-lavender-stage-entry-marker-order.patch` is present. It publishes stages 1 and 2 to the shared guard cell before their framebuffer marker-bar writes. Stage 1 remains the arm_init-entry checkpoint; stage 2 is published only after `sweet_early_logo()` returns. A published stage 2 is not proof that a person observed the logo.
+- `xnu/patches/0101-lavender-preserve-framebuffer-alias-offset.patch` is present. It preserves the 0x01400000 (20 MiB) scanout offset when relocating through the permanent alias whose PA base is 0x9c000000. The workflow asserts the alias base, offset expression, relocation expression, and mapping.
+- The workflow's `tools/fix-lavender-pre-vbar.py` transformation removes the old framebuffer loop before VBAR_EL1 and leaves RAM-only marker 0x11. It is the actual pre-VBAR transformation; there is no separate 0096 patch on this branch.
+- The 0100 then 0101 patch order had already passed a dry-run/application against the #141 source tree; run #153 subsequently compiled and passed its post-patch source guard.
+- The shim source in this exact package includes the framebuffer-silent A53 guardian and watchdog-first guardian reset path. However, the separate early `shim.c::reset()` path remains PSCI-only before the guardian takes over; review/bound this path before requesting physical testing.
+
+### Runner/cache evidence and caveats
+- Runner: macOS 15.7.9, Xcode 16.0; 4 physical CPUs, 4 logical CPUs, 15,032,385,536 bytes RAM.
+- Workflow selected `XNU_MAKE_JOBS=4`; pinned upstream build script consumes the supplied memory/CPU overrides and passes `KERNEL_BUILDS_IN_PARALLEL=4` to the XNU Make invocation. The workflow's sed substitution changes `make install -j8` to use `XNU_MAKE_JOBS`.
+- The exact-key cache was cold for #153 and saved after success. This run is not a cache-hit timing comparison; do not claim a measured speedup yet.
+- Packaging emitted a non-fatal warning that `research/ipsw-x/d22ap.adt` was missing, so the generated ADT omitted its `/product` node. The ADT check and package still passed. Investigate whether this optional node is required by any later XNU/IOKit path before claiming the ADT is semantically complete.
+- The separate manual `.github/workflows/package-lavender.yml` remains alongside the integrated package job in `.github/workflows/xnu.yml`. Both are valid paths, but avoid treating their run IDs or manifests as interchangeable.
+
+### Physical status / next gate
+- Last previously confirmed physical XNU checkpoint remains `XNUSTAGE=1` only. No physical Apple logo, stage 2, stable arm_init, or successful XNU boot is confirmed.
+- No new physical test is requested here. The watchdog-first guardian sequence is source-grounded but not physically validated; the early PSCI-only reset path and reliable recovery path with the broken power button still require review. Volume Up + Volume Down for 3 seconds is a reset request, not a recovery-boot selector.
+- Next engineering work: review the early shim reset path and recovery safety, inspect the marker-cell address/alias/cache coherency end-to-end, investigate whether the missing ADT product node matters, then measure a cache-hit build. Use artifact 14105179582 only as the current structurally verified image for future controlled testing after those safety gates.
