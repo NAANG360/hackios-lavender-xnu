@@ -29,8 +29,16 @@ on:
       - "xnu/patches/**"
       - "shim/**"
       - ".github/workflows/xnu.yml"
+      - ".github/workflows/lavender-shim.yml"
+      - ".github/workflows/package-lavender.yml"
       - "tools/validate-lavender-profile.sh"
-      - "shim/**"
+      - "tools/fix-lavender-pre-vbar.py"
+      - "tools/mkadt-lavender.py"
+      - "tools/mkpayload.py"
+      - "tools/extract_appended_fdt.py"
+      - "tools/unpack_bootv2.py"
+      - "tools/adt.py"
+      - "tests/test_lavender_adt.py"
 
 # Each run receives a unique group so concurrent dispatches cannot cancel builds.
 concurrency:
@@ -468,7 +476,7 @@ jobs:
             echo "XNU workflow run: ${{ github.run_id }}"
             echo "Source commit: ${{ github.sha }}"
             echo "Boot mode: fastboot boot only; do not flash to a partition"
-            echo "Recovery chord: Volume Up + Volume Down for 3 seconds (PMIC SPMI read path corrected; physical validation pending)"
+            echo "Volume-key chord: hold Volume Up + Volume Down for 3 seconds; this requests a reset only and does not select a recovery boot target (physical validation pending)"
             echo "Reset path: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
             echo "Reset caveat: watchdog register sequence is source-grounded; this watchdog-first ordering still needs physical validation"
             echo "XNU logo: drawn only after XNU reaches arm_init; no claim of full iOS boot"
