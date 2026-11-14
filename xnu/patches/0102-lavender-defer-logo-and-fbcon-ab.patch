@@ -39,7 +39,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -157,11 +157,12 @@
+@@ -172,9 +172,10 @@
  	const uint32_t black = 0xff000000u;
  	const uint32_t white = 0xffffffffu;
  
@@ -125,3 +125,4 @@ diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
 +#endif
  
  #ifdef PI3_UART
+ 	if (SecureDTFindEntry("name", "gpio", &entryP) == kSuccess) {
