@@ -2,11 +2,11 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-12 22:18 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-14 12:16 IST (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active engineering branch: `ci/lavender-machine-profile` (always re-resolve live HEAD before source writes; latest CI source commit under investigation is `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`)  
-> Latest verified failed CI head: `1842f223f3e3926710b9f53c86b586dfd9b62a99`  
-> Newest CI attempt observed: run `43259106099` (#84), queued at head `9a76786a5934f38e0a2a3a1935bfac61f2c00dde`
+> Active engineering branch: `ci/lavender-machine-profile` (always re-resolve live HEAD before source writes; verified current HEAD: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`)  
+> Latest successful integrated XNU + package run: `43554970979` (#138), source commit `352f7c3cc61a7001c35edee4bccd5c91265a32d3`  
+> Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14098093027`; raw `iosboot.img` SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`
 
 ---
 
@@ -2534,3 +2534,79 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 - Still no physical validation of PSCI reset, KPSS watchdog fallback, or Volume Up + Volume Down PMIC recovery.
 - No new physical boot requested. Do not flash any partition.
 - A successful image proves compilation, kernel identity, packaging and image structure only. The Apple diagnostic logo is physically confirmed only if the phone visibly displays it; stage value 5 is the firmware-side checkpoint that the logo draw routine returned.
+
+
+## 42. 2026-11-14 — Runner-aware build and latest verified integrated image (#138)
+
+### Build pipeline changes and measured runner capacity
+
+- The XNU workflow was updated on branch `ci/lavender-machine-profile` to detect hosted-runner capacity using `sysctl` and export:
+  - `XNU_MAKE_JOBS` from `hw.logicalcpu`;
+  - `PHYS_CPU_OVERRIDE` from `hw.physicalcpu`;
+  - `LOGICAL_CPU_OVERRIDE` from `hw.logicalcpu`;
+  - `MEMORY_SIZE_OVERRIDE` from `hw.memsize`;
+  - `KERNEL_PARALLELISM_OVERRIDE` from physical CPU count.
+- The pinned `darwin-xnu-build` script's hardcoded `make install -j8` was changed in the workflow checkout to use `-j${XNU_MAKE_JOBS}`.
+- An Actions cache was added for `dxb/build` and `dxb/fakeroot`, keyed to the exact XNU patch/script set and the macOS 15 / Xcode 16.0 build environment. A cache hit is not yet demonstrated: run #138 explicitly logged `Cache not found` for its initial key.
+- Run #138 detected **4 physical CPUs, 4 logical CPUs, 15,032,385,536 bytes RAM**, and used `make -j4`. This is the full logical CPU count exposed by this hosted runner; the runner itself only exposes four CPUs.
+- Build runtime for #138 was 20m35s from run creation to completion. Do not claim a measured speedup yet: there is no controlled same-commit baseline or cache-hit comparison. Compare subsequent runs on the same runner class and exact patch set.
+- Workflow path filters currently contain `shim/**` twice. This is harmless but redundant; remove the duplicate in a later workflow cleanup, without disturbing the working push triggers.
+- Source commit for the successful integrated run: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`.
+
+### Run #138 — verified successful build and package
+
+- Run ID: `43554970979`; run number: **#138**.
+- URL: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43554970979
+- Branch: `ci/lavender-machine-profile`.
+- Source HEAD: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`.
+- Overall result: **SUCCESS**.
+- Build job ID: `132325656246`; every step passed, including `Build XNU 8796`, Lavender entry-guard validation, and `Verify Lavender kernel artifact`.
+- Package job ID: `132330952177`; every step passed, including exact-run kernel artifact download, ARM64 Mach-O check, stock OTA/DTB extraction, Lavender ADT generation, payload construction, fastboot image construction, structural/payload checks, and upload.
+- XNU kernel artifact:
+  - Name: `xnu-kernel`
+  - Artifact ID: `14098277391`
+  - Artifact archive size: 58,297,079 bytes
+  - GitHub archive digest: `sha256:0de48f7de16d0e6d8506759eaab50d117ce8c04902b564ae0d9c236f393148fb`
+  - Downloaded and independently inspected extracted `kernel.development.lavender`: `Mach-O 64-bit arm64 executable`, flags `NOUNDEFS|PIE`, size **16,586,552 bytes**, 26 load commands.
+  - Kernel SHA-256: `6579b074f0942115ab5eb179aa1d0c3e277d677379fbfe35c485b30dea5972b0`.
+  - CI verification also found required Lavender identity strings: `LavenderPlatformExpert`, `qcom,sdm660-mtp`, and `Redmi Note 7`.
+- Build log artifact:
+  - ID: `14098287258`, size 3,027,620 bytes, archive digest `sha256:4c9e37686ccb23ae7d0e34a2a28d61edad9cfc483d66ceaaa0b487c4af903461`.
+- Build-tree artifact:
+  - ID: `14097838784`, size 22,586,836 bytes, archive digest `sha256:b266340f818dd609ea1cc7b24ea1d3a4e6a501d3c9bc6b2956c779ceba968524`.
+- Fastboot package artifact:
+  - Name: `lavender-fastboot-boot-test`
+  - Artifact ID: `14098093027`
+  - Archive size: 16,977,490 bytes
+  - GitHub archive digest: `sha256:2ce22682790baad1fd42e00e818c14bc5895814cd710785c08bcccfff9f1ef36`
+  - Downloaded archive and independently extracted `iosboot.img`.
+  - Raw `iosboot.img` size: **16,527,360 bytes**.
+  - Raw `iosboot.img` SHA-256: `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`.
+  - `iosboot.img` and `shim/out/shim-boot.img` are byte-identical; both hash to the same SHA-256 above.
+  - Embedded payload SHA-256: `1c68339dc3a2c39e3dd6ac0408128a2e455df48603b54c6c1ebb4bb3df6d2b30`.
+  - Generated Lavender ADT SHA-256: `723ad39401b154cd47f6a0aa5c509e0b68839376eb06f1d6e46ea4d0746edec1`.
+- Independent raw image inspection:
+  - Android boot magic: `ANDROID!`.
+  - Header version: 2; page size: 4096 bytes.
+  - Kernel component size: 151,552 bytes; ARM64 Image magic at offset `0x38`: `ARMd`.
+  - Ramdisk/payload component size: 15,958,672 bytes; payload magic: `LAVENDRX`.
+  - DTB component is present; workflow verified non-empty DTB and non-overlapping kernel/ramdisk/DTB load ranges.
+  - This is a **RAM-only fastboot boot test image**. Do not flash it to boot/recovery or any other partition.
+- Run #137 is also successful (run ID `43554389255`, commit `3b6f4b62ad9caf361df8a5f4209f49394938a59a`), but #138 is newer and is the preferred current image.
+
+### What #138 proves — and what it does not
+
+- It proves the XNU 8796 Lavender profile compiled into a real ARM64 Mach-O executable and passed the current CI entry-guard and package validations.
+- It proves the package contains an ARM64 boot shim, a Lavender payload, and a non-empty DTB with structurally non-overlapping load ranges.
+- It does **not** prove the image boots on the physical phone, that XNU has reached `arm_init()`, that the diagnostic Apple logo has appeared, or that iOS userspace is usable.
+- No physical test of this #138 image has been performed. The previous physical test's reset/recovery failure remains a serious safety constraint. With the power button broken, do not request another physical boot until PSCI/watchdog/volume-key recovery behavior is reviewed and a dependable recovery method is established.
+- Never flash a partition. If the user asks for the image, provide this exact run #138 artifact/image and identify it as RAM-only.
+
+### Immediate next engineering actions
+
+1. Preserve run #138 as the latest verified image baseline; do not substitute older run #18 or runs #119–#126.
+2. Inspect the run #138 build log and build-tree artifact for warnings, unresolved platform symbols, linker assumptions, and exact patch application order. The CI Mach-O check is a first acceptance gate, not complete ABI/boot-contract proof.
+3. Validate the actual boot-argument layout, kernel load/entry addresses, DTB translation, memory reservations, cache maintenance, CPU selection and 16 KiB XNU page-table setup against the image and shim source.
+4. Review the new dynamic build settings and ensure the pinned builder actually consumes all exported overrides. The log confirms `make -j4` for the main install step; do not assume all recursive sub-builds honor the overrides until verified.
+5. Measure a subsequent same-patch build with an actual cache hit before claiming build-time improvement. The #138 cache was cold.
+6. Keep the device unflashed and do not request a physical test until the reset/recovery path is safer than the previously failed implementation.
