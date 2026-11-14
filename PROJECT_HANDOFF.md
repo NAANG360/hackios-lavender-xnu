@@ -3117,3 +3117,12 @@ Before packaging, `.github/workflows/package-lavender.yml` was corrected: the ge
 
 
 Documentation follow-through: `PROJECT_HANDOFF.md` run #153 evidence was committed as `1dfc7138e93abb18128241c5ddd40645c6edeefe`; the refreshed `AGENTS.md` summary was committed as `ccde816caf0f4a84e62d529e9de8232470222e6a`. These commits change documentation only; the image remains built from source commit `d863da08a707353e73166502dcdaee3f5a117fdc`.
+
+
+## 44.22 — 2026-11-14: close the pre-guardian PSCI reset gap (CI pending)
+
+- Source review after run #153 found that `shim.c::reset()` was still a separate PSCI-only reset path. It is used before the A53 guardian starts and on early A73/loader error paths. If its PSCI SMC blocked, it had no watchdog fallback even though `lavender_guardian.c::reset_now()` already armed the SDM660 watchdog first.
+- Committed `08cb637c6bfc5215d1bb0307eb348add9f285070` (`fix(lavender): arm watchdog before every PSCI reset`). The Lavender reset path now arms the same SDM660 one-tick watchdog sequence at `0x17817000` before PSCI SYSTEM_RESET. It also avoids framebuffer-console writes in the Lavender terminal reset path. Non-Lavender reset behavior remains unchanged.
+- This is source-level safety hardening only. The connected GitHub status query has not yet exposed a check/run for this commit; do not claim the new shim has compiled or that the reset has been physically validated until a matching Actions run succeeds.
+- Important artifact distinction: image artifact 14105179582 / run #153 was built from `d863da08a707353e73166502dcdaee3f5a117fdc`, so it does **not** contain commit 08cb637. Do not treat that older image as containing this reset fix.
+- Next: verify that the push-triggered XNU workflow runs for 08cb637; inspect shim compile and integrated package results; then record the new image artifact and checksum. Continue to withhold physical test requests until recovery behavior with the broken power button is independently reviewed. The volume-key chord is reset-only, not recovery selection.
