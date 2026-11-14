@@ -2772,3 +2772,98 @@ The run #138 build-tree artifact (artifact `14097838784`) was downloaded and its
 - The same source confirms `arm_init()` calls `sweet_early_guard_init()`, then emits marker 4, draws the diagnostic logo, and emits marker 5 before `PE_init_platform()` and before the later `arm_vm_init()` final mapping. This is intentional: the early identity/V=P framebuffer mapping already exists. Later, `sweet_early_map_final()` installs the final virtual alias at `VM_MIN_KERNEL_ADDRESS + ARM_TT_L2_SIZE` and `sweet_early_relocate()` switches the framebuffer pointer after the final TTBR1 mapping is live.
 - Register audit of the built `start.s`: x20 remains the physical boot-args pointer; x22/x23 carry the kernel VA/PA base; x24 carries the adjusted memory span; x25 is the bootstrap V=P table root. The pre-MMU marker macro saves/restores x0/x1 in the reserved boot-args page. The post-MMU guard macro uses the identity alias and cleans the marker cache line. The SCTLR default value is preserved in x5 across the framebuffer diagnostic loop and restored to x0 before the subsequent SCTLR check.
 - The build-tree evidence confirms the 0x19 mapping checkpoint and removes the concern recorded in the preceding paragraph. It still does not prove the physical display write or Apple-like logo was observed.
+
+---
+
+## 27. Live engineering update — 2026-11-14
+
+This section supersedes older status claims in Sections 16–26 where they conflict. The older sections are retained as historical engineering evidence. The latest confirmed build and source change are recorded separately below.
+
+### 27.1 Current source state and branch continuity
+
+- Repository: `NAANG360/hackios-lavender-xnu`.
+- Working branch: `ci/lavender-machine-profile`.
+- Latest source change at this update: `ce526931bf4dae15098b372c033f96d7acea0152` — `fix(shim): use SDM660 watchdog one-tick bite reset`.
+- The prior branch tip was `ebb654597be43d6c0beebfb8b3d90acd62a18c5e`; intervening changes after the latest successful XNU build were workflow/documentation-only until `ce526...` changed `shim/lavender_guardian.c`.
+- Root `AGENTS.md` has been refreshed with the current source/build state. Probes for nested `AGENTS.md` in `xnu/`, `xnu/patches/`, `shim/`, `tools/`, `.github/`, `.github/workflows/`, and `dtb/` returned 404. The GitHub connector did not expose a complete recursive tree-listing operation, so do not claim an exhaustive nested-instruction audit beyond those checked paths.
+- The full handoff has been read through its final historical section (26.1). Several older sections contain stale build-status claims; this Section 27 is the current state.
+
+### 27.2 Latest successful build and required image
+
+Run #138 is the latest fully verified XNU build plus RAM-only fastboot packaging run:
+
+- Workflow run: `43554970979` — https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43554970979
+- Source commit: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`.
+- XNU build job: `132325656246`, conclusion `success`.
+- RAM-only packaging job: `132330952177`, conclusion `success`.
+- Kernel artifact: ID `14098277391`, ZIP size 58,297,079 bytes, ZIP SHA-256 `0de48f7de16d0e6d8506759eaab50d117ce8c04902b564ae0d9c236f393148fb`.
+- Extracted kernel: `kernel.development.lavender`, 16,586,552 bytes, SHA-256 `6579b074f0942115ab5eb179aa1d0c3e277d677379fbfe35c485b30dea5972b0`.
+- RAM-only boot-image artifact: ID `14098093027`, ZIP size 16,977,490 bytes, ZIP SHA-256 `2ce22682790baad1fd42e00e818c14bc5895814cd710785c08bcccfff9f1ef36`.
+- Raw `iosboot.img`: 16,527,360 bytes, SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`.
+- Direct artifact route: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43554970979/artifacts/14098093027
+- Kernel artifact route: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43554970979/artifacts/14098277391
+
+The package job independently confirmed a non-empty ARM64 Mach-O kernel, generated a Lavender payload, extracted the exact stock boot image's appended DTB, built the shim, packaged `iosboot.img`, and validated boot-image structure and non-overlapping load ranges. The resulting image is a **structurally validated RAM-only fastboot image**, not a verified physical XNU boot or a usable iOS system. It does not contain the guardian change from `ce526...`; that commit is newer than the source commit used by run #138.
+
+Package-run evidence:
+- Stock DTB selected: DTB index 0; model `Qualcomm Technologies, Inc. SDM 660 PM660 + PM660L MTP, Lavender`; compatibles `qcom,sdm660-mtp`, `qcom,sdm660`, `qcom,mtp`.
+- DTB size 406,950 bytes; SHA-256 `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
+- XNU payload size 15,958,672 bytes; shim size 151,552 bytes.
+- RAM payload range `[0x01000000, 0x01f38290)`; DTB range `[0x02000000, 0x020635a6)`. The package validator reported these ranges do not overlap.
+- The package log explicitly stated that watchdog/PSCI code was compiled but physical reset remained unverified.
+
+### 27.3 Historical run #126 failure — corrected interpretation
+
+- Run #126: `43462868674` — https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43462868674.
+- The XNU compile step completed successfully. The job then failed in the post-build step `Require Lavender XNU entry-guard patch`, with `unsafe Lavender framebuffer access remains before VBAR_EL1`.
+- This was a post-build validator failure, not an XNU compiler failure. Its source slice was between `LEXT(start_first_cpu)` and `MSR_VBAR_EL1_X0`; the guard separately searched for the fixed framebuffer base and a generic `str w1, [x0]` store. The log proves the guard rejected the resulting source, but does not by itself prove whether the detected instructions formed a reachable framebuffer write or a false positive.
+- Run #138 later passed the same entry-guard step and completed packaging. Do not keep describing #126 as an XNU compilation failure.
+
+### 27.4 Pre-VBAR framebuffer change — actual repository implementation
+
+- The earlier session handoff/user prompt names `xnu/patches/0096-lavender-no-fb-before-vbar.patch`. That file does **not** exist on the current working branch; a direct fetch returned 404.
+- The actual implementation is `tools/fix-lavender-pre-vbar.py`. `.github/workflows/xnu.yml` injects `python3 ../tools/fix-lavender-pre-vbar.py` into the pinned `dxb/build.sh` immediately after patch application and before the virtual environment/build steps.
+- The script removes the legacy pre-VBAR framebuffer block between the first `lavender_early_mark 1` and `lavender_early_mark 0x11`, preserving the terminal RAM-only marker. It then asserts that `0x9d400000` and `Llavender_stage1_pixel` are absent from the pre-VBAR source slice and that marker `0x11` remains.
+- Keep the distinction clear: this is a deterministic post-patch source transformation, not a committed patch 0096. If the project later converts it into a patch, remove the build-script injection and test both paths to avoid double application.
+
+### 27.5 Runner capacity and measured build behavior
+
+Run #138 log evidence:
+- Runner: 4 physical CPUs, 4 logical CPUs, 15,032,385,536 bytes RAM.
+- `XNU_MAKE_JOBS=4`; the pinned build script was modified in-run so `make install -j8` becomes `make install -j"${XNU_MAKE_JOBS:-8}"`. The build log confirms the dynamic replacement and the 4-job environment.
+- `KERNEL_PARALLELISM_OVERRIDE=4` is passed as `KERNEL_BUILDS_IN_PARALLEL=4` to XNU's make environment; the upstream XNU `MakeInc.top` calculation caps parallel kernel builds by both physical CPU count and RAM per kernel (256 MiB per kernel in the fetched source).
+- Exact-key cache result in run #138: `Cache not found`; it was a cold-cache build. The key included the selected XNU version/config/profile, pinned builder commit, patch/patch-script hashes, `tools/fix-lavender-pre-vbar.py`, and `.github/workflows/xnu.yml`.
+- End-to-end run time was approximately 20 minutes 35 seconds. No comparable warm-cache build has yet established a measured speedup. No runner CPU-utilization or peak-memory telemetry was collected, so do not claim measured saturation or a quantified improvement.
+- The current 4-core runner is already assigned `make -j4` and internal kernel parallelism 4. Do not raise parallelism above 4 on this runner; there is no evidence that oversubscription would help.
+- The next source change only modifies `shim/lavender_guardian.c`, which is covered by the workflow push path filter but is not part of the XNU build-cache hash. If the exact cache key is restored, the next run may reuse the XNU kernel build while still compiling the changed shim and packaging a fresh image. Verify the cache result in the actual next run before claiming this happened.
+
+### 27.6 Guardian reset fallback correction — source-backed, not yet CI-verified
+
+Review of the current guardian found that the watchdog fallback calculated a nominal 128 ms timeout from `CNTFRQ_EL0`. That is not the Qualcomm watchdog clock and is not a sound basis for watchdog register values.
+
+Source evidence from the matching public LineageOS SDM660 kernel at commit `49688d8750f2fca28271f936cfcfec5d97c0d7a4`:
+- `arch/arm64/boot/dts/vendor/qcom/sdm660.dtsi` declares `qcom,msm-watchdog` at `0x17817000`, region size `0x1000`, with `qcom,bark-time = <11000>` and `qcom,pet-time = <10000>`.
+- `drivers/soc/qcom/watchdog_v2.c` defines `WDT0_RST=0x04`, `WDT0_EN=0x08`, `WDT0_BARK_TIME=0x10`, and `WDT0_BITE_TIME=0x14`; its default `WDT_HZ` is 32765. Its `msm_trigger_wdog_bite()` path programs `BITE_TIME=1`, orders the write, then writes `RST=1`.
+- The separate `drivers/watchdog/qcom-wdt.c` is for the `qcom,kpss-wdt` compatible and is not the driver bound by the SDM660 DTS node above. Do not mix its clock model into this `qcom,msm-watchdog` fallback.
+
+Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardian.c` to remove the `CNTFRQ_EL0`-derived timeout and use a one-tick bite fallback: disable the block, reset its counter, set `BITE_TIME=1`, execute a barrier, enable the block, reset the counter, execute a final barrier, and wait for reset. The PSCI `SYSTEM_RESET` path remains first choice.
+
+**Important limitations:** this change is source-backed but has not yet been compiled by CI at the time of this handoff update. It has not been physically tested. The watchdog may be secure-world-controlled or disabled by firmware; the exact runtime behavior is still unknown. The PSCI conduit and the guardian's PMIC key-read path also remain unverified. Do not request a new physical boot until the changed shim passes CI and a complete non-destructive recovery/reset plan is documented. Never claim this fallback is proven until the phone actually resets.
+
+### 27.7 Current state and next actions
+
+**CURRENT STATE**
+- XNU: latest verified run #138 compiled and linked a real ARM64 Mach-O Lavender kernel.
+- Shim: run #138 compiled and packaged the previous guardian revision. The latest guardian reset correction is committed in `ce526...` but is awaiting a new CI compile.
+- Packaging: run #138 produced and structurally validated `iosboot.img`; it does not include `ce526...`.
+- Physical boot: last historically reported checkpoint remains `XNUSTAGE=1`, which proves only initial XNU entry. No physical VBAR completion, `arm_init()`, logo completion, or observed Apple logo is confirmed by this update.
+- No display, touch, Adreno 512, storage, networking, or iOS userspace functionality is established.
+
+**NEXT ACTION**
+1. Resolve the latest Actions state for source commit `ce526931bf4dae15098b372c033f96d7acea0152`. The GitHub commit-status query returned no status contexts immediately after the push; this is not proof that no run was queued. Check the Actions page/API for the new `xnu` run.
+2. Require the changed `shim/lavender_guardian.c` to compile, then require the packaging job to complete with the new shim and matching verified kernel. Record its run ID, job IDs, artifact ID, raw image size and SHA-256.
+3. Review the exact `start.s` pre-VBAR and pre-MMU marker sequence, register preservation, cache visibility, boot_args reserved offsets and post-VBAR vector setup against the XNU 8796 source. Do not add more markers until this trace is complete.
+4. Keep the physical phone untouched until PSCI/WDT reset behavior and the broken-power-button recovery path are reviewed. The current image is RAM-only; never flash it.
+5. After the reset plan is credible and the new artifact is independently validated, plan a single controlled RAM-only hardware test. Report each milestone separately: XNU entry, VBAR installed, MMU enabled, `arm_init()` entered, logo routine completed, and Apple logo actually observed.
+
+**Status discipline:** a successful CI package is not a physical boot. Do not inflate XNU execution or overall port progress from compilation, packaging, or the historical `XNUSTAGE=1` marker.
