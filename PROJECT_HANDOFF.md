@@ -3350,3 +3350,26 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - The workflow's `Require Lavender XNU entry-guard patch` step verifies the patched assembly stages 8/9, the 0x100 C-entry namespace, C stage namespace, and marker publication before `lavender_console_mark`. Kernel success is not established until this guard and `Verify Lavender kernel artifact` both pass.
 - Dedicated AArch64 shim build `43604570915` is green for the guardian banner. It does not validate the XNU patch or physical boot.
 - No updated kernel or fastboot image is yet validated on the handset. No device test; recovery path with the broken Power button remains unresolved. No flashing or partition writes.
+
+## 44.31 — 2026-11-14: live validation of final early-entry diagnostics
+
+### Device evidence refinement
+- The user's new close crop of the run #203 framebuffer marker strip supports a green-section span of approximately seven blue-tile widths.
+- In patch 0106, each tile is 16 px wide and tile origins are 24 px apart. Five green tiles (stages 3–7) occupy (4 × 24 + 16) = 112 px, exactly seven blue-tile widths. This supports, but does not prove, that all five assembly tiles through stage 7 were drawn; blur merges the individual boundaries.
+- The correct working hypothesis is therefore that the previous handset test likely reached the end of the original instrumented assembly tile series. It is not proof that stage 9, the C entry, or any C checkpoint was reached.
+
+### Final 0107 source validation
+- Final source commit: `6b5c477d820656f4b029b005d63596cb54705c82`; corrected patch blob SHA: `db2e9b87450706cd459a5e9df04a8119964b4cc2`.
+- Confirmed from live GitHub Actions build log for run **43606468548**, job **132482078048**, that both `0106-lavender-verbose-boot-final.patch` and `0107-lavender-post-assembly-entry-trace.patch` were explicitly applied. This eliminates the earlier silent-skip/corrupt-patch failure mode for this run.
+- The current build log snapshot shows XNU's `Build XNU 8796` step still running. The latest observed warnings are inherited deprecation/build-system warnings; no fatal XNU compiler error has been observed in the inspected log snapshot. Do not call the build successful until the job concludes and the source guard, Mach-O verification, and package steps pass.
+- Dedicated shim compile run **43604570915** remains successful and includes the A53 guardian's timeout banner. This is shim-only validation, not XNU or physical-device validation.
+
+### Diagnostic interpretation for the next image
+- Assembly stages 8 and 9 extend the green strip beyond the five tiles visible in the old run #203 recording. Stage 8 is after boot-args KVA calculation; stage 9 is immediately before the `ret` to `arm_init()`.
+- Shared marker values are now namespaced: `0x00000009` = final pre-`arm_init` assembly checkpoint; `0x00000100` = C guard initializer reached; `0x00000101` onward = C checkpoint number; `0x80000114` = terminal stage-20 marker.
+- The C marker is cache-cleaned with an explicit newline-separated `dc cvac` then `dsb sy`, verified by Clang disassembly. It is published before framebuffer text rendering so a console write fault cannot hide the last completed C checkpoint.
+- The A53 guardian renders `A53 LAST MARK=0xXXXXXXXX` in the reserved strip after the 60-second early-progress timeout, pauses 2.5 seconds for capture, then retains the watchdog-first reset. `A53 MARKER CELL=NULL` distinguishes failure to publish the cell pointer.
+
+### Current acceptance state and safety
+- Full XNU run **43606468548** (source commit above) is in progress at the XNU build step. Its post-build source guard, Mach-O verification, and fastboot packaging remain pending.
+- No updated image has been physically tested. Do not ask for another handset test until an independent recovery route that does not require the broken power button is established. No flashing or partition writes; any future test is RAM-only.
