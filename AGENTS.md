@@ -19,6 +19,15 @@ Target: Xiaomi Redmi Note 7 / Redmi Note 7S, codename `lavender`, Qualcomm Snapd
 - After every meaningful milestone, record exact source SHA, workflow run ID/attempt, job IDs and conclusions, artifact IDs, byte sizes, SHA-256 hashes, and physical observations in `PROJECT_HANDOFF.md`.
 - Use the exact output filename **`iosboot.img`** for any user-facing image. Do not append dates, timestamps, build numbers or suffixes to the filename.
 
+## Current correction — 2026-11-14, Asia/Kolkata
+
+- Run #220 (`43611119178`, source `4cb4eec5fd57c6bc678520e8178cf805ef36eb10`) **compiled XNU successfully** but failed the required-patch guard. The actual log shows patch 0107 was skipped because its hunks did not apply after patch 0106 modified the same `start.s` and `sweet_early.c` regions. The build-tree artifact confirms stage 8/9 and the new C marker namespace were absent. Do not weaken or bypass the guard.
+- Cache reuse is now evidenced: #220 restored a compatible ~228 MiB cache via restore-prefix and saved a new ~239 MB cache. Exact cache key was not a hit. Measure compile time in subsequent runs before claiming a speedup.
+- Patch 0107 was rebased against the generated source after 0106. Latest patch commit: `d6ea407a6a844cc92d277949e5ecec4dff7b569c`. A local dry-run/application and focused source assertions passed against the extracted #220 build tree. This is not yet CI proof.
+- Runs triggered by patch commits: #221 `43615933214` uses intermediate commit `df63c971d1eb0e14c6c887e3fd071f175a5b4257`; #222 `43615959600` uses final corrected commit `d6ea407a6a844cc92d277949e5ecec4dff7b569c`. At last inspection #221 was in progress and #222 queued. Inspect both; #222 is canonical. Do not launch another overlapping full build.
+- Run #220 artifacts: build tree `14120596087` (22,596,397 bytes; ZIP SHA-256 `bf271ae8013bf7e5258486a664eb7afea735b5986708e0a698bfd806e32ed5d3`) and build log `14119584797` (3,899 bytes; ZIP SHA-256 `1d8d57dc6e11fcc442f2aaf5e61c5e31368905dfcb335f8f5a8649607f1a755e`). Kernel output collection reported 16,587,136 bytes, but verification/upload/package were skipped. No new `iosboot.img`.
+- Next gates: confirm patch 0107 applies with no skip warning; source guard passes; ARM64 Mach-O and Lavender identity checks pass; kernel artifact uploads; package job creates a structurally verified RAM-only image; independently verify SHA-256. Output filename must be exactly `iosboot.img`. Do not request physical testing until the broken-power-button recovery route is independently established.
+
 ## Latest verified state — 2026-11-14, Asia/Kolkata
 
 - Latest known successful XNU + RAM-only package remains run #203, ID `43594864654`, source commit `e9890318f144df763a3ff655a16ca5b5b5447eb5`. Its image artifact was `14114386476`; its extracted `iosboot.img` was 16,527,360 bytes with SHA-256 `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`. It is the last known packaged physical-test image, not proof of a successful boot.
