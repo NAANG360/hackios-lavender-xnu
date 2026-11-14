@@ -147,7 +147,7 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          if grep -q 'Skipping patch .*0105-lavender-verbose-boot-console.patch' xnu-build.log; then
+          if grep -q 'Skipping patch .*0106-lavender-verbose-boot-final.patch' xnu-build.log; then
             echo "Verbose boot console patch 0105 was skipped; refusing this build."
             exit 1
           fi
