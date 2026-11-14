@@ -183,31 +183,3 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  		if (early_guard_cell != 0 && stage > 2) {
  			*early_guard_cell = stage + 3u;
  			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
-diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
---- a/osfmk/arm/arm_init.c
-+++ b/osfmk/arm/arm_init.c
-@@ -351,13 +351,6 @@
- 	sweet_early_guard_init((uintptr_t)args);
- #endif
- 	sweet_early_mark(1, "arm_init entered (MMU on)");
--#if defined(ARM64_BOARD_CONFIG_LAVENDER)
--	/* The bootstrap V=PA framebuffer block is already live; draw before any
--	 * platform, topology, CPU, or VM initialization can stall. */
--	sweet_early_mark(16, "drawing Apple mark at first C entry");
--	sweet_early_logo();
--	sweet_early_mark(17, "Lavender Apple mark completed");
--#endif
- 
- 	arm_setup_pre_sign();
- 
-@@ -534,5 +527,10 @@
- 	sweet_early_mark(7, "entering arm_vm_init");
- 	arm_vm_init(xmaxmem, args);
- 	sweet_early_mark(15, "arm_vm_init returned");
-+#if defined(ARM64_BOARD_CONFIG_LAVENDER)
-+	sweet_early_mark(16, "drawing logo through permanent framebuffer alias");
-+	sweet_early_logo();
-+	sweet_early_mark(17, "Lavender diagnostic logo completed");
-+#endif
- 
- 	if (debug_boot_arg) {
