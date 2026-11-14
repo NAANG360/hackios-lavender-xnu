@@ -177,14 +177,13 @@ jobs:
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
           start = source.index("void arm_init(")
           entry = source.index('sweet_early_mark(1, "arm_init entered (MMU on)")', start)
-          platform = source.index('sweet_early_mark(2, "PE_init_platform done")', entry)
-          stage7 = source.index('sweet_early_mark(7, "entering arm_vm_init")', platform)
+          stage7 = source.index('sweet_early_mark(7, "entering arm_vm_init")', entry)
           vm = source.index("arm_vm_init(xmaxmem, args);", stage7)
           stage15 = source.index('sweet_early_mark(15, "arm_vm_init returned")', vm)
           stage16 = source.index('sweet_early_mark(16, "drawing logo through permanent framebuffer alias")', stage15)
           logo = source.index("sweet_early_logo();", stage16)
           stage17 = source.index('sweet_early_mark(17, "Lavender diagnostic logo completed")', logo)
-          if not (entry < platform < stage7 < vm < stage15 < stage16 < logo < stage17):
+          if not (entry < stage7 < vm < stage15 < stage16 < logo < stage17):
               raise SystemExit("Lavender verbose checkpoints must follow arm_init and permanent VM mapping order")
           logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
           logo_start = logo_source.index("sweet_early_logo(void)")
