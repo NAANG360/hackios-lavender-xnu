@@ -33,7 +33,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 -	*early_guard_cell = 3;
 -	__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
 +	*early_guard_cell = 0x100u; /* C entry reached: arm_init called its guard initializer. */
-+	__asm__ volatile("dc cvac, %0\\n\\tdsb sy" :: "r"(early_guard_cell) : "memory");
++	__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
  }
  
  void
@@ -44,7 +44,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 -		*early_guard_cell = stage + 3u;
 -		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
 +		*early_guard_cell = 0x100u | stage;
-+		__asm__ volatile("dc cvac, %0\\n\\tdsb sy" :: "r"(early_guard_cell) : "memory");
++		__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
  	}
  	/* arm_init runs with the bootstrap identity mapping active. Keep a
  	 * readable checkpoint history in the lower panel before VM remapping. */
@@ -55,7 +55,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 -			*early_guard_cell = stage + 3u;
 -			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
 +			*early_guard_cell = 0x100u | stage;
-+			__asm__ volatile("dc cvac, %0\\n\\tdsb sy" :: "r"(early_guard_cell) : "memory");
++			__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
  		}
 +		lavender_console_mark(stage, label);
  		return;
@@ -67,7 +67,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 -		*early_guard_cell = (stage == 20) ? (0x80000000u | stage) : (stage + 3u);
 -		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
 +		*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);
-+		__asm__ volatile("dc cvac, %0\\n\\tdsb sy" :: "r"(early_guard_cell) : "memory");
++		__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
  	}
  	__asm__ volatile("dsb sy" ::: "memory");
  }
