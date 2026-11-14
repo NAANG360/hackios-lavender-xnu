@@ -3126,3 +3126,41 @@ Documentation follow-through: `PROJECT_HANDOFF.md` run #153 evidence was committ
 - This is source-level safety hardening only. The connected GitHub status query has not yet exposed a check/run for this commit; do not claim the new shim has compiled or that the reset has been physically validated until a matching Actions run succeeds.
 - Important artifact distinction: image artifact 14105179582 / run #153 was built from `d863da08a707353e73166502dcdaee3f5a117fdc`, so it does **not** contain commit 08cb637. Do not treat that older image as containing this reset fix.
 - Next: verify that the push-triggered XNU workflow runs for 08cb637; inspect shim compile and integrated package results; then record the new image artifact and checksum. Continue to withhold physical test requests until recovery behavior with the broken power button is independently reviewed. The volume-key chord is reset-only, not recovery selection.
+
+
+## 44.23 — 2026-11-14: run #154 verified; watchdog-first reset integrated
+
+### Repository and Actions state
+- Branch: `ci/lavender-machine-profile`. Branch HEAD at inspection start: `df64388a15b6b2f3a1e20fb05556df6ba3fe7c32` (documentation-only commit after source change).
+- Latest source change: `08cb637c6bfc5215d1bb0307eb348add9f285070`, `fix(lavender): arm watchdog before every PSCI reset`.
+- XNU workflow run #154: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211 — completed successfully. Build job `132388179225`; integrated package job `132389050961`.
+- Separate shim compile #44: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320169 — completed successfully, including ADT invariant tests and shim compilation.
+- Run #154 source commit is exactly `08cb637c6bfc5215d1bb0307eb348add9f285070`. This is the first integrated XNU + package run containing the early shim reset fix.
+
+### Build/cache evidence
+- XNU cache was an exact-key hit: `xnu8796-13.5-DEVELOPMENT-LAVENDER-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-3e0de0d1fdbcfdb5597fbec945e1b74058b8ba02d6b70916236cd98b26736235`.
+- Restored cache size: approximately 228 MB; restore completed successfully. Cache save was correctly skipped because this was a hit.
+- Runner exposed 4 physical CPUs, 4 logical CPUs and 15,032,385,536 bytes RAM; selected `make -j4`, `KERNEL_PARALLELISM_OVERRIDE=4`.
+- XNU build, Lavender entry-guard validation and Mach-O verification all passed. Kernel remains 16,570,168 bytes, ARM64 Mach-O `MH_EXECUTE`, 26 load commands.
+- Kernel artifact ID `14105787768`; artifact ZIP digest `e179263db40e4d32740335653d36f845ab263d86e1b6138086e1fd3d691ad3dd`. Independently downloaded the artifact and verified kernel SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
+
+### Fresh RAM-only image
+- Package artifact: `lavender-fastboot-boot-test`, ID `14105988012`; run #154 artifact route: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211/artifacts/14105988012
+- Artifact ZIP size 16,977,049 bytes; ZIP SHA-256 `7dcc37ae921db3b4797856f94b2c5592b58b61b9c6cb6e01c8d864e3d19145a3`.
+- Extracted `iosboot.img`: 16,527,360 bytes; independent SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`.
+- Independently inspected the downloaded file: Android boot image v2, 4096-byte page size, ARM64 shim header, `LAVENDRX` payload, valid FDT magic. The workflow independently checked payload identity and non-overlapping kernel/ramdisk/DTB load ranges. The `iosboot.img` and `shim/out/shim-boot.img` are identical in the artifact.
+- Manifest binds the image to XNU run `43575320211` and source `08cb637c6bfc5215d1bb0307eb348add9f285070`. This is RAM-only `fastboot boot`; do not flash it.
+
+### Remaining caveats and corrections required
+- `tools/mkadt-lavender.py` still warns that `research/ipsw-x/d22ap.adt` is missing and omits the ADT `/product` node. The image package passes, but later iOS userspace/product-property needs remain unverified.
+- **Integrated workflow manifest wording defect:** `.github/workflows/xnu.yml` still emits `Recovery chord: Volume Up + Volume Down for 3 seconds`. This is incorrect. The implemented PMIC chord requests a reset only; it does not select recovery. The separate manual `.github/workflows/package-lavender.yml` already has the corrected wording. Fix the integrated manifest before the next image release.
+- **Push-filter coverage gap:** `.github/workflows/xnu.yml` push paths omit build/package-affecting tools such as `tools/fix-lavender-pre-vbar.py`, `tools/mkadt-lavender.py`, `tools/adt.py`, `tools/mkpayload.py`, `tools/unpack_bootv2.py`, and `tools/extract_appended_fdt.py`. Changes to those files can fail to trigger the integrated workflow. Extend the path list; keep `shim/**` only once.
+- The ADT builder uses `os.urandom(64)` for its random seed, so package image checksums are expected to differ across packaging invocations even with the same XNU source. Record each exact image hash; do not infer image mismatch means a different kernel.
+- The early shim reset path now arms the same watchdog-first sequence as the A53 guardian before PSCI. Shim #44 and integrated run #154 compile/package this code successfully. This is source/build validation only; watchdog operation and key-chord behavior remain physically unverified.
+- No Apple logo has been observed. Last confirmed physical XNU checkpoint remains `XNUSTAGE=1`. Do not request another device test until reset and recovery behavior with the broken power button are independently reviewed.
+
+### Next actions
+1. Correct the integrated workflow's reset-only key-chord manifest wording and expand its push path filters.
+2. Preserve exact-key cache safety; distinguish a cache hit from measured compiler parallelism. Run #154 is a cache-hit result, not proof that CPU parallelism alone caused the speedup.
+3. Investigate whether the missing ADT `/product` node is needed for later startup.
+4. Continue source-level marker/alias/cache-coherency review. Do not claim physical Apple logo, `arm_init()` success or usable iOS boot without device evidence.
