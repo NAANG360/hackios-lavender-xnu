@@ -1,0 +1,68 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -793,6 +793,10 @@
+ 	// Set KVA of boot args as first arg
+ 	add	x0, x20, x22
+ 	sub	x0, x0, x23
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Stage 8: boot-args KVA is ready for the arm_init handoff. */
++	lavender_guard_mark 8
++#endif
+ 
+ #if KASAN
+ 	mov	x20, x0
+@@ -808,6 +812,10 @@
+ 	mov	x0, x20
+ 	mov	lr, x21
+ #endif
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* Stage 9: all handoff preparation is complete; next instruction is ret. */
++	lavender_guard_mark 9
++#endif
++
+ 	// Return to arm_init()
+ 	ret
+ 
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -205,7 +205,7 @@
+ {
+ 	/* The loader reserves this 16K page as part of topOfKernelData. */
+ 	early_guard_cell = (volatile uint32_t *)(boot_args_kva + 0x1000);
+-	*early_guard_cell = 3;
++	*early_guard_cell = 0x100u; /* C entry reached: arm_init called its guard initializer. */
+ 	__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
+ }
+@@ -218,9 +218,9 @@
+ 		return;
+ 	}
+ 	if (early_guard_cell != 0 && stage <= 2) {
+-		*early_guard_cell = stage + 3u;
++		*early_guard_cell = 0x100u | stage;
+ 		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
+ 	}
+ 	/* arm_init runs with the bootstrap identity mapping active. Keep a
+ 	 * readable checkpoint history in the lower panel before VM remapping. */
+ 	if (stage < 16) {
++		/* Publish before framebuffer I/O so a console fault cannot hide this stage. */
++		if (early_guard_cell != 0 && stage > 2) {
++			*early_guard_cell = 0x100u | stage;
++			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
++		}
+ 		lavender_console_mark(stage, label);
+-		if (early_guard_cell != 0 && stage > 2) {
+-			*early_guard_cell = stage + 3u;
+-			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
+-		}
+ 		return;
+ 	}
+@@ -258,7 +258,7 @@
+ 	if (early_guard_cell != 0) {
+ 		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
+-		*early_guard_cell = (stage == 20) ? (0x80000000u | stage) : (stage + 3u);
++		*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);
+ 		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
+ 	}
