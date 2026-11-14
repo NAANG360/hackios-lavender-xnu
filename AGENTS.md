@@ -18,7 +18,7 @@ Working rules:
 
 ## Latest verified state — 2026-11-14
 
-- Current working branch at the verified build: `ci/lavender-machine-profile`, source commit `d863da08a707353e73166502dcdaee3f5a117fdc`.
+- Latest verified integrated build source remains `d863da08a707353e73166502dcdaee3f5a117fdc` (run #153). A later source-only reset-safety commit `08cb637c6bfc5215d1bb0307eb348add9f285070` closes the pre-guardian PSCI-only reset gap; its matching CI/build result is not yet verified. The #153 image does not contain that later fix.
 - Latest verified integrated XNU + RAM-only packaging run: #153, ID `43573274639`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43573274639. Build job `132382003804` and package job `132384831631` both succeeded.
 - Kernel artifact ID `14105541904`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
 - Fastboot package artifact ID `14105179582`; contains `iosboot.img` (16,527,360 bytes; SHA-256 `5160f44e77df55641654b7dfbcd0006ba64c1765afecd6248b6ff5ad42901dcd`). The artifact ZIP digest is `eec103ee5e3e2461b9eb533e8b18d772aac4f842e4c9aa31c97ee0cccfe12afc`.
