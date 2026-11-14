@@ -3053,3 +3053,18 @@ A final review of `reset_now()` found that fatal-path status writes still happen
 - Final source commit: `f9555af4660a854ec03fb8d82e5a0ec94d9f566d`. Final integrated run for that commit: run #43, ID `43572760628`, queued at the time of this note. Intermediate runs #147, #148 and #42 were cancellation-requested; they do not validate the final source.
 - The previous local validation of patch 0100 remains valid: it applied successfully to the exact #141 build tree. The final image must still be built and structurally checked by the integrated workflow.
 - **No Apple logo has been observed. No image for this final revision is available yet, and no new physical test has occurred.** Use only a successfully packaged artifact from commit `f9555af`, RAM-only via `fastboot boot`; never flash a partition.
+
+
+## 44.20 — 2026-11-14: preserve framebuffer offset across permanent TTBR alias
+
+A deeper source audit found a second distinct bug beyond the A53/A73 shared-framebuffer race:
+
+- The Lavender framebuffer begins at PA `0x9d400000`.
+- `arm_vm_init.c:sweet_early_map_final()` creates a 32 MiB alias by mapping VA `SWEET_EARLY_FB_VA` to PA `0x9c000000`.
+- Therefore the scanout base is `0x01400000` (20 MiB) into the alias. The prior Lavender `sweet_early_relocate(base)` assigned the alias base directly to `early_fb`, dropping the offset. Any later XNU stage markers after TTBR0 teardown could write to PA `0x9c000000` rather than the actual framebuffer at `0x9d400000`.
+- New patch `0101-lavender-preserve-framebuffer-alias-offset.patch` defines `LAVENDER_FB_ALIAS_PA_BASE=0x9c000000`, computes `LAVENDER_FB_ALIAS_OFFSET=(LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)`, and sets `early_fb=base + LAVENDER_FB_ALIAS_OFFSET`.
+- Added post-patch build assertions in `.github/workflows/xnu.yml` to ensure the alias PA base, offset computation, relocated pointer expression, and matching arm_vm_init mapping are present.
+- The exact committed patch text passed `patch --dry-run -p1` against the #141 XNU source tree: hunk 1 applied with fuzz 1, hunk 2 applied exactly. The first hunk's count was corrected and retested before selecting the final run.
+- Latest code/workflow commit: `d863da08a707353e73166502dcdaee3f5a117fdc`. Integrated workflow run #153 / ID `43573274639` is selected for this final patch set. The older #149 and #152 runs are superseded and were cancellation-requested.
+- The separate shim compile #43 on commit `f9555af...` passed, but did not contain patch 0101; it only validates the corresponding shim code and ADT. The integrated #153 must still build the newly patched XNU and package a fresh `iosboot.img`.
+- **No Apple logo has yet been confirmed. No current image from #153 exists at this handoff update.** Use only the image artifact from the successful final run, RAM-only via `fastboot boot`; do not flash any partition.
