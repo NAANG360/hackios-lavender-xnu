@@ -176,14 +176,14 @@ jobs:
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
           start = source.index("void arm_init(")
-          vm = source.index("arm_vm_init(xmaxmem, args);", start)
+          entry = source.index('sweet_early_mark(1, "arm_init entered (MMU on)")', start)
+          stage16 = source.index('sweet_early_mark(16, "drawing Apple mark at first C entry")', start)
           logo = source.index("sweet_early_logo();", start)
-          if logo < vm:
-              raise SystemExit("Lavender logo must be deferred until after arm_vm_init returns")
-          if "sweet_early_mark(16, \"drawing logo through permanent framebuffer alias\")" not in source:
-              raise SystemExit("missing pre-logo post-VM checkpoint")
-          if "sweet_early_mark(17, \"Lavender diagnostic logo completed\")" not in source:
-              raise SystemExit("missing post-logo completion checkpoint")
+          stage17 = source.index('sweet_early_mark(17, "Lavender Apple mark completed")', start)
+          pre_sign = source.index("arm_setup_pre_sign();", start)
+          vm = source.index("arm_vm_init(xmaxmem, args);", start)
+          if not (entry < stage16 < logo < stage17 < pre_sign < vm):
+              raise SystemExit("Apple mark must be drawn at first C entry before platform and VM initialization")
           logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
           logo_body = logo_source[logo_source.index("sweet_early_logo(void)"):logo_source.index("sweet_early_guard_init(")]
           if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
@@ -501,7 +501,7 @@ jobs:
             echo "Volume-key chord: hold Volume Up + Volume Down for 3 seconds; this requests a reset only and does not select a recovery boot target (physical validation pending)"
             echo "Reset path: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
             echo "Reset caveat: watchdog register sequence is source-grounded; this watchdog-first ordering still needs physical validation"
-            echo "XNU logo: full-panel black clear and Apple mark occur only after arm_vm_init installs the permanent framebuffer alias; no claim of full iOS boot"
+            echo "XNU logo: full-panel black clear and Apple mark are drawn at first arm_init C entry using the bootstrap V=PA framebuffer mapping; no claim of full iOS boot"
             echo "Framebuffer console: bypassed for this isolation build by lavender_no_fbcon=1; remove that boot arg only after early bootstrap is stable"
             echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"

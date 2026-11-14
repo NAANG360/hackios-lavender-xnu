@@ -1,0 +1,33 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -350,8 +350,14 @@
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	sweet_early_guard_init((uintptr_t)args);
+ #endif
+ 	sweet_early_mark(1, "arm_init entered (MMU on)");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* The bootstrap V=PA framebuffer block is already live; draw before any
++	 * platform, topology, CPU, or VM initialization can stall. */
++	sweet_early_mark(16, "drawing Apple mark at first C entry");
++	sweet_early_logo();
++	sweet_early_mark(17, "Lavender Apple mark completed");
++#endif
+ 
+ 	arm_setup_pre_sign();
+ 
+@@ -526,14 +532,8 @@
+ 
+ 	sweet_early_mark(7, "entering arm_vm_init");
+ 	arm_vm_init(xmaxmem, args);
+ 	sweet_early_mark(15, "arm_vm_init returned");
+-#if defined(ARM64_BOARD_CONFIG_LAVENDER)
+-	/* Draw only after the permanent alias is installed and TTBR0 is gone. */
+-	sweet_early_mark(16, "drawing logo through permanent framebuffer alias");
+-	sweet_early_logo();
+-	sweet_early_mark(17, "Lavender diagnostic logo completed");
+-#endif
+ 
+ 	if (debug_boot_arg) {
+ 		patch_low_glo();
+ 	}
