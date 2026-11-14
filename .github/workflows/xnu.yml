@@ -184,6 +184,10 @@ jobs:
               raise SystemExit("missing pre-logo post-VM checkpoint")
           if "sweet_early_mark(17, \"Lavender diagnostic logo completed\")" not in source:
               raise SystemExit("missing post-logo completion checkpoint")
+          logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          logo_body = logo_source[logo_source.index("sweet_early_logo(void)"):logo_source.index("sweet_early_guard_init(")]
+          if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
+              raise SystemExit("Lavender logo must clear the full panel, not a rectangle")
           print("PASS: logo is deferred until permanent framebuffer alias is live")
           PY
           grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/sweet_early.c
@@ -497,7 +501,7 @@ jobs:
             echo "Volume-key chord: hold Volume Up + Volume Down for 3 seconds; this requests a reset only and does not select a recovery boot target (physical validation pending)"
             echo "Reset path: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
             echo "Reset caveat: watchdog register sequence is source-grounded; this watchdog-first ordering still needs physical validation"
-            echo "XNU logo: drawn after arm_vm_init installs the permanent framebuffer alias; no claim of full iOS boot"
+            echo "XNU logo: full-panel black clear and Apple mark occur only after arm_vm_init installs the permanent framebuffer alias; no claim of full iOS boot"
             echo "Framebuffer console: bypassed for this isolation build by lavender_no_fbcon=1; remove that boot arg only after early bootstrap is stable"
             echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"

@@ -39,7 +39,20 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -219,14 +219,22 @@
+@@ -157,11 +157,12 @@
+ 	const uint32_t black = 0xff000000u;
+ 	const uint32_t white = 0xffffffffu;
+ 
+-	for (int y = cy - 250; y <= cy + 250; y++) {
++	/* Clear the entire panel; never leave the shim's colored screen as a box. */
++	for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++) {
+ 		volatile uint32_t *line = early_fb + y * LAVENDER_FB_STRIDE;
+-		for (int x = cx - 190; x <= cx + 190; x++) {
++		for (unsigned int x = 0; x < LAVENDER_FB_WIDTH; x++) {
+ 			line[x] = black;
+ 		}
+ 	}
+@@ -219,14 +220,22 @@
  		return;
  	}
  	/*
