@@ -2670,3 +2670,47 @@ The successful run-115 XNU build tree showed a Lavender-specific 8×8 framebuffe
 - **Apple logo:** not physically observed. The kernel's logo routine and its completion marker are compiled, not physically proven.
 - **Next:** check the Actions run triggered by cache-key commit `7504257...`; if it ran, inspect exact source SHA, cache outcome, build duration, and all job conclusions. If no run exists, trigger the XNU workflow through an authorized workflow-dispatch path. Then measure a second same-key build for a real cache hit. Keep #138 as the last verified image until a newer same-source XNU + package run passes.
 - **Current branch tip at the time of this addendum:** `6efa1d070e46c9cbc8c6ad5fa2d542bcd8975a17`. Re-resolve before any further write.
+
+
+## 44. 2026-11-14 — independent artifact extraction and reset-path safety review
+
+### 44.1 Live branch and current build
+
+- Branch: `ci/lavender-machine-profile`.
+- Branch HEAD at this update: `d3bdbeb2e83220476a4d86f75f971ffd8449c6b9` (documentation-only commit after the cache/provenance workflow changes).
+- Run #139: ID `43570289508`, source/workflow commit `7504257b192e1711d1f111a6ef7e0437a705635a`: in progress at last inspection. Build job ID `132372973862`; the job had completed setup, checkout, Xcode selection, pinned-tool fetch, profile preflight, cache restore, runner detection and dependency installation, and was actively executing `Build XNU 8796`. Entry-guard validation, kernel verification and packaging had not yet run. No #139 artifact or successful conclusion exists yet.
+- Keep run #138 as the latest successful build/package until #139 and its package job both finish successfully.
+
+### 44.2 Independent download and raw image validation of run #138
+
+- Downloaded GitHub artifact `lavender-fastboot-boot-test`, ID `14098093027`, and independently verified the downloaded ZIP SHA-256: `2ce22682790baad1fd42e00e818c14bc5895814cd710785c08bcccfff9f1ef36` (matches GitHub artifact digest).
+- Extracted raw `iosboot.img`: 16,527,360 bytes; SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`.
+- Independently confirmed `iosboot.img` is byte-identical to `shim/out/shim-boot.img`.
+- Parsed the Android boot header directly: magic `ANDROID!`, header version 2, 4096-byte page size, shim kernel component 151,552 bytes at file offset `0x1000`, payload component 15,958,672 bytes at file offset `0x26000), and DTB 406,950 bytes at file offset `0xf5f000`. The DTB starts with the FDT magic `d00dfeed`; the shim kernel contains ARM64 Image magic `ARMd`; the payload begins with `LAVENDRX`. Component ranges are non-overlapping.
+- Important format distinction: Android's boot-header kernel component is the ARM64 shim, not the XNU Mach-O. The XNU Mach-O is carried inside the `LAVENDRX` payload. Do not describe the boot-header kernel component itself as the XNU kernel.
+- Downloaded XNU artifact `xnu-kernel`, ID `14098277391`; ZIP SHA-256 `0de48f7de16d0e6d8506759eaab50d117ce8c04902b564ae0d9c236f393148fb` (matches GitHub artifact digest). Extracted `kernel.development.lavender`: 16,586,552 bytes, `Mach-O 64-bit arm64 executable`, SHA-256 `6579b074f0942115ab5eb179aa1d0c3e277d677379fbfe35c485b30dea5972b0`. This matches the kernel hash recorded in the package manifest.
+- This independently validates the run #138 artifact's structure and XNU kernel provenance. It does not validate hardware boot or display output.
+
+### 44.3 Guardian reserved-memory and marker audit
+
+- `shim/loader.c` allocates a 16 KiB boot-arguments page at `ba_pa`, sets `topOfKernelData = ba_pa + 0x4000`, and assigns `lavender_guardian_cell_pa = ba_pa + 0x1000`. The marker cell and the two saved scratch words at offsets +0x1008 and +0x1010 are therefore inside that reserved page, not arbitrary memory. The page is zeroed before XNU handoff.
+- In `xnu/patches/0095-lavender-pre-mmu-instrumentation.patch`, the pre-MMU marker macro saves/restores x0/x1 around the marker write and uses a DSB. The later guard-marker macro uses the V=P identity address and performs `dc cvac` plus DSB. The post-SCTLR marker path also cleans the marker cache line before the A53 guardian reads it.
+- The build-time `tools/fix-lavender-pre-vbar.py` rewrite removes the legacy raw framebuffer loop before `MSR_VBAR_EL1_X0`, retaining RAM-only checkpoints 1 and 0x11. Run #138's entry-guard validator passed. The first later framebuffer drawing path is in `arm_init()`, after VBAR installation; its return marker is distinct from physical observation of the drawn logo.
+- **Marker 0x19 discrepancy:** the added `lavender_early_mark 0x19` line in patch 0095 is located inside a `#if defined(SWEET)` block, while the macro is defined only for `ARM64_BOARD_CONFIG_LAVENDER`. For the Lavender target that line is preprocessed out, so the live Lavender sequence does not emit marker 0x19; do not report 0x19 as a confirmed Lavender checkpoint. For a SWEET build, the line appears to risk an undefined assembler macro because the Lavender macro is not defined in that configuration. SWEET was not built in this validation. Resolve this patch placement before claiming SWEET compatibility; do not add speculative marker writes.
+
+### 44.4 Reset-path review — physical test remains blocked
+
+- The guardian's primary reset path calls PSCI `FEATURES(SYSTEM_RESET)` and then PSCI `SYSTEM_RESET`; if that returns, it attempts the SDM660 KPSS watchdog fallback at `0x17817000` using offsets 0x08 (enable), 0x04 (reset), 0x10 (bark), and 0x14 (bite).
+- Public Linux Qualcomm watchdog code confirms the KPSS register offsets and uses the watchdog's own input-clock rate (`clk_get_rate()`) to convert the 128 ms restart interval into ticks. See https://github.com/torvalds/linux/blob/master/drivers/watchdog/qcom-wdt.c (register layout and restart sequence). The SDM660 Linux device tree identifies a watchdog node at `0x17817000`; see https://android.googlesource.com/kernel/msm/+/45ad5727c99fa3e06acd6977de2bddb47ce758d1/arch/arm/boot/dts/qcom/sdm660.dtsi.
+- Current `shim/lavender_guardian.c` calculates watchdog ticks from `CNTFRQ_EL0`, not from a verified watchdog clock. The watchdog input clock has not been shown to equal the architectural counter frequency on this device/boot state. Thus the register sequence is a plausible fallback, but the 128 ms bite timing is not validated. A matching register layout alone is not proof that the peripheral is clocked, accessible, or reset-effective.
+- PSCI `SYSTEM_RESET`, watchdog clock rate, watchdog reset behavior, PMIC/SPMI mapping, and Volume Up + Volume Down detection remain physically unverified. The earlier physical test did not recover the handset; its power button is broken. Do not request another physical boot or claim the reset path is safe until the PSCI path and a clock-correct watchdog fallback are independently established. Never flash a partition.
+
+### 44.5 Current acceptance state
+
+- #138 XNU compile: passed; ARM64 Mach-O independently extracted and hashed.
+- #138 shim and guardian: packaged in the verified RAM-only image; Android boot kernel component is the ARM64 shim.
+- #138 package: independently downloaded, parsed, and hashed; exact artifact ID and GitHub download route remain in Section 42.
+- #139: XNU compilation in progress at last check; no result inferred.
+- Physical XNU progress: last confirmed physical checkpoint remains `XNUSTAGE=1`; no later MMU checkpoint, `arm_init()`, logo completion marker, or visible Apple logo has been confirmed.
+- Overall milestone: compiled and packaged diagnostic boot image; not yet a verified physical XNU boot or usable iOS environment.
+- Branch HEAD at this update: `d3bdbeb2e83220476a4d86f75f971ffd8449c6b9`.
