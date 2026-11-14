@@ -1,34 +1,34 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 0a9ee9f..89f80b8 100644
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -793,6 +793,10 @@
+@@ -1051,6 +1051,10 @@ Llavender_stage2_pair:
  	// Set KVA of boot args as first arg
- 	add	x0, x20, x22
- 	sub	x0, x0, x23
+ 	add		x0, x20, x22
+ 	sub		x0, x0, x23
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	/* Stage 8: boot-args KVA is ready for the arm_init handoff. */
 +	lavender_guard_mark 8
 +#endif
- 
+
  #if KASAN
  	mov	x20, x0
-@@ -808,6 +812,11 @@
+@@ -1064,6 +1068,10 @@ Llavender_stage2_pair:
  	mov	x0, x20
  	mov	lr, x21
  #endif
- 
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	/* Stage 9: all handoff preparation is complete; next instruction is ret. */
 +	lavender_guard_mark 9
 +#endif
-+
+
  	// Return to arm_init()
  	ret
- 
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+index 5319b0b..143a24e 100644
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -205,7 +205,7 @@
+@@ -278,7 +278,7 @@ sweet_early_guard_init(uintptr_t boot_args_kva)
  {
  	/* The loader reserves this 16K page as part of topOfKernelData. */
  	early_guard_cell = (volatile uint32_t *)(boot_args_kva + 0x1000);
@@ -36,9 +36,10 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +	*early_guard_cell = 0x100u; /* C entry reached: arm_init called its guard initializer. */
  	__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
  }
-@@ -218,9 +218,9 @@
- 		return;
- 	}
+
+@@ -294,17 +294,18 @@ sweet_early_mark(unsigned int stage, const char *label)
+ 	 * arm_init/VM stall from a pre-MMU/start.s stall.
+ 	 */
  	if (early_guard_cell != 0 && stage <= 2) {
 -		*early_guard_cell = stage + 3u;
 +		*early_guard_cell = 0x100u | stage;
@@ -47,22 +48,23 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  	/* arm_init runs with the bootstrap identity mapping active. Keep a
  	 * readable checkpoint history in the lower panel before VM remapping. */
  	if (stage < 16) {
+-		lavender_console_mark(stage, label);
 +		/* Publish before framebuffer I/O so a console fault cannot hide this stage. */
-+		if (early_guard_cell != 0 && stage > 2) {
-+			*early_guard_cell = 0x100u | stage;
-+			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
-+		}
- 		lavender_console_mark(stage, label);
--		if (early_guard_cell != 0 && stage > 2) {
+ 		if (early_guard_cell != 0 && stage > 2) {
 -			*early_guard_cell = stage + 3u;
--			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
--		}
++			*early_guard_cell = 0x100u | stage;
+ 			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
+ 		}
++		lavender_console_mark(stage, label);
  		return;
  	}
-@@ -258,7 +258,7 @@
- 	if (early_guard_cell != 0) {
+ 	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
+@@ -317,7 +318,7 @@ sweet_early_mark(unsigned int stage, const char *label)
+ 	}
+ 	if (early_guard_cell != 0 && stage > 2) {
  		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
 -		*early_guard_cell = (stage == 20) ? (0x80000000u | stage) : (stage + 3u);
 +		*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);
  		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
  	}
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
