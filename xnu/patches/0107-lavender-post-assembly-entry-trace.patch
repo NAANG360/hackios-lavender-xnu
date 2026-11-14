@@ -67,3 +67,4 @@ index 5319b0b..143a24e 100644
 +		*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);
  		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
  	}
+ 	__asm__ volatile("dsb sy" ::: "memory");
