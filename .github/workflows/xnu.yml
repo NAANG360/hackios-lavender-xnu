@@ -175,8 +175,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EXACT_CACHE_HIT" == "true" ]]; then
-            grep -q 'XNU kernel.kernel.' xnu-build.log
-            grep -q 'already built' xnu-build.log
+            kernel_config="$(printf '%s' "$KERNEL_CONFIG" | tr '[:upper:]' '[:lower:]')"
+            machine_config="$(printf '%s' "$MACHINE_CONFIG" | tr '[:upper:]' '[:lower:]')"
+            grep -Fq "XNU kernel.${kernel_config}.${machine_config} already built" xnu-build.log
             echo "Exact v2 cache hit; binary-stage verification will validate the cached kernel."
           else
             if grep -q 'already built' xnu-build.log; then
