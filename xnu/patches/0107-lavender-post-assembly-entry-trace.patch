@@ -2,19 +2,15 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 index 0a9ee9f..89f80b8 100644
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -1051,6 +1051,10 @@ Llavender_stage2_pair:
+@@ -1051,3 +1051,7 @@ Llavender_stage2_pair:
  	// Set KVA of boot args as first arg
  	add		x0, x20, x22
  	sub		x0, x0, x23
- 
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	/* Stage 8: boot-args KVA is ready for the arm_init handoff. */
 +	lavender_guard_mark 8
 +#endif
- 
- #if KASAN
- 	mov	x20, x0
-@@ -1064,6 +1068,10 @@ Llavender_stage2_pair:
+@@ -1064,3 +1064,7 @@ Llavender_stage2_pair:
  	mov	x0, x20
  	mov	lr, x21
  #endif
@@ -22,14 +18,11 @@ index 0a9ee9f..89f80b8 100644
 +	/* Stage 9: all handoff preparation is complete; next instruction is ret. */
 +	lavender_guard_mark 9
 +#endif
- 
- 	// Return to arm_init()
- 	ret
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 index 5319b0b..6f4eda7 100644
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -278,8 +278,8 @@ sweet_early_guard_init(uintptr_t boot_args_kva)
+@@ -278,5 +278,5 @@ sweet_early_guard_init(uintptr_t boot_args_kva)
  {
  	/* The loader reserves this 16K page as part of topOfKernelData. */
  	early_guard_cell = (volatile uint32_t *)(boot_args_kva + 0x1000);
@@ -37,10 +30,6 @@ index 5319b0b..6f4eda7 100644
 -	__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
 +	*early_guard_cell = 0x100u; /* C entry reached: arm_init called its guard initializer. */
 +	__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
- }
- 
- void
- sweet_early_mark(unsigned int stage, const char *label)
 @@ -294,17 +294,18 @@ sweet_early_mark(unsigned int stage, const char *label)
  	 * arm_init/VM stall from a pre-MMU/start.s stall.
  	 */
@@ -65,7 +54,7 @@ index 5319b0b..6f4eda7 100644
  		return;
  	}
  	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
-@@ -317,7 +318,7 @@ sweet_early_mark(unsigned int stage, const char *label)
+@@ -317,7 +317,7 @@ sweet_early_mark(unsigned int stage, const char *label)
  	}
  	if (early_guard_cell != 0 && stage > 2) {
  		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
