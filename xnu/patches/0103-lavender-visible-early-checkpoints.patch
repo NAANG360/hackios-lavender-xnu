@@ -1,0 +1,55 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -779,6 +779,27 @@
+ 	str	w1, [x0]
+ 	dc	cvac, x0
+ 	dsb	sy
++	/* Visible 8x8 progress tile; this macro runs only after MMU-on marker 2. */
++	str	x0, [x20, #0x1020]
++	str	x1, [x20, #0x1028]
++	str	x2, [x20, #0x1030]
++	MOV64	x0, (0x9d400000 + 48 * 4320 + 16 + (\value * 24))
++	movz	w1, #0xff00
++	movk	w1, #0xff00, lsl #16
++	mov	x2, #8
++1:
++	stp	w1, w1, [x0], #8
++	stp	w1, w1, [x0], #8
++	stp	w1, w1, [x0], #8
++	stp	w1, w1, [x0], #8
++	add	x0, x0, #4096
++	add	x0, x0, #192
++	subs	x2, x2, #1
++	b.ne	1b
++	dsb	sy
++	ldr	x0, [x20, #0x1020]
++	ldr	x1, [x20, #0x1028]
++	ldr	x2, [x20, #0x1030]
+ 	ldr	x0, [x20, #0x1008]
+ 	ldr	x1, [x20, #0x1010]
+ .endm
+
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -234,6 +234,19 @@
+ 			*early_guard_cell = stage + 3u;
+ 			__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
+ 		}
++		/* The bootstrap V=PA mapping is live until arm_vm_init replaces it.
++		 * Leave a tiny per-stage tile at the top edge so a pre-VM stall is
++		 * distinguishable from the permanent-alias/logo path. Stage 16 clears it. */
++		if (stage >= 1 && stage <= 15) {
++			const unsigned int x0 = 16u + (stage - 1u) * 24u;
++			const uint32_t color = 0xffff8000u;
++			for (unsigned int y = 72u; y < 80u; y++) {
++				for (unsigned int x = x0; x < x0 + 8u; x++) {
++					early_fb[y * LAVENDER_FB_STRIDE + x] = color;
++				}
++			}
++			__asm__ volatile("dsb sy" ::: "memory");
++		}
+ 		return;
+ 	}
+ 	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
