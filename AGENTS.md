@@ -16,83 +16,28 @@ Working rules:
 - Update PROJECT_HANDOFF.md after every meaningful milestone and before ending a session.
 
 
-## Latest verified state — 2026-11-14
+## Latest verified state — 2026-11-14 (Asia/Kolkata)
 
-- Latest verified integrated XNU + RAM-only packaging run: #154, ID `43575320211`, source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211. Build job `132388179225` and package job `132389050961` both succeeded.
-- The separate shim compile-only run #44, ID `43575320169`, also succeeded on source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`; artifact ID `14105443714`. It did not package a boot image.
-- Kernel artifact ID `14105787768`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`. Run #154 hit the exact-key cache and reported the kernel was already built; the XNU binary is unchanged from #153.
-- Latest fastboot package artifact ID `14105988012`; ZIP size 16,977,049 bytes; ZIP SHA-256 `7dcc37ae921db3b4797856f94b2c5592b58b61b9c6cb6e01c8d864e3d19145a3`. It contains `iosboot.img` (16,527,360 bytes; SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`).
-- Patches 0100 and 0101 remain included and passed the integrated XNU build/entry-guard checks. The new `shim.c::reset()` watchdog-first path from commit 08cb637 was compiled by run #44 and included in the run #154 package. The image independently parses as Android boot v2 with an ARM64 shim, LAVENDRX payload, 10 XNU segments, valid FDT, and non-overlapping load ranges. This is structural verification only.
-- Runner exposed 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; Make used `-j4`. Run #154 restored the exact-key cache and reused the already-built kernel; this is not evidence of a fresh XNU compile or a measured speedup.
-- Packaging again warned that `research/ipsw-x/d22ap.adt` was absent and omitted the ADT `/product` node. Assess whether later startup needs it.
-- The run #154 build manifest incorrectly labels the Volume Up + Volume Down reset chord as a “Recovery chord”. The guardian code only calls `reset_now()`; it does not set a recovery boot target. Workflow manifest wording was corrected in commit `c58cfb886b47514229ac2a421bfd9440949e65bb` so future packages say reset-only.
-- The XNU workflow push filters were also corrected in c58cfb8 to include the pre-VBAR transformation, ADT/payload tools, tests, and related workflow files; previously changes to those files could miss the integrated build/package trigger.
-- **No physical Apple logo or successful XNU boot is confirmed.** Last confirmed physical checkpoint remains `XNUSTAGE=1`. The watchdog-first reset sequence is source/build-validated but not physically validated. The shim countdown delay still precedes watchdog arming and could stall if the architected counter stops; review this edge case before testing. Do not request a device test until watchdog MMIO behavior and a reliable recovery path with the broken power button are independently reviewed. Volume Up + Volume Down for 3 seconds requests a reset only; it does not select recovery.
-- Full run evidence and independent image checks are recorded in `PROJECT_HANDOFF.md` section 44.23. Documentation-only commits may advance branch HEAD without changing the built source commit.
+- Live branch HEAD at this handoff: `e9890318f144df763a3ff655a16ca5b5b5447eb5`.
+- Latest successful integrated XNU + RAM-only package run: **#203**, ID `43594864654`, source commit `e9890318f144df763a3ff655a16ca5b5b5447eb5`. Build job `132447103223` and package job `132451071971` both succeeded: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43594864654
+- The final ordered Lavender verbose diagnostics patch is `xnu/patches/0106-lavender-verbose-boot-final.patch` (blob SHA `8dcb9b2f2ddc9dd43771986b1e61906ab32601b0`). Run #203's build log explicitly shows patch 0106 being applied; the entry-guard job then passed its source assertions and the ARM64 Mach-O kernel verification.
+- Kernel SHA-256 from package manifest: `be2cdd6b08d8d687aa00d32b3b901878fd8d4d9fe49f2ae121d5b1f9046a61d8`.
+- Latest fastboot artifact: `lavender-fastboot-boot-test`, artifact ID `14114386476`, 16,979,730 bytes, expires 2026-11-28. It contains `iosboot.img` (16,527,360 bytes), independently SHA-256 verified as `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`. It is a **RAM-only fastboot boot image**; do not flash it to a partition.
+- Other run #203 artifacts: kernel ID `14114156891`; build log ID `14114141998`; build tree ID `14114590813`. The build log is 3,058,984 bytes; the build-tree artifact expires 2026-11-21.
+- Verbose diagnostics design: assembly stages 3–7 paint green 16×16 tiles beside the existing blue stage-2 tile. C checkpoints 1–15 write a persistent 8×16 glyph text history into the lower framebuffer panel using `iso_font`; the Apple logo is deferred until after `arm_vm_init()` and the permanent framebuffer alias is established (stage 16/17). The kernel command line still includes `lavender_no_fbcon=1`, which suppresses the legacy pexpert framebuffer serial console; it does not disable the new direct early-checkpoint renderer.
+- **Manifest wording defect:** run #203's `BUILD-MANIFEST.txt` incorrectly says C milestones 1–15 are 8×8 tiles before the Apple mark. The actual 0106 source renders C milestones as text glyphs; only assembly stages 3–7 are tiles. Correct the manifest wording in a future workflow-only commit and ensure it does not imply that the legacy serial fbcon is the new early console.
+- The package workflow's structural verification passed. The image hash and successful CI prove build/package integrity, **not** physical boot success.
+- **Physical status is unchanged:** last confirmed device checkpoint remains `XNUSTAGE=1`; no physical stage 2, verbose console, Apple logo, stable `arm_init()`, or iOS userspace is confirmed. Do not claim a successful handset boot.
+- Watchdog-first reset code remains source/build-validated but not physically validated. The Volume Up + Volume Down 3-second chord requests reset only; it does not select recovery. Because the user's power button is broken, independently establish a reliable recovery route before requesting another handset test. Never flash or erase boot-critical partitions; prefer RAM-only boot.
+- Known non-fatal upstream patch skips in run #203 include inherited Sweet HFS patches targeting absent `bsd/sweet_hfs` paths and upstream compatibility patches for APIs already changed in XNU 8796. Review only if they affect Lavender build/runtime; do not conflate them with the Lavender 0106 patch, which was explicitly applied.
+- Older entries below this section in `PROJECT_HANDOFF.md` are historical. Use section **44.25** for the latest diagnostics implementation and run #203 evidence. Always re-resolve live HEAD and Actions state at session start.
 
-## Latest engineering delta — 2026-11-14
+## Working rules for the next session
 
-- Run #154 (ID `43575320211`) built and packaged source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`; both jobs succeeded. The matching shim compile-only run #44 also passed.
-- The source change arms the SDM660 watchdog before every Lavender PSCI reset request, including the early shim path. The reset behavior remains untested on physical hardware.
-- Patches 0100 and 0101 remain part of the packaged XNU source. The current image identity, artifact IDs, hashes, cache evidence, manifest caveat, and structural checks are recorded in `PROJECT_HANDOFF.md` section 44.23.
-- Always resolve live branch HEAD and Actions state before making source changes.
-## 2026-11-14 bring-up correction — framebuffer ownership and early-stage observability
-
-- Two new device recordings show the same red shim console ending at `XNU jumping (fbcon clears screen)`. The A53 guardian is still printing `GUARDMK`, SPMI, and key-state diagnostics while the A73 loader/XNU are also using the same framebuffer. The crossed/merged console text is consistent with an unsynchronized dual-core framebuffer race.
-- `shim.c` now completes the A53's final status line **before** publishing `A73_STATE_GO`. After release, the A53 guardian must not write routine framebuffer output.
-- `shim/lavender_guardian.c` no longer prints cell, SPMI, or key-state diagnostics while XNU owns the display. Timeout/reset diagnostics remain fatal-path-only.
-- Added `xnu/patches/0100-lavender-stage-entry-marker-order.patch`: stages 1 and 2 are flushed to the shared guard cell **before** their framebuffer writes; stages 3–20 remain post-display, with stage 20's high bit still terminal. This distinguishes arm_init/logo entry from a framebuffer-store stall.
-- `reset_now()` now arms the SDM660 one-tick watchdog before invoking PSCI, so the watchdog is already armed if the PSCI SMC blocks. This follows the vendor `watchdog_v2.c` sequence of setting BITE_TIME, ordering the write, and resetting the counter; the current implementation explicitly enables the watchdog first. Do not claim physical validation of this new ordering until a test confirms it.
-- The two uploaded recordings show the screen going dark at about 60 seconds and a charging icon shortly afterward. This is consistent with a reset after the guardian timeout, but does not identify whether PSCI or the watchdog caused it.
-- Current source branch head at time of this entry: `59e6024ab1d17c5bd7d293b2ed7305df54ba3ed7`. Integrated build run #147 (`43572507408`) is in progress. Older overlapping pushes were cancelled; do not treat intermediate cancelled runs as validation.
-- A local patch dry-run/application of patch 0100 against the exact run #141 XNU build tree succeeded.
-- **No Apple logo has yet been observed. No physical validation of these new changes has occurred.** Continue with the latest integrated build and inspect the exact build log/artifact before requesting another RAM-only test. Never flash a partition.
-
-
-## Final guardian ownership tightening — 2026-11-14
-
-- Follow-up review found that fatal-path console output could still block before the reset watchdog was armed. Removed the guardian's console dependency and **all** framebuffer-console calls, including timeout and volume-key messages. The A53 guardian now only polls the shared RAM stage cell, timer, and PMIC; reset is display-independent.
-- `reset_now()` no longer paints status text before reset. It first configures the SDM660 watchdog, then invokes PSCI. The `why` argument is intentionally ignored to avoid any display/log side effects.
-- Final source commit: `f9555af4660a854ec03fb8d82e5a0ec94d9f566d`. Integrated run #43 (ID `43572760628`) is the queued run for that exact commit. Cancelled the prior #147 / #148 / run #42 builds so they cannot be mistaken for validation.
-- Do not use any older artifact for the next device trial. Require the final commit's integrated XNU and packaging jobs to succeed first; then inspect its manifest and hashes. Still no confirmed Apple logo or physical validation of this revision. Never flash a partition.
-
-
-## 2026-11-14 final-framebuffer-alias correction
-
-- Source audit found a second distinct framebuffer bug at the permanent TTBR alias transition. `arm_vm_init.c` maps a 32 MiB VA block to PA `0x9c000000`, while Lavender scanout begins at PA `0x9d400000` (offset `0x01400000`, 20 MiB). The Lavender `sweet_early_relocate(base)` previously set `early_fb=base`, dropping the PA offset. Subsequent progress markers after TTBR0 teardown were therefore written to the wrong location.
-- Added `xnu/patches/0101-lavender-preserve-framebuffer-alias-offset.patch`, which defines `LAVENDER_FB_ALIAS_OFFSET` and relocates to `base + LAVENDER_FB_ALIAS_OFFSET`.
-- `xnu.yml` now checks the PA alias base, computed offset, adjusted relocation expression, and the mapping's 0x9c000000 physical base after patch application.
-- The exact committed patch passed `patch --dry-run -p1` against the #141 build-tree version of `sweet_early.c`; both hunks applied (first with fuzz 1, second exact).
-- Latest source commit for the integrated run: `d863da08a707353e73166502dcdaee3f5a117fdc`; integrated run #153 / ID `43573274639` is the selected build. Runs #149 and #152 were cancellation-requested as superseded.
-- The shim compile-only run #43 (source commit `f9555af...`) had passed, but that run predates patch 0101; do not treat it as verification of the adjusted XNU alias. Require #153 to finish its XNU compile and RAM-only image packaging.
-- No new image for patch 0101 and no physical test yet. No Apple logo has been confirmed. Never flash a partition.
-
-
-### Ordered patch-chain verification
-- Replayed the exact committed patch files 0100 then 0101 against the #141 build-tree copy of `xnu/osfmk/arm64/sweet_early.c`. Patch 0100 applied; patch 0101 then applied with its relocation hunk offset by the expected added marker lines. The ordered series succeeds, not just each patch independently.
-
-
-### Packaging manifest reset semantics
-- Corrected `.github/workflows/package-lavender.yml` so `BUILD-MANIFEST.txt` reflects watchdog-first reset ordering, with physical validation pending.
-- Corrected the key-chord wording: Volume Up + Volume Down held for 3 seconds requests a hardware reset only; it does not set a recovery boot target. Do not instruct the user that this chord enters recovery.
-- Package workflow is manually dispatched after a successful XNU run, with that exact XNU run ID. Its preflight now rejects source revisions without watchdog-first reset logic in both the shim and A53 guardian.
-
-
-## Current workflow and package safety — 2026-11-14
-
-- Commit `c58cfb886b47514229ac2a421bfd9440949e65bb` corrected the integrated `.github/workflows/xnu.yml` manifest: Volume Up + Volume Down is reset-only, not recovery selection.
-- The same commit expanded the integrated workflow push filters to cover the pre-VBAR transform, ADT/payload tools, tests, and the manual/package workflows.
-- Integrated XNU run #155 (ID `43575805150`) is currently in progress on c58cfb8. Run #154 remains the latest successful packaged image until #155 completes.
-- The manual package workflow now has a watchdog-first preflight. It checks the early shim reset helper and guardian reset ordering; static validation passes for source 08cb637 and rejects the older d863da0 source.
-- Run #20 / artifact 14105522131 was packaged from XNU run #153 / source d863da0. Its shim reset path was still PSCI-only even though its manifest said watchdog-first. Do not use that old image for physical testing.
-- Missing `research/ipsw-x/d22ap.adt` still omits the optional ADT `/product` node; investigate before claiming userspace readiness.
-
-
-## Latest workflow validation — 2026-11-14
-
-- Commits `03ed9bf` and `235f3501` add/fix the watchdog-first reset source guard in the separate manual `package-lavender.yml` workflow.
-- Commit `c58cfb8` fixes the integrated workflow's reset-only volume-key wording and adds missing tool/test/workflow paths to its push filters.
-- Integrated run #155, ID `43575805150`, is running against `c58cfb886b47514229ac2a421bfd9440949e65bb`; at the last check its XNU build job was still active. Do not claim a new artifact until both jobs pass.
-- The integrated `xnu.yml` package job still lacks the watchdog-first source guard that was added to the separate manual package workflow. Add the same check to the integrated job to prevent future regressions.
-- Because the exact XNU cache key hashes `.github/workflows/xnu.yml`, the c58cfb8 workflow edit changes the cache key; run #155 may be a cold-cache build even though XNU source and patch inputs are unchanged.
-- Patches 0100 and 0101 remain the latest Lavender patch files; no 0102/0103 exists. Pre-VBAR framebuffer removal is a build-time transformation in `tools/fix-lavender-pre-vbar.py`, not a 0096 patch.
+- Read `PROJECT_HANDOFF.md` first, then inspect current branch HEAD and latest Actions run before editing.
+- Preserve the physical target: Redmi Note 7/7S `lavender`, SDM660. QEMU is never device-compatibility proof.
+- Do not infer physical success from compile, package, Mach-O, boot-header, or static source checks.
+- Inspect the run #203 artifact and exact log before requesting a handset test. The next useful device observation is whether the screen displays assembly stage tiles, then the C-stage text panel, then the deferred Apple logo.
+- If the phone is tested, capture the full boot sequence and note the last visible checkpoint. Do not alter the reset/recovery path without independently reviewing the broken-power-button recovery plan.
+- Correct the #203 manifest's stale description of C-stage diagnostics in a workflow-only change; keep the build's `lavender_no_fbcon=1` isolation setting until the early path is proven stable.
+- Record each meaningful source change, run ID, job IDs, artifact IDs, hashes, and physical observations in `PROJECT_HANDOFF.md`. Keep observations, hypotheses, and proven results separate.
