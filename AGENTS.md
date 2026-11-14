@@ -30,3 +30,12 @@ Working rules:
 - The image is for `fastboot boot` only. Never flash a partition. No physical Apple logo or successful XNU device boot has been confirmed.
 - Before any physical boot request, review recovery/reset safety. The power button is broken and earlier automatic/volume-key recovery failed to recover the handset.
 - For all further work, re-resolve live HEAD and latest Actions runs before editing. Read the entire PROJECT_HANDOFF.md, including appended sections, and all repository instructions. Record every meaningful commit, build run, artifact ID and hash in PROJECT_HANDOFF.md.
+
+## Latest engineering delta — 2026-11-14
+
+- Run #138 (`43554970979`) is the latest fully verified XNU + RAM-only packaging run. Its source commit is `352f7c3cc61a7001c35edee4bccd5c91265a32d3`; build job `132325656246` and package job `132330952177` both succeeded. The raw `iosboot.img` is 16,527,360 bytes with SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`; artifact ID `14098093027`. This is a structurally validated RAM-only fastboot image, not proof of a physical XNU boot.
+- The #126 failure (`43462868674`) was after successful XNU compilation: the post-build entry-guard validator failed with `unsafe Lavender framebuffer access remains before VBAR_EL1`. The later #138 run passed that validator.
+- The `xnu/patches/0096-lavender-no-fb-before-vbar.patch` path mentioned in an earlier handoff is absent on this branch. The actual pre-VBAR transformation is `tools/fix-lavender-pre-vbar.py`, injected into the pinned build script after patch application by `.github/workflows/xnu.yml`. Keep the handoff accurate about this distinction.
+- The latest source change is `ce526931bf4dae15098b372c033f96d7acea0152`. It corrects the guardian's Qualcomm watchdog fallback: SDM660's `qcom,msm-watchdog` implementation uses `WDT0_BITE_TIME=1` followed by `WDT0_RST=1`; `CNTFRQ_EL0` is not the watchdog clock. This change has not yet been compiled by CI or physically reset-tested. Do not request a physical boot until CI and the reset/recovery review are complete.
+- #138 runner evidence: 4 physical / 4 logical CPUs, 15,032,385,536 bytes RAM, actual `make -j4`, `KERNEL_BUILDS_IN_PARALLEL=4`; exact-key cache was cold. End-to-end run was about 20m35s. Do not claim a speedup until a comparable cache-hit build is measured.
+- The prior `PROJECT_HANDOFF.md` ended at Section 26.1 and did not contain the newer #126/#138 evidence or the watchdog correction. The next dated section is being added now; continue updating this one canonical file.
