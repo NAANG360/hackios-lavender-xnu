@@ -1,5 +1,4 @@
 #include <stdint.h>
-#include "console.h"
 #include "lavender_guardian.h"
 
 #define SPMI_CORE 0x0800f000UL
@@ -75,8 +74,6 @@ static uint64_t smc_call(uint64_t fn, uint64_t a1, uint64_t a2, uint64_t a3)
 
 static void __attribute__((noreturn)) reset_now(const char *why)
 {
-	con_skip();
-	con_str("RESET", why);
 
 	/*
 	 * Arm the SDM660 watchdog BEFORE entering secure firmware. The earlier
@@ -210,20 +207,9 @@ void lavender_guardian_run(void)
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
 			/* Stage 20 ends the early timeout only after key guardian is ready. */
 			if(now-progress>f*EARLY_TIMEOUT_SECONDS) {
-				uint64_t age=(now-progress)/f;
 				if(!(marker&0x80000000U)) {
-					/* XNU may have cleared the shared framebuffer. Repaint
-					 * only for a genuine pre-stage-20 stall. */
-					con_clear(RED);
-					con_str("LAVENDER","XNU EARLY BOOT STALLED");
-					con_hex("LAST STAGE",marker);
-					con_hex("STALL SECS",age);
 					reset_now("XNU early boot stalled");
 				} else if(!ready) {
-					con_clear(RED);
-					con_str("LAVENDER","KEY GUARDIAN UNAVAILABLE");
-					con_hex("LAST STAGE",marker);
-					con_hex("WAIT SECS",age);
 					reset_now("key guardian unavailable");
 				} else {
 					/* Stage 20 intentionally ends marker updates. Do not
@@ -232,8 +218,6 @@ void lavender_guardian_run(void)
 				}
 			}
 		} else if(now-started>f*EARLY_TIMEOUT_SECONDS) {
-			con_clear(RED);
-			con_str("LAVENDER","XNU HANDOFF NOT SEEN");
 			reset_now("XNU handoff did not start");
 		}
 		/*
@@ -250,7 +234,7 @@ void lavender_guardian_run(void)
 			uint8_t up=0,down=0;
 			int pressed=chord(&s,&up,&down);
 			if(pressed==1) {
-				if(!chord_since) { chord_since=now; con_str("KEYS","both pressed; hold 3s"); }
+				if(!chord_since) chord_since=now;
 				else if(now-chord_since>=f*CHORD_SECONDS)
 					reset_now("VolUp+VolDown held 3 seconds");
 			} else {
