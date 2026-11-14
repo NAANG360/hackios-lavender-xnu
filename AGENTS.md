@@ -18,23 +18,24 @@ Working rules:
 
 ## Latest verified state — 2026-11-14
 
-- Latest verified integrated build source: `08cb637c6bfc5215d1bb0307eb348add9f285070` (run #154). It includes the watchdog-first reset in both the early shim reset path and the A53 guardian. XNU build and integrated packaging both passed.
-- Latest verified integrated XNU + RAM-only packaging run: #154, ID `43575320211`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211. Build job `132388179225` and package job `132389050961` both succeeded.
-- Kernel artifact ID `14105787768`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
-- Fastboot package artifact ID `14105988012`; contains `iosboot.img` (16,527,360 bytes; SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`). The artifact ZIP digest is `7dcc37ae921db3b4797856f94b2c5592b58b61b9c6cb6e01c8d864e3d19145a3`.
-- Patches 0100 and 0101 are included and passed integrated XNU build/entry-guard checks. Run #154 also compiles the watchdog-first early shim reset fix. The image independently parses as Android boot v2 with ARM64 shim, LAVENDRX payload, 10 XNU segments and a valid FDT; this is structural verification only.
-- Runner exposed 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; Make used `-j4` and XNU internal parallelism 4. Run #154 restored an exact-key cache hit (~228 MB); cache save was skipped as expected. This demonstrates a cache-hit build, not a CPU-parallelism-only speedup.
-- Packaging warned that `research/ipsw-x/d22ap.adt` was absent and omitted the ADT `/product` node; package still passed. Assess whether later startup needs it.
-- **No physical Apple logo or successful XNU boot is confirmed.** Last confirmed physical checkpoint remains `XNUSTAGE=1`. Do not request another device test until the early PSCI-only `shim.c::reset()` path and recoverability with the broken power button have been reviewed. Volume Up + Volume Down for 3 seconds requests reset only; it does not select recovery.
-- Full run evidence and independent image checks are recorded in `PROJECT_HANDOFF.md` section 44.21. Documentation-only commits may advance branch HEAD without changing the built source commit.
+- Latest verified integrated XNU + RAM-only packaging run: #154, ID `43575320211`, source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211. Build job `132388179225` and package job `132389050961` both succeeded.
+- The separate shim compile-only run #44, ID `43575320169`, also succeeded on source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`; artifact ID `14105443714`. It did not package a boot image.
+- Kernel artifact ID `14105787768`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`. Run #154 hit the exact-key cache and reported the kernel was already built; the XNU binary is unchanged from #153.
+- Latest fastboot package artifact ID `14105988012`; ZIP size 16,977,049 bytes; ZIP SHA-256 `7dcc37ae921db3b4797856f94b2c5592b58b61b9c6cb6e01c8d864e3d19145a3`. It contains `iosboot.img` (16,527,360 bytes; SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`).
+- Patches 0100 and 0101 remain included and passed the integrated XNU build/entry-guard checks. The new `shim.c::reset()` watchdog-first path from commit 08cb637 was compiled by run #44 and included in the run #154 package. The image independently parses as Android boot v2 with an ARM64 shim, LAVENDRX payload, 10 XNU segments, valid FDT, and non-overlapping load ranges. This is structural verification only.
+- Runner exposed 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; Make used `-j4`. Run #154 restored the exact-key cache and reused the already-built kernel; this is not evidence of a fresh XNU compile or a measured speedup.
+- Packaging again warned that `research/ipsw-x/d22ap.adt` was absent and omitted the ADT `/product` node. Assess whether later startup needs it.
+- The run #154 build manifest incorrectly labels the Volume Up + Volume Down reset chord as a “Recovery chord”. The guardian code only calls `reset_now()`; it does not set a recovery boot target. Workflow manifest wording was corrected in commit `c58cfb886b47514229ac2a421bfd9440949e65bb` so future packages say reset-only.
+- The XNU workflow push filters were also corrected in c58cfb8 to include the pre-VBAR transformation, ADT/payload tools, tests, and related workflow files; previously changes to those files could miss the integrated build/package trigger.
+- **No physical Apple logo or successful XNU boot is confirmed.** Last confirmed physical checkpoint remains `XNUSTAGE=1`. The watchdog-first reset sequence is source/build-validated but not physically validated. Do not request a device test until watchdog MMIO behavior and a reliable recovery path with the broken power button are independently reviewed. Volume Up + Volume Down for 3 seconds requests a reset only; it does not select recovery.
+- Full run evidence and independent image checks are recorded in `PROJECT_HANDOFF.md` section 44.23. Documentation-only commits may advance branch HEAD without changing the built source commit.
 
 ## Latest engineering delta — 2026-11-14
 
-- The current verified source/build state is summarized immediately above. Run #153 (ID `43573274639`) built source commit `d863da08a707353e73166502dcdaee3f5a117fdc`; both the XNU build and integrated RAM-only packaging jobs passed.
-- Patches 0100 and 0101 are included in the packaged image. The current image identity, independent structural checks, artifact IDs, SHA-256 values, build-resource evidence, and outstanding caveats are recorded in `PROJECT_HANDOFF.md` section 44.21.
-- Documentation-only commits may advance branch HEAD without changing the source commit used to build the artifact. Always resolve live HEAD before making source changes.
-
-
+- Run #154 (ID `43575320211`) built and packaged source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`; both jobs succeeded. The matching shim compile-only run #44 also passed.
+- The source change arms the SDM660 watchdog before every Lavender PSCI reset request, including the early shim path. The reset behavior remains untested on physical hardware.
+- Patches 0100 and 0101 remain part of the packaged XNU source. The current image identity, artifact IDs, hashes, cache evidence, manifest caveat, and structural checks are recorded in `PROJECT_HANDOFF.md` section 44.23.
+- Always resolve live branch HEAD and Actions state before making source changes.
 ## 2026-11-14 bring-up correction — framebuffer ownership and early-stage observability
 
 - Two new device recordings show the same red shim console ending at `XNU jumping (fbcon clears screen)`. The A53 guardian is still printing `GUARDMK`, SPMI, and key-state diagnostics while the A73 loader/XNU are also using the same framebuffer. The crossed/merged console text is consistent with an unsynchronized dual-core framebuffer race.
