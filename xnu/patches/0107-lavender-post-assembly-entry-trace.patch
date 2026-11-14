@@ -7,14 +7,14 @@ index 0a9ee9f..89f80b8 100644
  	add		x0, x20, x22
  	sub		x0, x0, x23
  
- #if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	/* Stage 8: boot-args KVA is ready for the arm_init handoff. */
 +	lavender_guard_mark 8
 +#endif
-+
+ 
  #if KASAN
  	mov	x20, x0
-@@ -1064,6 +1064,10 @@ Llavender_stage2_pair:
+@@ -1064,6 +1068,10 @@ Llavender_stage2_pair:
  	mov	x0, x20
  	mov	lr, x21
  #endif
@@ -22,7 +22,7 @@ index 0a9ee9f..89f80b8 100644
 +	/* Stage 9: all handoff preparation is complete; next instruction is ret. */
 +	lavender_guard_mark 9
 +#endif
-+
+ 
  	// Return to arm_init()
  	ret
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
@@ -65,7 +65,7 @@ index 5319b0b..6f4eda7 100644
  		return;
  	}
  	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
-@@ -317,8 +318,8 @@ sweet_early_mark(unsigned int stage, const char *label)
+@@ -317,7 +318,7 @@ sweet_early_mark(unsigned int stage, const char *label)
  	}
  	if (early_guard_cell != 0 && stage > 2) {
  		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
@@ -75,4 +75,3 @@ index 5319b0b..6f4eda7 100644
 +		__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
  	}
  	__asm__ volatile("dsb sy" ::: "memory");
- }
