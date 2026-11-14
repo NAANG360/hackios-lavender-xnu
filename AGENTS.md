@@ -41,3 +41,16 @@ Working rules:
 
 - Reset safety remains incomplete: `shim.c::reset()` is a separate PSCI-only path used before the A53 guardian starts, and `lavender_guardian.c::reset_now()` invokes PSCI before arming the watchdog. A wedged SMC can therefore prevent the watchdog fallback from running. Do not request physical testing until these paths are unified or independently bounded and reviewed.
 - Marker ordering also needs correction before relying on fault localization: Lavender `sweet_early_mark()` currently writes its framebuffer bar before publishing stages 1 and 2 to the shared marker cell. Publish those two markers before their own framebuffer writes while retaining cache clean/DSB ordering; keep stage 20 terminal publication after its final display operation.
+
+
+## 2026-11-14 bring-up correction — framebuffer ownership and early-stage observability
+
+- Two new device recordings show the same red shim console ending at `XNU jumping (fbcon clears screen)`. The A53 guardian is still printing `GUARDMK`, SPMI, and key-state diagnostics while the A73 loader/XNU are also using the same framebuffer. The crossed/merged console text is consistent with an unsynchronized dual-core framebuffer race.
+- `shim.c` now completes the A53's final status line **before** publishing `A73_STATE_GO`. After release, the A53 guardian must not write routine framebuffer output.
+- `shim/lavender_guardian.c` no longer prints cell, SPMI, or key-state diagnostics while XNU owns the display. Timeout/reset diagnostics remain fatal-path-only.
+- Added `xnu/patches/0100-lavender-stage-entry-marker-order.patch`: stages 1 and 2 are flushed to the shared guard cell **before** their framebuffer writes; stages 3–20 remain post-display, with stage 20's high bit still terminal. This distinguishes arm_init/logo entry from a framebuffer-store stall.
+- `reset_now()` now arms the SDM660 one-tick watchdog before invoking PSCI, so the watchdog is already armed if the PSCI SMC blocks. This follows the vendor `watchdog_v2.c` sequence of setting BITE_TIME, ordering the write, and resetting the counter; the current implementation explicitly enables the watchdog first. Do not claim physical validation of this new ordering until a test confirms it.
+- The two uploaded recordings show the screen going dark at about 60 seconds and a charging icon shortly afterward. This is consistent with a reset after the guardian timeout, but does not identify whether PSCI or the watchdog caused it.
+- Current source branch head at time of this entry: `59e6024ab1d17c5bd7d293b2ed7305df54ba3ed7`. Integrated build run #147 (`43572507408`) is in progress. Older overlapping pushes were cancelled; do not treat intermediate cancelled runs as validation.
+- A local patch dry-run/application of patch 0100 against the exact run #141 XNU build tree succeeded.
+- **No Apple logo has yet been observed. No physical validation of these new changes has occurred.** Continue with the latest integrated build and inspect the exact build log/artifact before requesting another RAM-only test. Never flash a partition.
