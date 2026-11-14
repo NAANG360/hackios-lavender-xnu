@@ -2,11 +2,11 @@
 
 > **Read this file first in every new agent/chat session.** This is the authoritative cross-session handoff for the Redmi Note 7 / Lavender XNU port. Update it after every meaningful inspection, patch, CI run, artifact, or device test. Keep observations, hypotheses, and completed verification clearly separate.
 >
-> Last consolidated: **2026-11-14 13:45 IST (Asia/Kolkata)**  
+> Last consolidated: **2026-11-14 (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active engineering branch: `ci/lavender-machine-profile` (documentation-only commits have advanced branch HEAD; latest verified build source commit: `d863da08a707353e73166502dcdaee3f5a117fdc`; re-resolve live HEAD before source writes)  
-> Latest successful integrated XNU + package run: `43573274639` (#153), source commit `d863da08a707353e73166502dcdaee3f5a117fdc`  
-> Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14105179582`; raw `iosboot.img` SHA-256 `5160f44e77df55641654b7dfbcd0006ba64c1765afecd6248b6ff5ad42901dcd`
+> Active engineering branch: `ci/lavender-machine-profile` (latest verified build source commit: `08cb637c6bfc5215d1bb0307eb348add9f285070`; documentation/workflow commits may advance branch HEAD; re-resolve before source writes)  
+> Latest successful integrated XNU + package run: `43575320211` (#154), source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`  
+> Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14105988012`; raw `iosboot.img` SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`
 
 ---
 
@@ -3123,9 +3123,9 @@ Documentation follow-through: `PROJECT_HANDOFF.md` run #153 evidence was committ
 
 - Source review after run #153 found that `shim.c::reset()` was still a separate PSCI-only reset path. It is used before the A53 guardian starts and on early A73/loader error paths. If its PSCI SMC blocked, it had no watchdog fallback even though `lavender_guardian.c::reset_now()` already armed the SDM660 watchdog first.
 - Committed `08cb637c6bfc5215d1bb0307eb348add9f285070` (`fix(lavender): arm watchdog before every PSCI reset`). The Lavender reset path now arms the same SDM660 one-tick watchdog sequence at `0x17817000` before PSCI SYSTEM_RESET. It also avoids framebuffer-console writes in the Lavender terminal reset path. Non-Lavender reset behavior remains unchanged.
-- This is source-level safety hardening only. The connected GitHub status query has not yet exposed a check/run for this commit; do not claim the new shim has compiled or that the reset has been physically validated until a matching Actions run succeeds.
+- This was source-level safety hardening when first recorded. It was subsequently compiled in shim run #44 and included in the successful integrated XNU/package run #154; see Section 44.23 for exact evidence. The watchdog sequence still has no physical validation.
 - Important artifact distinction: image artifact 14105179582 / run #153 was built from `d863da08a707353e73166502dcdaee3f5a117fdc`, so it does **not** contain commit 08cb637. Do not treat that older image as containing this reset fix.
-- Next: verify that the push-triggered XNU workflow runs for 08cb637; inspect shim compile and integrated package results; then record the new image artifact and checksum. Continue to withhold physical test requests until recovery behavior with the broken power button is independently reviewed. The volume-key chord is reset-only, not recovery selection.
+- The Volume Up + Volume Down chord invokes a reset only; it does not select a recovery boot target. Continue to withhold physical test requests until watchdog MMIO behavior and a reliable recovery path with the broken power button are independently reviewed.
 
 
 ## 44.23 — 2026-11-14: run #154 verified; watchdog-first reset integrated
@@ -3164,3 +3164,41 @@ Documentation follow-through: `PROJECT_HANDOFF.md` run #153 evidence was committ
 2. Preserve exact-key cache safety; distinguish a cache hit from measured compiler parallelism. Run #154 is a cache-hit result, not proof that CPU parallelism alone caused the speedup.
 3. Investigate whether the missing ADT `/product` node is needed for later startup.
 4. Continue source-level marker/alias/cache-coherency review. Do not claim physical Apple logo, `arm_init()` success or usable iOS boot without device evidence.
+
+
+## 44.23 — 2026-11-14: run #154 verifies watchdog-first shim reset and fresh image
+
+### Live source and Actions evidence
+- Source commit: `08cb637c6bfc5215d1bb0307eb348add9f285070` (`fix(lavender): arm watchdog before every PSCI reset`).
+- Integrated XNU workflow run #154: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211.
+- Build job `132388179225`: success. Profile preflight, XNU build step, pre-VBAR transformation check, Lavender entry-guard checks, and Mach-O kernel verification all passed.
+- Package job `132389050961`: success. It checked out the matching source, downloaded the kernel artifact from the same run, compiled the Lavender shim, generated the payload/ADT, packaged the Android boot-v2 image, checked the load ranges and uploaded the artifact.
+- Separate shim compile-only run #44: ID `43575320169`; job `132388179126`; success on the same source commit. Artifact ID `14105443714`. This run validates compilation only and does not contain a boot image.
+- Kernel artifact ID `14105787768`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`. This is byte-identical in kernel identity to #153.
+- Fastboot package artifact ID `14105988012`; ZIP size 16,977,049 bytes; artifact ZIP SHA-256 `7dcc37ae921db3b4797856f94b2c5592b58b61b9c6cb6e01c8d864e3d19145a3`; expires 2026-11-28.
+- Extracted `iosboot.img`: 16,527,360 bytes; SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`. The packaged `iosboot.img` and `shim/out/shim-boot.img` are byte-identical.
+
+### What changed and what was verified
+- Commit 08cb637 adds `lavender_arm_watchdog_reset()` to `shim/shim.c` and calls it before PSCI SYSTEM_RESET in the Lavender `reset()` path. It disables the non-secure watchdog, programs the one-tick bite, orders the write, re-enables the block, resets the counter, then calls PSCI. The Lavender terminal reset path no longer writes to the framebuffer.
+- The same reset-before-PSCI policy was already present in `lavender_guardian.c::reset_now()`; this commit closes the separate pre-guardian / early-loader PSCI-only path.
+- The new helper was compiled in run #44 and again as part of package job #154 with `TARGET=lavender`. This proves compilation/integration, **not** that the watchdog MMIO sequence resets the physical phone.
+- Independent inspection of artifact 14105988012 confirmed Android boot header v2, 4096-byte pages, ARM64 Image magic `ARMd`, `LAVENDRX` payload v1, 10 XNU segments with valid file bounds, 10,072-byte ADT, 406,950-byte FDT with valid magic, and non-overlapping load ranges:
+  - shim: `[0x8000, 0x2d000)`
+  - payload: `[0x1000000, 0x1f38290)`
+  - DTB: `[0x2000000, 0x20635a6)`
+- XNU entry recorded in the payload is `0xfffffe000747c488`; the embedded kernel remains ARM64 Mach-O `MH_EXECUTE` with 26 load commands, as verified by the XNU build job.
+- Run #154 restored the exact-key cache. Its log explicitly says `kernel.development.lavender already built`; the XNU binary was reused rather than freshly recompiled because the only source change since #153 was in the shim. Runner capacity remained 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; Make was configured for `-j4`. This is a successful cache-hit/incremental pipeline validation, not a measured speedup claim.
+- The package again warned that `research/ipsw-x/d22ap.adt` was missing and omitted the optional `/product` node. This remains a semantic ADT question for later IOKit startup.
+
+### Workflow audit corrections
+- The run #154 `BUILD-MANIFEST.txt` called the Volume Up + Volume Down hold a “Recovery chord”. Source inspection of `lavender_guardian.c::chord()` shows that after three seconds it calls `reset_now()`; it does not set a recovery boot target. The wording was corrected in `.github/workflows/xnu.yml` by commit `c58cfb886b47514229ac2a421bfd9440949e65bb`. The #154 artifact's manifest remains a historical, misleading label; do not rely on it to select recovery.
+- The XNU workflow push path filter previously duplicated `shim/**` and omitted build/packaging inputs such as `tools/fix-lavender-pre-vbar.py`, `tools/mkadt-lavender.py`, `tools/mkpayload.py`, the DTB/boot unpack helpers, ADT parser and ADT tests. Commit c58cfb8 adds these inputs and the related Lavender workflow files so their changes trigger integrated validation.
+- `tools/mkadt-lavender.py` uses `os.urandom(64)` for the ADT `random-seed` when no seed is supplied. Repackaging the same source therefore intentionally produces different ADT/payload/image hashes; this is not source drift. Preserve each artifact's own SHA-256 and run/source provenance.
+
+### Physical status and next gate
+- Last confirmed physical XNU checkpoint remains `XNUSTAGE=1`. No physical observation of stage 2, `arm_init()` completion, Apple logo, stable XNU startup or iOS userspace is confirmed.
+- No new physical test is requested here. The reset sequence is source- and build-validated but still physically unverified; the Volume Up + Volume Down chord is reset-only, not recovery selection. The user's broken power button makes a verified recovery route mandatory before another handset test.
+- Next engineering work: inspect the SDM660 watchdog MMIO access and one-tick behavior against the exact vendor driver/board security configuration; establish a reliable recovery path independent of the broken power button; decide whether the missing ADT `/product` node is required; then measure a cache-hit build separately. Do not call the image a working iOS port.
+
+
+Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-filter and manifest corrections were committed as `c58cfb886b47514229ac2a421bfd9440949e65bb`.
