@@ -79,6 +79,9 @@ jobs:
           git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
           git -C dxb checkout -q FETCH_HEAD
           cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
+          # Upstream 0104 reintroduces the pre-VM framebuffer logo and undoes
+          # our 0102 safe deferral. Keep 0102 authoritative for Lavender.
+          rm -f dxb/patches/0104-lavender-early-first-entry-logo.patch
           # The pinned upstream script hardcodes -j8; use every logical CPU
           # exposed by the hosted runner for its major build steps.
           sed -i '' 's/make install -j8/make install -j"${XNU_MAKE_JOBS:-8}"/g' dxb/build.sh
@@ -144,6 +147,10 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
+          if grep -q 'Skipping patch .*0103-lavender-visible-early-checkpoints.patch' xnu-build.log; then
+            echo "Verbose diagnostics patch was skipped; refusing this build."
+            exit 1
+          fi
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm64/start.s").read_text()
