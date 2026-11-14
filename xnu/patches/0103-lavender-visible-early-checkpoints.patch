@@ -33,7 +33,8 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +	stp	w1, w1, [x0], #8
 +	subs	x3, x3, #1
 +	b.ne	.Llavender_guard_pair_\@
-+	add	x0, x0, #4256
++	add	x0, x0, #4096
+	add	x0, x0, #160
 +	subs	x2, x2, #1
 +	b.ne	.Llavender_guard_row_\@
 +	dsb	sy
@@ -66,7 +67,8 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 -	b.ne	Llavender_stage2_pixel
 -	add		x0, x0, x4
 +	b.ne	Llavender_stage2_pair
-+	add	x0, x0, #4256
++	add	x0, x0, #4096
+	add	x0, x0, #160
  	subs	x2, x2, #1
  	b.ne	Llavender_stage2_row
 -	dsb		sy
