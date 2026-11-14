@@ -3068,3 +3068,6 @@ A deeper source audit found a second distinct bug beyond the A53/A73 shared-fram
 - Latest code/workflow commit: `d863da08a707353e73166502dcdaee3f5a117fdc`. Integrated workflow run #153 / ID `43573274639` is selected for this final patch set. The older #149 and #152 runs are superseded and were cancellation-requested.
 - The separate shim compile #43 on commit `f9555af...` passed, but did not contain patch 0101; it only validates the corresponding shim code and ADT. The integrated #153 must still build the newly patched XNU and package a fresh `iosboot.img`.
 - **No Apple logo has yet been confirmed. No current image from #153 exists at this handoff update.** Use only the image artifact from the successful final run, RAM-only via `fastboot boot`; do not flash any partition.
+
+
+Patch-sequence validation addendum: replayed the committed 0100 stage-marker patch first and 0101 alias-offset patch second against the #141 build-tree source. Both apply in the actual ordered sequence; 0101's relocation hunk applies at the expected line offset introduced by 0100. This is a local source-application check only; the integrated #153 compile remains the compiler/packaging validation gate.
