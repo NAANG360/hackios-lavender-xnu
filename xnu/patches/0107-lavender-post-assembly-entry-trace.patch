@@ -37,7 +37,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  }
  
  void
-@@ -294,17 +294,18 @@
+@@ -294,16 +294,17 @@
  	 * arm_init/VM stall from a pre-MMU/start.s stall.
  	 */
  	if (early_guard_cell != 0 && stage <= 2) {
@@ -60,7 +60,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +		lavender_console_mark(stage, label);
  		return;
  	}
-@@ -317,8 +318,8 @@
+@@ -317,9 +318,9 @@
  	}
  	if (early_guard_cell != 0 && stage > 2) {
  		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
