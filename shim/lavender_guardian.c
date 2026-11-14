@@ -34,7 +34,6 @@
 #define QCOM_WDT_BASE 0x17817000UL
 #define WDT0_RST 0x04U
 #define WDT0_EN 0x08U
-#define WDT0_BARK_TIME 0x10U
 #define WDT0_BITE_TIME 0x14U
 #define SPMI_OP_EXT_READL 1U
 #define EARLY_TIMEOUT_SECONDS 60U
@@ -90,22 +89,20 @@ static void __attribute__((noreturn)) reset_now(const char *why)
 	}
 
 	/*
-	 * SDM660 KPSS watchdog_v2 layout/order from qcom-wdt: disable,
-	 * reset the counter, program bark then bite, and enable last.
-	 * One-tick bite is only a last-resort fallback after PSCI failed.
+	 * SDM660's qcom,msm-watchdog is driven by watchdog_v2.c. Its
+	 * msm_trigger_wdog_bite() path programs BITE_TIME=1, then resets
+	 * the counter. CNTFRQ_EL0 is the architectural timer rate, not the
+	 * watchdog clock; never derive watchdog ticks from it.
+	 * Enable the block and request the driver's one-tick bite sequence.
 	 * No MMIO readback: a stalled peripheral read must not trap here.
 	 */
-	con_str("RESET", "watchdog fallback");
-	uint64_t rate = frequency();
-	uint32_t timeout = (uint32_t)((128ULL * rate) / 1000ULL);
-	if (!timeout) timeout = 1;
-	con_hex2("WDT ticks", "rate=", (uint32_t)rate, "bite=", timeout);
+	con_str("RESET", "watchdog one-tick bite fallback");
 	write32(QCOM_WDT_BASE + WDT0_EN, 0);
 	write32(QCOM_WDT_BASE + WDT0_RST, 1);
-	write32(QCOM_WDT_BASE + WDT0_BARK_TIME, timeout);
-	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, timeout);
+	write32(QCOM_WDT_BASE + WDT0_BITE_TIME, 1);
 	__asm__ volatile("dsb sy" ::: "memory");
 	write32(QCOM_WDT_BASE + WDT0_EN, 1);
+	write32(QCOM_WDT_BASE + WDT0_RST, 1);
 	__asm__ volatile("dsb sy; isb" ::: "memory");
 	for (;;) __asm__ volatile("wfe");
 }
