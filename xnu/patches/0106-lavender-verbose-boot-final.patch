@@ -200,7 +200,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  	arm_setup_pre_sign();
  
-@@ -534,6 +527,11 @@
+@@ -534,5 +527,10 @@
  	sweet_early_mark(7, "entering arm_vm_init");
  	arm_vm_init(xmaxmem, args);
  	sweet_early_mark(15, "arm_vm_init returned");
