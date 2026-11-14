@@ -2980,3 +2980,11 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
 - The main build's actual per-file parallelism is not cosmetic: run #138 logged `make -j4`, and concurrent clang compile commands were emitted within the same 100 ms interval. The runner exposed 4 physical CPUs, 4 logical CPUs, and 15,032,385,536 bytes RAM.
 - Run #138's cache restore explicitly logged `Cache not found` for the old key. From the `XNU_MAKE_JOBS=4` build invocation at 04:07:18.595 UTC to the pre-VBAR guard passing at 04:25:46.836 UTC was approximately **18 minutes 28 seconds** for that cold XNU build path. This is a measured baseline, not proof of a speedup over prior runs; CPU utilization and peak RAM were not recorded.
 - The new exact-key cache is still cold until #141 finishes and saves it. A subsequent identical build is required to measure cache-hit time.
+
+
+### 44.16 Boot CPU identity and secondary-CPU policy
+
+- The current package workflow explicitly invokes `tools/mkadt-lavender.py artifacts/lavender.adt --boot-mpidr 0x100 --check`. The ADT builder's CPU list is `0x000, 0x001, 0x002, 0x003, 0x100, 0x101, 0x102, 0x103`; it reorders the selected boot MPIDR to the first CPU node.
+- This matches the shim's hardware selection: the A53 at MPIDR `0x0` lacks TGran16 and the A73 at MPIDR `0x100` is selected for XNU entry. The ADT's boot CPU identity is therefore consistent with the physical entry CPU.
+- The payload command line is explicitly `debug=0xc serial=3 cpus=1 keepsyms=1`. The ADT still describes all eight cores, but `cpus=1` intentionally prevents XNU from attempting secondary CPU startup during first bring-up.
+- Therefore secondary CPU startup, PSCI CPU_ON, per-CPU stacks, and cross-cluster scheduling are not yet tested. Do not describe SMP as implemented. Revisit only after primary-core MMU/exception startup and `arm_init()` are stable.
