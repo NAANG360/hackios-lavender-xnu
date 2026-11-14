@@ -3316,3 +3316,21 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - No new handset test was performed. Do not request one until a recovery route that does not depend on the broken power button is independently established. No flashing or partition writes.
 - When it is safe to test, the A53 diagnostic should make the final shared word explicit. Expected examples: `0x00000009` means stage 9 immediately before returning to C; `0x00000100` means `arm_init()` entered and its guard initializer ran; `0x00000101` means C checkpoint 1 was published; values through `0x0000010F` identify C checkpoint 15; a value with high bit set and the `0x100` namespace identifies the terminal stage-20 flag. The marker value is the authoritative report; the visual strip is corroborating evidence.
 - Continue from the latest XNU run and record its actual patch application, post-build guard result, kernel artifact verification, and package status here. Do not infer a working boot from compile/package success.
+## 44.29 — 2026-11-14: reject the skipped 0107 build and revalidate the final patch
+
+### Important correction to section 44.28
+- Full XNU run `43604541478` (source commit `48dffdda8a8810f65f685d061fab0c8376c6752a`) completed successfully and produced both XNU and fastboot artifacts, but the build log explicitly says `0107-lavender-post-assembly-entry-trace.patch` was skipped with `error: corrupt patch at line 28`. Its workflow revision predated the stage-8/9 source assertions. Therefore, that kernel/package success did **not** include patch 0107 and must not be reported as the updated diagnostic build.
+- The intermediate patch commits `79ae369708350b509e3fe4065d814c1111869846` and `b00f232cc519eb08b3254363aae109dd2238b6cd` also contained incomplete patch formatting: the first retained a stray trailing diff header; the second removed that header but omitted the final context line needed by the last hunk. Their associated builds are not acceptance evidence.
+
+### Final patch contents and validation
+- The current complete patch is `xnu/patches/0107-lavender-post-assembly-entry-trace.patch`, blob SHA `77c061f34567a5f79f878cd1c2ff53cd151a8663`, committed as `66eb67ad94a5c210fd399d95d0cff2e348e43e71`.
+- The complete patch was regenerated from the exact run #203 tree at `/mnt/data/buildtree-run203/xnu`. The independently generated local reference `/tmp/0107-generated.patch` passes `git apply --check` against that tree and reports 2 files changed, 14 insertions and 5 deletions. The remote patch was replaced with the complete content, including the final context line `__asm__ volatile("dsb sy" ::: "memory");` in the last hunk.
+- The workflow source guard committed in `7a6ce372205a39e1413f955e28b071df3fe81ddd` checks for stages 8/9 in patched `start.s`, the C-entry `0x100` marker, C checkpoint namespace and marker-before-framebuffer ordering. If patch 0107 is skipped or fails to apply, `Require Lavender XNU entry-guard patch` must fail rather than silently accepting the kernel.
+
+### Current CI
+- Corrected-source run **43606100434** was triggered for commit `66eb67ad94a5c210fd399d95d0cff2e348e43e71`. At this update it is active in `Fetch pinned XNU build tooling`; the XNU build, patch guard, kernel verification and package steps have not yet completed. This is the only run to use for validation of the complete 0107 source.
+- Run `43605826289` (commit `b00f232...`) is an intermediate build and must not be used for acceptance. Earlier malformed-source runs likewise are not authoritative.
+- Dedicated shim compile `43604570915` succeeded for the guardian banner, but only proves the AArch64 shim C compiles; it does not validate the XNU patch.
+
+### Physical safety
+- No new device test was performed. Do not request one yet: the independent recovery path with the user's broken Power button has not been established. Do not flash or write boot-critical partitions. Any future test remains RAM-only `fastboot boot` after recovery is proven.
