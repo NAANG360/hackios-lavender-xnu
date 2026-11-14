@@ -3409,3 +3409,31 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - Run #213 produced no new packaged image. Run #220 must pass every build and package gate before it can supply the next RAM-only test image.
 - The user's power button is broken; the independent recovery path is still not proven. Do not request another physical test until recovery is established. No flashing or writes to Android boot-critical partitions; any subsequent test remains RAM-only.
 
+
+
+## 44.33 — 2026-11-14: Run #220 exposed patch-order/context failure; 0107 rebased
+
+### Run #220 — authoritative result
+- Workflow run: `43611119178`, run #220, attempt 1, source commit `4cb4eec5fd57c6bc678520e8178cf805ef36eb10`: **failure**. Build job `132496159699`; package job `132497083593` was skipped.
+- `Build XNU 8796` succeeded. Output collection found `kernel.development.lavender`, **16,587,136 bytes**. This kernel was not uploaded as the verified `xnu-kernel` artifact because the entry-guard step failed. It is not a packaged image.
+- The validator correctly rejected the build because patch 0107 was skipped. The uploaded `xnu-build-log` artifact `14119584797` records:
+  - `Skipping patch ...0107-lavender-post-assembly-entry-trace.patch`
+  - `error: patch failed: osfmk/arm64/start.s:1051`
+  - `error: patch failed: osfmk/arm64/sweet_early.c:278`
+- Independent inspection of the actual post-patch build-tree artifact `14120596087` confirmed that 0106's verbose console changes were present, but 0107's stage 8/9 assembly markers and namespaced C guard markers were absent. The generated source still used the legacy `stage + 3u` marker encoding. This was a real patch-integration failure, not a validator false positive. Do not weaken the guard.
+- Run #220 cache evidence: the requested exact key did not match, but a compatible restore-prefix key ending `708ae7b925fb1dd33f36657b64a274171442476d6787a70bfb5b1e027211ab75` was restored successfully. The restore archive was approximately 228 MiB (238,874,143 bytes). The job saved a new cache under key ending `0788a425147fd9473e8bdfde8b238911973743fa8e8e655348ca2a14f0dc400e` (cache archive 238,849,324 bytes). This demonstrates cache reuse and cache save, but does not by itself prove a compile-time speedup.
+- Artifacts: build-tree `14120596087`, 22,596,397 bytes, ZIP digest `sha256:bf271ae8013bf7e5258486a664eb7afea735b5986708e0a698bfd806e32ed5d3`; build-log `14119584797`, 3,899 bytes, ZIP digest `sha256:1d8d57dc6e11fcc442f2aaf5e61c5e31368905dfcb335f8f5a8649607f1a755e`. The build-tree tar excludes object files, archives and the kernel; it is source evidence, not a boot artifact.
+
+### Root cause and source correction
+- The 0107 patch was authored against source context that existed before 0106 changed the same `start.s` and `sweet_early.c` regions. Since patches are applied in lexical order, 0106 applied first and 0107 then failed both hunks. The patch runner emitted a warning and continued; the workflow's required-patch gate rejected the skipped 0107, as intended.
+- Rebased `xnu/patches/0107-lavender-post-assembly-entry-trace.patch` against the actual generated XNU tree after 0106. The corrected patch inserts stage 8 after boot-args KVA calculation and stage 9 immediately before the return to `arm_init()`; updates C entry/checkpoint values to the `0x100` namespace; publishes checkpoints before framebuffer text output; preserves the terminal `0x80000100 | stage` marker; and uses explicit `dc cvac` then `dsb sy` assembly-string ordering.
+- The rebased patch was dry-run and applied against a copy of the actual Run #220 post-0106 source tree. Local source assertions passed for stages 8/9, C entry and checkpoint namespaces, publication-before-console ordering, removal of legacy `stage + 3u`, and full-panel logo clear. This is patch-level local verification only; the next CI run must still prove patch application and compilation.
+- Patch update commits: initial rebased patch `df63c971d1eb0e14c6c887e3fd071f175a5b4257`; corrected inline-assembly escape commit `d6ea407a6a844cc92d277949e5ecec4dff7b569c`. Latest branch HEAD at this record: `d6ea407a6a844cc92d277949e5ecec4dff7b569c`.
+- Two workflow runs were triggered by the sequential patch commits: run #221 `43615933214` uses intermediate commit `df63c971d1eb0e14c6c887e3fd071f175a5b4257`; run #222 `43615959600` uses final commit `d6ea407a6a844cc92d277949e5ecec4dff7b569c`. At the time of this update, #221 was in progress and #222 was queued. Treat #222 as the canonical corrected-patch validation; inspect both runs, but do not start another overlapping full build.
+- Expected cache behavior for #222: its patch hash changes, so the exact key may miss; the compatible restore prefix should restore the cache saved by #220. Confirm the actual restore key and incremental compile result in logs.
+
+### Current deliverable status
+- Run #220 did **not** produce a new verified kernel artifact or `iosboot.img`. Run #213's compile result and run #220's compile result are separate; neither is a bootable image.
+- The only previously packaged image remains Run #203 artifact `14114386476`, SHA-256 `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`, whose physical boot was unsuccessful.
+- Next: inspect #221/#222; require 0107 to apply without a skip warning; require the source guard and ARM64 Mach-O checks to pass; confirm kernel artifact upload; then allow the RAM-only package job to complete. Verify the final image structure and SHA-256 independently. User-facing filename must be exactly `iosboot.img`.
+- Preserve the existing safety boundary: no flashing or erasing boot-critical partitions. Do not request physical testing until an independent recovery path for the broken power button is established.
