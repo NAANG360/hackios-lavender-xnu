@@ -1,8 +1,7 @@
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -350,8 +350,14 @@
- #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+@@ -351,6 +351,13 @@
  	sweet_early_guard_init((uintptr_t)args);
  #endif
  	sweet_early_mark(1, "arm_init entered (MMU on)");
@@ -16,8 +15,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  	arm_setup_pre_sign();
  
-@@ -526,14 +532,8 @@
- 
+@@ -527,12 +534,6 @@
  	sweet_early_mark(7, "entering arm_vm_init");
  	arm_vm_init(xmaxmem, args);
  	sweet_early_mark(15, "arm_vm_init returned");
@@ -30,4 +28,3 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  	if (debug_boot_arg) {
  		patch_low_glo();
- 	}
