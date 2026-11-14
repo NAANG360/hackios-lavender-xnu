@@ -168,6 +168,23 @@ jobs:
           grep -q 'sweet_early_map_final' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q 'sweet_early_logo' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'sweet_early_logo();' dxb/xnu/osfmk/arm/arm_init.c
+          grep -q 'lavender-fbcon' dxb/xnu/pexpert/arm/pe_serial.c
+          grep -q 'lavender_no_fbcon' dxb/xnu/pexpert/arm/pe_serial.c
+          grep -q 'lavender_no_fbcon=1' .github/workflows/xnu.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
+          start = source.index("void arm_init(")
+          vm = source.index("arm_vm_init(xmaxmem, args);", start)
+          logo = source.index("sweet_early_logo();", start)
+          if logo < vm:
+              raise SystemExit("Lavender logo must be deferred until after arm_vm_init returns")
+          if "sweet_early_mark(16, \"drawing logo through permanent framebuffer alias\")" not in source:
+              raise SystemExit("missing pre-logo post-VM checkpoint")
+          if "sweet_early_mark(17, \"Lavender diagnostic logo completed\")" not in source:
+              raise SystemExit("missing post-logo completion checkpoint")
+          print("PASS: logo is deferred until permanent framebuffer alias is live")
+          PY
           grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'base + LAVENDER_FB_ALIAS_OFFSET' dxb/xnu/osfmk/arm64/sweet_early.c
@@ -419,7 +436,7 @@ jobs:
           file "$KERNEL_PATH"
           python3 tools/mkpayload.py "$KERNEL_PATH" artifacts/lavender.adt artifacts/lavender-payload.bin \
             --machine LAVENDER \
-            --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1'
+            --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1'
 
       - name: Build non-flashing fastboot boot image
         env:
@@ -479,7 +496,8 @@ jobs:
             echo "Volume-key chord: hold Volume Up + Volume Down for 3 seconds; this requests a reset only and does not select a recovery boot target (physical validation pending)"
             echo "Reset path: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
             echo "Reset caveat: watchdog register sequence is source-grounded; this watchdog-first ordering still needs physical validation"
-            echo "XNU logo: drawn only after XNU reaches arm_init; no claim of full iOS boot"
+            echo "XNU logo: drawn after arm_vm_init installs the permanent framebuffer alias; no claim of full iOS boot"
+            echo "Framebuffer console: bypassed for this isolation build by lavender_no_fbcon=1; remove that boot arg only after early bootstrap is stable"
             echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
             echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
             echo "XNU boot CPU MPIDR: 0x100 (Kryo 260 Gold cluster)"
