@@ -86,3 +86,13 @@ Working rules:
 - The manual package workflow now has a watchdog-first preflight. It checks the early shim reset helper and guardian reset ordering; static validation passes for source 08cb637 and rejects the older d863da0 source.
 - Run #20 / artifact 14105522131 was packaged from XNU run #153 / source d863da0. Its shim reset path was still PSCI-only even though its manifest said watchdog-first. Do not use that old image for physical testing.
 - Missing `research/ipsw-x/d22ap.adt` still omits the optional ADT `/product` node; investigate before claiming userspace readiness.
+
+
+## Latest workflow validation — 2026-11-14
+
+- Commits `03ed9bf` and `235f3501` add/fix the watchdog-first reset source guard in the separate manual `package-lavender.yml` workflow.
+- Commit `c58cfb8` fixes the integrated workflow's reset-only volume-key wording and adds missing tool/test/workflow paths to its push filters.
+- Integrated run #155, ID `43575805150`, is running against `c58cfb886b47514229ac2a421bfd9440949e65bb`; at the last check its XNU build job was still active. Do not claim a new artifact until both jobs pass.
+- The integrated `xnu.yml` package job still lacks the watchdog-first source guard that was added to the separate manual package workflow. Add the same check to the integrated job to prevent future regressions.
+- Because the exact XNU cache key hashes `.github/workflows/xnu.yml`, the c58cfb8 workflow edit changes the cache key; run #155 may be a cold-cache build even though XNU source and patch inputs are unchanged.
+- Patches 0100 and 0101 remain the latest Lavender patch files; no 0102/0103 exists. Pre-VBAR framebuffer removal is a build-time transformation in `tools/fix-lavender-pre-vbar.py`, not a 0096 patch.
