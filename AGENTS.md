@@ -54,3 +54,11 @@ Working rules:
 - Current source branch head at time of this entry: `59e6024ab1d17c5bd7d293b2ed7305df54ba3ed7`. Integrated build run #147 (`43572507408`) is in progress. Older overlapping pushes were cancelled; do not treat intermediate cancelled runs as validation.
 - A local patch dry-run/application of patch 0100 against the exact run #141 XNU build tree succeeded.
 - **No Apple logo has yet been observed. No physical validation of these new changes has occurred.** Continue with the latest integrated build and inspect the exact build log/artifact before requesting another RAM-only test. Never flash a partition.
+
+
+## Final guardian ownership tightening — 2026-11-14
+
+- Follow-up review found that fatal-path console output could still block before the reset watchdog was armed. Removed the guardian's console dependency and **all** framebuffer-console calls, including timeout and volume-key messages. The A53 guardian now only polls the shared RAM stage cell, timer, and PMIC; reset is display-independent.
+- `reset_now()` no longer paints status text before reset. It first configures the SDM660 watchdog, then invokes PSCI. The `why` argument is intentionally ignored to avoid any display/log side effects.
+- Final source commit: `f9555af4660a854ec03fb8d82e5a0ec94d9f566d`. Integrated run #43 (ID `43572760628`) is the queued run for that exact commit. Cancelled the prior #147 / #148 / run #42 builds so they cannot be mistaken for validation.
+- Do not use any older artifact for the next device trial. Require the final commit's integrated XNU and packaging jobs to succeed first; then inspect its manifest and hashes. Still no confirmed Apple logo or physical validation of this revision. Never flash a partition.
