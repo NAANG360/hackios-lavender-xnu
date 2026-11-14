@@ -3185,3 +3185,35 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - Patches 0100 and 0101 remain the latest numbered Lavender XNU patches; the repository has no 0102/0103 patch. There is no 0096 patch in this branch: pre-VBAR framebuffer removal is performed by `tools/fix-lavender-pre-vbar.py`.
 - Last physical XNU checkpoint remains `XNUSTAGE=1`. No physical Apple logo, stage 2, stable `arm_init()`, or iOS userland is confirmed.
 - Do not request another handset test until watchdog MMIO operation and a recovery route independent of the broken power button are reviewed. The volume-key chord is reset-only.
+
+
+## 44.24 — 2026-11-14: workflow guard audit, watchdog source check, and marker-cell review
+
+### Latest workflow changes
+- Commit `c58cfb886b47514229ac2a421bfd9440949e65bb` fixes the integrated XNU manifest wording: Volume Up + Volume Down held for 3 seconds requests a reset only; it does not select recovery. It also expands `.github/workflows/xnu.yml` push-path coverage to include the pre-VBAR transformation, ADT/payload utilities, tests, and package/shim workflows.
+- Integrated run #155, ID `43575805150`, was triggered by c58cfb8 and was still in progress at this audit. It is the next run expected to carry the corrected manifest. Until it succeeds, run #154 remains the latest verified image.
+- The run #154 manifest itself still says “Recovery chord”; this is a documentation defect in that artifact, not the behavior implemented by the guardian. Do not describe its key chord as entering recovery.
+- `.github/workflows/xnu.yml` currently includes the entire workflow file in the exact-key XNU cache hash. The c58cfb8 manifest/path-filter-only change therefore changes the cache key even though the XNU patch set and pinned builder are unchanged. Run #155 may cold-build unnecessarily; inspect its cache restore log before claiming a cache hit or speedup. Future cache-key design should hash build-affecting inputs separately from packaging/trigger metadata, without weakening patch-set isolation.
+
+### Manual package workflow provenance guard
+- Manual package run #20, ID `43574334314`, produced artifact `14105522131` from XNU run #153 / source commit `d863da08a707353e73166502dcdaee3f5a117fdc`.
+- Independent extraction showed `iosboot.img` was 16,527,360 bytes with SHA-256 `c31ecb285998a6ce52051f0363679ee11af21cf651d4938289682e29655a3119`.
+- That source revision still had a PSCI-only `shim.c::reset()` path, while the manual package manifest claimed watchdog-first behavior for the reset path. The image did not contain the later 08cb637 early-shim watchdog fix. Do not use that old artifact for physical testing.
+- Added a preflight to `.github/workflows/package-lavender.yml` in commit `03ed9bf773aaad33b82745921eb87124e6fd8390`; follow-up `235f3501a5c4cbe968c835a436c2992159d34df0` fixed the source scan to find the reset definition after its forward declaration. Static checks pass against 08cb637 (shim and guardian both arm watchdog before PSCI) and reject the older d863da0 shim source. This manual-workflow guard has not yet been exercised by a dispatched package run.
+
+### Watchdog source cross-check
+- SDM660 device-tree references identify `qcom,wdt@17817000` with register range `0x17817000..0x17817fff`. The vendor watchdog register offsets used by the shim/guardian are `WDT0_RST=0x04`, `WDT0_EN=0x08`, and `WDT0_BITE_TIME=0x14`.
+- Qualcomm's emergency bite routine writes `BITE_TIME=1`, orders the write, then writes `RST=1`. The current Lavender implementation disables the watchdog, writes bite value 1, enables it, and resets the counter before entering PSCI. This is source-grounded; actual reset behavior on this handset remains unverified.
+- The early shim reset path now arms the watchdog before PSCI, and avoids framebuffer output on its terminal Lavender path. The delay loop still precedes watchdog arming; if the architected counter itself stops advancing during that delay, the shim could spin before reaching the watchdog setup. Keep this as a reset-safety review item before a physical test.
+
+### Marker and reserved-memory audit
+- `loader.c` zeroes a 16 KiB boot-arguments page, sets `topOfKernelData = ba_pa + 0x4000`, and places the shared guardian word at `ba_pa + 0x1000`. Thus the marker cell and adjacent scratch words remain inside the reserved boot-arguments page and below `topOfKernelData`.
+- Patch 0095's assembly marker macro saves `x0/x1` at offsets `+0x1008/+0x1010`, writes the marker at `+0x1000`, orders with `dsb sy`, then restores the scratch registers. Those offsets do not overlap the 736-byte boot_args structure.
+- Pre-MMU markers run with data caches disabled. Post-MMU C and assembly marker paths clean the marker cache line with `dc cvac` and order with `dsb sy`, allowing the uncached A53 guardian to observe the shared cell.
+- The guardian treats any changed marker as progress; it does not require numeric monotonicity. The high bit on stage 20 is the terminal-early-bootstrap flag. This accommodates the transition from assembly markers `0x11..0x21` to C markers `4,5,...`.
+- `tools/fix-lavender-pre-vbar.py` is the actual pre-VBAR framebuffer safety transformation; there is no separate patch 0096 on this branch. It removes the legacy raw framebuffer loop while retaining RAM-only markers 1 and 0x11.
+
+### Physical acceptance state
+- Latest verified packaged image remains run #154 / artifact `14105988012`, source `08cb637c6bfc5215d1bb0307eb348add9f285070`, image SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`.
+- Last confirmed physical XNU checkpoint remains `XNUSTAGE=1`. No physical stage 2, observed Apple logo, stable `arm_init()`, or usable iOS boot is confirmed.
+- Do not request a new device test yet. The watchdog MMIO/reset path needs physical validation, and a dependable recovery route with the broken Power button is still not established. Volume Up + Volume Down is reset-only.
