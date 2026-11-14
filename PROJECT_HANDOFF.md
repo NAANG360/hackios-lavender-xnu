@@ -4,9 +4,9 @@
 >
 > Last consolidated: **2026-11-14 (Asia/Kolkata)**  
 > Project repository: https://github.com/NAANG360/hackios-lavender-xnu  
-> Active engineering branch: `ci/lavender-machine-profile` (latest verified build source commit: `08cb637c6bfc5215d1bb0307eb348add9f285070`; documentation/workflow commits may advance branch HEAD; re-resolve before source writes)  
-> Latest successful integrated XNU + package run: `43575320211` (#154), source commit `08cb637c6bfc5215d1bb0307eb348add9f285070`  
-> Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14105988012`; raw `iosboot.img` SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`
+> Active engineering branch: `ci/lavender-machine-profile` (latest verified build source commit: `e9890318f144df763a3ff655a16ca5b5b5447eb5`; documentation commits may advance branch HEAD; re-resolve before source writes)  
+> Latest successful integrated XNU + package run: `43594864654` (#203), source commit `e9890318f144df763a3ff655a16ca5b5b5447eb5`  
+> Latest package artifact: `lavender-fastboot-boot-test`, artifact ID `14114386476`; raw `iosboot.img` SHA-256 `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`
 
 ---
 
@@ -3217,3 +3217,45 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - Latest verified packaged image remains run #154 / artifact `14105988012`, source `08cb637c6bfc5215d1bb0307eb348add9f285070`, image SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`.
 - Last confirmed physical XNU checkpoint remains `XNUSTAGE=1`. No physical stage 2, observed Apple logo, stable `arm_init()`, or usable iOS boot is confirmed.
 - Do not request a new device test yet. The watchdog MMIO/reset path needs physical validation, and a dependable recovery route with the broken Power button is still not established. Volume Up + Volume Down is reset-only.
+
+
+## 44.25 — 2026-11-14: verbose boot diagnostics integrated and packaged in run #203
+
+### Live source and CI provenance
+- Branch at build time: `ci/lavender-machine-profile`.
+- Build source commit: `e9890318f144df763a3ff655a16ca5b5b5447eb5`.
+- Integrated XNU workflow run **#203**, ID `43594864654`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43594864654
+- Build job `132447103223`: success. Package job `132451071971`: success.
+- The final verbose diagnostics patch is `xnu/patches/0106-lavender-verbose-boot-final.patch`, blob SHA `8dcb9b2f2ddc9dd43771986b1e61906ab32601b0`. The run #203 build log explicitly records “Applying patch” for 0106. The post-build entry-guard job succeeded, including checks for the assembly checkpoint macro, C-stage verbose console symbols, deferred logo ordering after `arm_vm_init()`, and framebuffer alias mapping.
+- This supersedes the earlier in-session attempt to introduce patch 0103. **There is no active 0103 patch in the current repository patch chain.** The final committed patch is 0106; use the current repository state, not the earlier chat's intermediate patch drafts.
+
+### Verbose diagnostics behavior in the built source
+- Assembly checkpoint strip: existing blue stage-2 marker plus green 16×16 tiles for stages 3–7, positioned in the lower framebuffer region. The assembly macro preserves/restores scratch registers and uses encodable row-stride adds.
+- C-stage console: stages 1–15 call `lavender_console_mark(stage, label)`. The renderer writes a persistent text history into the lower panel using the existing `iso_font` glyph table (8×16 glyphs). It prints the header `LAVENDER XNU VERBOSE BOOT`, then numbered stage labels.
+- The logo remains deferred until after `arm_vm_init()` establishes the permanent framebuffer alias. Stage 16 marks logo drawing and stage 17 marks completion. This ordering is guarded by the workflow.
+- The boot command line includes `lavender_no_fbcon=1`, which disables the legacy pexpert framebuffer serial console during this isolation build. It does not disable the new direct early renderer in `sweet_early.c`.
+- Important distinction: these are build/source guarantees only. The new screen has not yet been observed on the physical handset.
+
+### Run #203 artifacts and independent image hash
+- Kernel artifact ID `14114156891`; kernel SHA-256 from the package manifest: `be2cdd6b08d8d687aa00d32b3b901878fd8d4d9fe49f2ae121d5b1f9046a61d8`.
+- Package artifact `lavender-fastboot-boot-test`, ID `14114386476`, 16,979,730 bytes; expiry 2026-11-28.
+- The downloaded artifact ZIP contained `iosboot.img` and `shim/out/shim-boot.img`, each 16,527,360 bytes. They are identical in the package.
+- Independently computed `iosboot.img` SHA-256: `172f6cb8b39241dc9997ecf5da1d1eaf5d18d2edb447711baff407c44136ac5f`.
+- Payload SHA-256: `e421ca135c48944200f02ce00ff4e9e36c3f92f518b077e12206d87e8afda6cd`.
+- ADT SHA-256: `5a3fb9aaaeb88a3c5f33c3ad7f281a7fab39105fae654f20bfccc1effeb42cb6`.
+- Build log artifact ID `14114141998`; build-tree artifact ID `14114590813`. Build log size 3,058,984 bytes; build-tree artifact expires 2026-11-21. Kernel artifact expires 2027-02-12.
+- Package job's boot-image structural verification passed. These hashes identify the run #203 image; they do not establish that it boots on hardware.
+
+### Manifest discrepancy to correct
+- Run #203 `BUILD-MANIFEST.txt` says “C milestones 1–15 are drawn as 8×8 tiles before the Apple mark.” This is inaccurate for patch 0106: only assembly stages 3–7 are colored tiles; C stages 1–15 are rendered as text glyphs in the lower panel. The same manifest says “Framebuffer console: bypassed for this isolation build by lavender_no_fbcon=1”; clarify this means the legacy pexpert serial framebuffer console is bypassed, not the direct `lavender_console_mark` renderer.
+- Correct the manifest strings in `.github/workflows/xnu.yml` in a future workflow-only commit. Do not trigger another kernel rebuild solely to fix manifest prose unless a workflow commit naturally starts the next build.
+
+### Remaining known patch warnings
+- Run #203 log shows several inherited/non-Lavender patches skipped because their target paths are absent or the upstream XNU 8796 source already differs (examples: Sweet HFS paths and some Monterey/Sonoma compatibility patches). The Lavender-specific 0106 patch is explicitly applied and the run's Lavender post-patch guard and kernel build succeed. Review inherited skips only if they affect a required Lavender code path; don't report the entire patch stack as warning-free.
+- A warning about missing `research/ipsw-x/d22ap.adt` and omission of optional ADT `/product` data remains a later userspace/IOKit investigation item if it is still present in the current package manifest.
+
+### Physical status and next action
+- Latest confirmed physical checkpoint remains `XNUSTAGE=1`. No physical stage-2/green tile, verbose C text panel, Apple logo, stable `arm_init()`, or iOS userspace is confirmed.
+- Do not flash this image. It is packaged for RAM-only fastboot boot. Before requesting another device test, independently establish a recovery route that does not depend on the broken power button; the volume-up + volume-down chord is reset-only, not a recovery selector.
+- Next: correct the #203 manifest's stale description of C-stage diagnostics in workflow source; then, once recovery safety is independently established, use the run #203 image for a controlled RAM-only observation and record the last visible checkpoint. If the image still shows only the blue tile, distinguish whether the C console's direct framebuffer stores are reached and whether the guardian's shared RAM marker advances. Never infer the freeze stage from the blue tile alone.
+- No physical test has been performed as part of this documentation update.
