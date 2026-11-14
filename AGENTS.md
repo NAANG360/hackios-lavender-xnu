@@ -30,14 +30,9 @@ Working rules:
 
 ## Latest engineering delta — 2026-11-14
 
-- Run #138 (`43554970979`) is the latest fully verified XNU + RAM-only packaging run. Its source commit is `352f7c3cc61a7001c35edee4bccd5c91265a32d3`; build job `132325656246` and package job `132330952177` both succeeded. The raw `iosboot.img` is 16,527,360 bytes with SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`; artifact ID `14098093027`. This is a structurally validated RAM-only fastboot image, not proof of a physical XNU boot.
-- The #126 failure (`43462868674`) was after successful XNU compilation: the post-build entry-guard validator failed with `unsafe Lavender framebuffer access remains before VBAR_EL1`. The later #138 run passed that validator.
-- The `xnu/patches/0096-lavender-no-fb-before-vbar.patch` path mentioned in an earlier handoff is absent on this branch. The actual pre-VBAR transformation is `tools/fix-lavender-pre-vbar.py`, injected into the pinned build script after patch application by `.github/workflows/xnu.yml`. Keep the handoff accurate about this distinction.
-- The latest source change is `ce526931bf4dae15098b372c033f96d7acea0152`. It corrects the guardian's Qualcomm watchdog fallback using the SDM660 vendor one-tick bite sequence; `CNTFRQ_EL0` is not the watchdog clock. The updated shim compiled successfully in Lavender shim run #38 (ID `43570550237`, artifact `14103808558`). The matching XNU build #141 (ID `43570550271`) is still in progress; #139 is also in progress and #140 was cancelled. Run #138 remains the latest completed integrated XNU + package image and contains the older guardian. No integrated image containing the new guardian is verified yet.
-- #138 runner evidence: 4 physical / 4 logical CPUs, 15,032,385,536 bytes RAM, actual `make -j4`, `KERNEL_BUILDS_IN_PARALLEL=4`; exact-key cache was cold. End-to-end run was about 20m35s. Do not claim a speedup until a comparable cache-hit build is measured.
-
-- Reset safety remains incomplete: `shim.c::reset()` is a separate PSCI-only path used before the A53 guardian starts, and `lavender_guardian.c::reset_now()` invokes PSCI before arming the watchdog. A wedged SMC can therefore prevent the watchdog fallback from running. Do not request physical testing until these paths are unified or independently bounded and reviewed.
-- Marker ordering also needs correction before relying on fault localization: Lavender `sweet_early_mark()` currently writes its framebuffer bar before publishing stages 1 and 2 to the shared marker cell. Publish those two markers before their own framebuffer writes while retaining cache clean/DSB ordering; keep stage 20 terminal publication after its final display operation.
+- The current verified source/build state is summarized immediately above. Run #153 (ID `43573274639`) built source commit `d863da08a707353e73166502dcdaee3f5a117fdc`; both the XNU build and integrated RAM-only packaging jobs passed.
+- Patches 0100 and 0101 are included in the packaged image. The current image identity, independent structural checks, artifact IDs, SHA-256 values, build-resource evidence, and outstanding caveats are recorded in `PROJECT_HANDOFF.md` section 44.21.
+- Documentation-only commits may advance branch HEAD without changing the source commit used to build the artifact. Always resolve live HEAD before making source changes.
 
 
 ## 2026-11-14 bring-up correction — framebuffer ownership and early-stage observability
