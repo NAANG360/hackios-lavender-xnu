@@ -3334,3 +3334,19 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 
 ### Physical safety
 - No new device test was performed. Do not request one yet: the independent recovery path with the user's broken Power button has not been established. Do not flash or write boot-critical partitions. Any future test remains RAM-only `fastboot boot` after recovery is proven.
+## 44.30 — 2026-11-14: make C checkpoint cache-clean ordering real
+
+### Compiler finding
+- Disassembly of the run #203 kernel showed `_sweet_early_guard_init` emitted `dc cvac, x8` immediately followed by `ret`; the source contained `__asm__ volatile("dc cvac, %0; dsb sy" ...)`, but the intended DSB was absent. The C checkpoint path used the same inline-assembly spelling.
+- Reproduced with the installed Clang targeting `arm64-apple-macos11`: `"dc cvac, %0; dsb sy"` emitted only `dc cvac` then `ret`; `"dc cvac, %0\n\tdsb sy"` emitted both `dc cvac` and `dsb sy` before `ret`. The semicolon-separated string is therefore unsafe for these C marker publication barriers.
+
+### Corrected 0107
+- Updated `xnu/patches/0107-lavender-post-assembly-entry-trace.patch` in commit `6b5c477d820656f4b029b005d63596cb54705c82`, blob SHA `db2e9b87450706cd459a5e9df04a8119964b4cc2`.
+- All four marker cache-clean asm templates in `sweet_early_guard_init` / `sweet_early_mark` now use the explicit C string `"dc cvac, %0\n\tdsb sy"`. This guarantees the A53 guardian cannot sample an uncompleted cache clean merely because the subsequent framebuffer rendering faults.
+- The final remote patch was extracted and `git apply --check` passed against `/mnt/data/buildtree-run203/xnu`; it applies the stage-8/9 assembly marks, namespaced C markers, publish-before-console ordering, and explicit DSB sequence. `git apply --stat` for the regenerated diff: 2 files, 18 insertions, 9 deletions.
+
+### CI and acceptance boundary
+- Corrected full XNU run **43606468548** was triggered for commit `6b5c477d820656f4b029b005d63596cb54705c82`; it was queued at the time of this entry. This run includes both the complete 0107 patch and explicit C cache-clean barriers. Only this run can validate the current source; earlier runs correspond to intermediate incomplete patch revisions.
+- The workflow's `Require Lavender XNU entry-guard patch` step verifies the patched assembly stages 8/9, the 0x100 C-entry namespace, C stage namespace, and marker publication before `lavender_console_mark`. Kernel success is not established until this guard and `Verify Lavender kernel artifact` both pass.
+- Dedicated AArch64 shim build `43604570915` is green for the guardian banner. It does not validate the XNU patch or physical boot.
+- No updated kernel or fastboot image is yet validated on the handset. No device test; recovery path with the broken Power button remains unresolved. No flashing or partition writes.
