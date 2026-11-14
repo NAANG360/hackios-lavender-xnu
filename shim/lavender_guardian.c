@@ -153,8 +153,6 @@ static int discover(struct spmi *s)
     s->obs=SPMI_OBS;
     s->pon_sid=(SPMI_PON_PPID>>8)&0xfU;
     s->gpio_sid=(SPMI_GPIO7_PPID>>8)&0xfU;
-    con_hex("SPMI VER",ver);
-    con_hex2("SPMI IDs","PON=",s->pon_apid,"GPIO7=",s->gpio_apid);
     return 0;
 }
 static int read_byte(const struct spmi *s,uint32_t apid,uint32_t sid,
@@ -193,19 +191,25 @@ static int chord(const struct spmi *s,uint8_t *up_out,uint8_t *down_out)
 	/* GPIO7 has pull-up (active-low); PON RESIN_N_SET reports VolDown. */
 	return (!(up&GPIO_STATUS_BIT) && (down&PON_RESIN_N_SET)) ? 1 : 0;
 }
+/*
+ * The A73/XNU core owns the shared framebuffer after PSCI_CPU_ON.  This
+ * A53 guardian must not emit routine console output after handoff; even a
+ * single status line can corrupt XNU's logo or early diagnostics.
+ * The only framebuffer messages below are fatal timeout/reset diagnostics,
+ * emitted after the shared stage cell has stopped advancing.
+ */
 void lavender_guardian_run(void)
 {
 	struct spmi s;
 	uint64_t f=frequency(), started=ticks(), progress=started, chord_since=0, probe_at=started;
 	uint32_t marker_last=0xffffffffU;
-	uint8_t last_up=0xffU,last_down=0xffU;
 	volatile uint32_t *cell=(volatile uint32_t *)0;
 	int ready=0;
 	if(!f) reset_now("timer unavailable");
 	for(;;) {
 		uint64_t now=ticks();
 		uintptr_t pa=lavender_guardian_cell_pa;
-		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; con_hex("CELL PA",pa); con_hex("GUARDMK",marker_last); }
+		if(pa && !cell) { cell=(volatile uint32_t *)pa; marker_last=*cell; progress=now; }
 		else if(cell) {
 			uint32_t marker=*cell;
 			if(marker!=marker_last) { marker_last=marker; progress=now; }
@@ -250,10 +254,6 @@ void lavender_guardian_run(void)
 		if(ready) {
 			uint8_t up=0,down=0;
 			int pressed=chord(&s,&up,&down);
-			if(pressed>=0 && (up!=last_up || down!=last_down)) {
-				con_hex2("KEYS","GPIO7=",up,"PON=",down);
-				last_up=up; last_down=down;
-			}
 			if(pressed==1) {
 				if(!chord_since) { chord_since=now; con_str("KEYS","both pressed; hold 3s"); }
 				else if(now-chord_since>=f*CHORD_SECONDS)
