@@ -19,7 +19,7 @@ Working rules:
 ## Latest verified state — 2026-11-14
 
 - Current branch: `ci/lavender-machine-profile`.
-- Current verified HEAD at handoff update: `352f7c3cc61a7001c35edee4bccd5c91265a32d3`.
+- Latest successful build source commit: `352f7c3cc61a7001c35edee4bccd5c91265a32d3` (documentation commits may advance branch HEAD without changing the built source).
 - Latest successful integrated build/package: GitHub Actions run **#138**, ID `43554970979`:
   https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43554970979
 - Both XNU build and RAM-only packaging jobs passed. The kernel artifact is ID `14098277391`; the fastboot package artifact is ID `14098093027`.
