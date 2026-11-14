@@ -2907,3 +2907,19 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
   - SDM660 DTS: `qcom,wdt@17817000`, compatible `qcom,msm-watchdog`, `reg = <0x17817000 0x1000>`: `https://android.googlesource.com/kernel/msm/%2B/a799a397d20ee441167d7e686c519b6584600389/arch/arm/boot/dts/qcom/sdm660.dtsi`.
   - Qualcomm `watchdog_v2.c`: emergency bite writes `WDT0_BITE_TIME=1`, memory barrier, `WDT0_RST=1`, memory barrier. Watchdog initialization enables the block and resets it; the emergency bite helper assumes the watchdog data has already been initialized: `https://android.googlesource.com/kernel/msm/%2B/03c2d42aa4bc362578b3824a81583638e2e23151/drivers/soc/qcom/watchdog_v2.c`.
 - The current guardian's added EN disable/enable prelude is not byte-for-byte the vendor emergency bite routine. Its final BITE_TIME-before-RST ordering is source-grounded, but the full sequence still requires static review against the exact hardware reset state. The current PSCI-first call remains a reachability hazard for the watchdog fallback if the SMC call blocks. Do not clear the physical-test gate until this is addressed.
+
+
+### 44.10 Run-history correction and latest failed-run diagnostics
+
+- The full XNU workflow listing (recursive tree audit confirmed the list is the current `xnu.yml` workflow) shows the recent sequence:
+  - #138 / `43554970979`: completed success, source `352f7c3...`.
+  - #139 / `43570289508`: cancellation requested; its `Build XNU 8796` step is confirmed `cancelled`, while the job's final cleanup was still completing at the last query.
+  - #140 / `43570530936`: final run conclusion `cancelled`; its build step and downstream kernel verification/cache-save were skipped.
+  - #141 / `43570550271`: latest source `ce526931...`; build step `Build XNU 8796` remained `in_progress`.
+- This supersedes the earlier Section 44.7 statement that all three builds remained active and could not be cancelled. Two redundant build steps have now been stopped; #141 is the only build to retain.
+- Recent failed-run logs were inspected:
+  - #135 / `43467922936`: `Fetch pinned XNU build tooling` failed with `AssertionError: pinned build.sh insertion point changed`. The injected transformation did not match the pinned script's exact patch/venv boundary; no kernel build was reached.
+  - #136 / `43477090137`: XNU compilation proceeded into the kernel link / dSYM support stage, but `Require Lavender XNU entry-guard patch` failed in the validator with `re.PatternError: missing ), unterminated subpattern at position 28`. The failure was a malformed regular expression, not evidence of an unsafe framebuffer store.
+  - #138 corrected the insertion/escaping defects and passed the source guard, kernel artifact verification, and RAM-only packaging.
+- The full recursive repository tree contained 175 entries and was not truncated. Only the root `AGENTS.md` exists; no nested `AGENTS.md` / `agents.md` instruction files were found.
+- The run #141 XNU build artifact is not yet available. Do not dispatch the manual package workflow until #141 reports `success` and its kernel artifact is present. Then pass `43570550271` as `xnu_run_id` so the packaging workflow checks out the exact source revision `ce526931...`.
