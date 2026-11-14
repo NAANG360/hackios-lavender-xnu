@@ -2970,3 +2970,13 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
 - Repository tags listing returned no tags (`tags=[]`).
 - Therefore there is no tagged/released `iosboot.img` newer than the Actions artifact. The authoritative downloadable package remains the Actions artifact from run #138 until the #141 XNU build and its manual package run both succeed.
 - Latest run #141 still had `Build XNU 8796` in progress at this inspection; no kernel artifact or package artifact was available yet.
+
+
+### 44.15 Actual XNU MakeInc parallelism and measured cold-build baseline
+
+- The #138 build-tree archive was inspected beyond the startup files; the exact patched `xnu/makedefs/MakeInc.top` was extracted.
+- It uses `KERNEL_BUILDS_IN_PARALLEL` to stripe build configurations across parallel sub-makes (`build_all`, config/install stages). With `BUILD_LTO=1`, it budgets 4 GiB per kernel configuration and otherwise 256 MiB. The workflow passes `KERNEL_BUILDS_IN_PARALLEL` as a command-line make variable, which takes precedence over the makefile's computed default.
+- The current workflow supplies physical CPU count (4) as `KERNEL_PARALLELISM_OVERRIDE`. With 15,032,385,536 bytes RAM and LTO enabled, the makefile's default memory formula would cap multi-configuration builds at 3; the workflow override of 4 would exceed that budget if four distinct kernel configurations were requested. The current job builds only one `DEVELOPMENT_ARM64_LAVENDER` configuration, so this does not currently create four simultaneous kernel builds or observed memory pressure. Keep this as a future resource-cap correction before enabling multi-config builds.
+- The main build's actual per-file parallelism is not cosmetic: run #138 logged `make -j4`, and concurrent clang compile commands were emitted within the same 100 ms interval. The runner exposed 4 physical CPUs, 4 logical CPUs, and 15,032,385,536 bytes RAM.
+- Run #138's cache restore explicitly logged `Cache not found` for the old key. From the `XNU_MAKE_JOBS=4` build invocation at 04:07:18.595 UTC to the pre-VBAR guard passing at 04:25:46.836 UTC was approximately **18 minutes 28 seconds** for that cold XNU build path. This is a measured baseline, not proof of a speedup over prior runs; CPU utilization and peak RAM were not recorded.
+- The new exact-key cache is still cold until #141 finishes and saves it. A subsequent identical build is required to measure cache-hit time.
