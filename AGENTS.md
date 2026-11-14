@@ -75,11 +75,14 @@ Working rules:
 ### Packaging manifest reset semantics
 - Corrected `.github/workflows/package-lavender.yml` so `BUILD-MANIFEST.txt` reflects watchdog-first reset ordering, with physical validation pending.
 - Corrected the key-chord wording: Volume Up + Volume Down held for 3 seconds requests a hardware reset only; it does not set a recovery boot target. Do not instruct the user that this chord enters recovery.
-- Package workflow is manually dispatched after a successful XNU run, with that XNU run ID. The selected XNU run #153 has not completed yet.
+- Package workflow is manually dispatched after a successful XNU run, with that exact XNU run ID. Its preflight now rejects source revisions without watchdog-first reset logic in both the shim and A53 guardian.
 
 
-## Current workflow caveats — 2026-11-14
+## Current workflow and package safety — 2026-11-14
 
-- `.github/workflows/xnu.yml` integrated package manifest still incorrectly labels Volume Up + Volume Down as a recovery chord; it requests reset only. Correct before the next image release. The separate manual package workflow already uses corrected wording.
-- The integrated workflow push path list omits several build/package-affecting tools (`tools/fix-lavender-pre-vbar.py`, `tools/mkadt-lavender.py`, `tools/adt.py`, `tools/mkpayload.py`, `tools/unpack_bootv2.py`, `tools/extract_appended_fdt.py`). Extend the path list so changes trigger validation.
-- Missing `research/ipsw-x/d22ap.adt` continues to omit the optional ADT `/product` node; investigate before claiming userland readiness.
+- Commit `c58cfb886b47514229ac2a421bfd9440949e65bb` corrected the integrated `.github/workflows/xnu.yml` manifest: Volume Up + Volume Down is reset-only, not recovery selection.
+- The same commit expanded the integrated workflow push filters to cover the pre-VBAR transform, ADT/payload tools, tests, and the manual/package workflows.
+- Integrated XNU run #155 (ID `43575805150`) is currently in progress on c58cfb8. Run #154 remains the latest successful packaged image until #155 completes.
+- The manual package workflow now has a watchdog-first preflight. It checks the early shim reset helper and guardian reset ordering; static validation passes for source 08cb637 and rejects the older d863da0 source.
+- Run #20 / artifact 14105522131 was packaged from XNU run #153 / source d863da0. Its shim reset path was still PSCI-only even though its manifest said watchdog-first. Do not use that old image for physical testing.
+- Missing `research/ipsw-x/d22ap.adt` still omits the optional ADT `/product` node; investigate before claiming userspace readiness.
