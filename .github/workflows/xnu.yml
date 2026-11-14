@@ -196,20 +196,25 @@ jobs:
           stage8 = source.index("lavender_guard_mark 8", handoff)
           stage9 = source.index("lavender_guard_mark 9", stage8)
           handoff_ret = source.index("// Return to arm_init()", stage9)
-          ret_insn = source.index("ret", handoff_ret)
+          ret_insn = source.index("ret", handoff_ret + len("// Return to arm_init()"))
           if not (handoff < stage8 < stage9 < ret_insn):
               raise SystemExit("post-assembly stages 8/9 must bracket the final arm_init return")
           early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
           guard_init = early.index("sweet_early_guard_init(uintptr_t boot_args_kva)")
           early_mark = early.index("sweet_early_mark(unsigned int stage", guard_init)
-          early_end = early.find("\\nstatic ", early_mark)
-          early_body = early[early_mark:early_end if early_end >= 0 else len(early)]
+          early_end = early.index("void sweet_early_putc", early_mark)
+          early_body = early[early_mark:early_end]
           if "*early_guard_cell = 0x100u" not in early[guard_init:early_mark]:
               raise SystemExit("C-entry guard initialization marker is missing")
           if "0x100u | stage" not in early_body or "0x80000100u | stage" not in early_body:
               raise SystemExit("C checkpoint marker namespace is missing or stage 20 is not encoded")
-          if early_body.index("0x100u | stage") > early_body.index("lavender_console_mark(stage, label)"):
+          c_stages = early_body.index("if (stage < 16)")
+          c_console = early_body.index("lavender_console_mark(stage, label)", c_stages)
+          c_publish = early_body.find("0x100u | stage", c_stages, c_console)
+          if c_publish < 0:
               raise SystemExit("C checkpoint marker must be published before framebuffer text I/O")
+          if "stage + 3u" in early_body:
+              raise SystemExit("ambiguous legacy C checkpoint marker encoding remains")
           if "stage + 3u" in early_body:
               raise SystemExit("ambiguous legacy C checkpoint marker encoding remains")
           logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
