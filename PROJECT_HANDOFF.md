@@ -2962,3 +2962,11 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
 - No cache entry with the new exact key existed at inventory time. Runs #139 and #140 were cancelled before the save step; #141 is the first candidate to populate it.
 - The workflow uses exact-key restore without a broad restore prefix. This is intentional: do not restore the old 238 MB cache across a changed transformation/build recipe.
 - #141's restore action step itself completed successfully, but the cache inventory shows the new key was not previously present. Treat #141 as a cold-cache build unless its completed log proves otherwise. A subsequent same-config run must be used to measure a warm-cache improvement.
+
+
+### 44.14 Releases and tags audit
+
+- GitHub Releases listing returned no releases (`details=[]`).
+- Repository tags listing returned no tags (`tags=[]`).
+- Therefore there is no tagged/released `iosboot.img` newer than the Actions artifact. The authoritative downloadable package remains the Actions artifact from run #138 until the #141 XNU build and its manual package run both succeed.
+- Latest run #141 still had `Build XNU 8796` in progress at this inspection; no kernel artifact or package artifact was available yet.
