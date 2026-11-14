@@ -2950,3 +2950,15 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
 - The guardian deliberately defers all PMIC/SPMI discovery and key polling until the high-bit stage-20 marker. Therefore the Volume Up + Volume Down recovery chord is **not available during the earlier boot stages**, including the previously observed `XNUSTAGE=1` stall. Before stage 20, only the 60-second stall monitor can request reset.
 - The chord handler requests a reset; it does not program an explicit PMIC recovery boot reason. The assumption is that the physical keys remain held across reset and the bootloader then selects recovery. That bootloader behavior has not been verified on this handset.
 - This confirms the key register mapping but does not clear the physical-test gate: early-stage reset still depends on the PSCI/watchdog path, the PSCI-first call can block before watchdog fallback, and the key chord is unavailable until stage 20. Do not request a physical test yet.
+
+
+### 44.13 Actions cache inventory — exact-match result
+
+- GitHub Actions cache inventory for `refs/heads/ci/lavender-machine-profile` returned exactly one XNU cache entry:
+  - key: `lavender-xnu8796-macos15-xcode16-01c4131baf1a23b6f931abeab24b84563b676279bee4a3ab6bc2d1c0f4a87224`;
+  - size: 238,879,002 bytes;
+  - created / last accessed: 2026-11-14 04:12:50 UTC.
+- This is the old patch-only key from the #138 era. It does not match the new key, which includes macOS / kernel / machine configuration, Xcode environment, pinned DXB SHA, patch set, post-patch transformer, and workflow source.
+- No cache entry with the new exact key existed at inventory time. Runs #139 and #140 were cancelled before the save step; #141 is the first candidate to populate it.
+- The workflow uses exact-key restore without a broad restore prefix. This is intentional: do not restore the old 238 MB cache across a changed transformation/build recipe.
+- #141's restore action step itself completed successfully, but the cache inventory shows the new key was not previously present. Treat #141 as a cold-cache build unless its completed log proves otherwise. A subsequent same-config run must be used to measure a warm-cache improvement.
