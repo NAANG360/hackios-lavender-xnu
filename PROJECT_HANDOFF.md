@@ -3040,3 +3040,16 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
 - Integrated XNU build run #147: ID `43572507408`; at handoff update time its build job was in progress. Earlier overlapping runs for intermediate commits were cancelled; their status is not evidence for this final source set.
 - No new `iosboot.img` from the final source set has been validated yet. No physical test has been run with these changes. There is still no confirmed Apple logo, no confirmed stage 1/2 marker observation from the device, and no claim of a usable iOS userland.
 - Next: wait only by checking the live run (no background assumptions); require XNU build and RAM-only packaging jobs to both pass; inspect the resulting artifact's manifest, hashes, and image structure. Only then decide whether another user-controlled `fastboot boot iosboot.img` is appropriate. Never flash `boot`, `recovery`, or any other partition.
+
+
+## 44.19 — 2026-11-14: guardian made fully framebuffer-independent
+
+A final review of `reset_now()` found that fatal-path status writes still happened before the new watchdog-first sequence. If a framebuffer access were itself stalled, the reset path could still be delayed. The guardian has therefore been tightened further:
+
+- Removed its `console.h` dependency.
+- Removed **every** framebuffer-console call from `lavender_guardian.c`: no normal status lines, no SPMI/key messages, and no timeout/reset overlay.
+- `reset_now()` now begins with watchdog configuration and then calls PSCI. The reason string is unused; there are no display or logging operations before the reset sequence.
+- The A53 never writes the framebuffer after releasing the A73. This gives the A73/XNU exclusive display ownership from loader handoff onward.
+- Final source commit: `f9555af4660a854ec03fb8d82e5a0ec94d9f566d`. Final integrated run for that commit: run #43, ID `43572760628`, queued at the time of this note. Intermediate runs #147, #148 and #42 were cancellation-requested; they do not validate the final source.
+- The previous local validation of patch 0100 remains valid: it applied successfully to the exact #141 build tree. The final image must still be built and structurally checked by the integrated workflow.
+- **No Apple logo has been observed. No image for this final revision is available yet, and no new physical test has occurred.** Use only a successfully packaged artifact from commit `f9555af`, RAM-only via `fastboot boot`; never flash a partition.
