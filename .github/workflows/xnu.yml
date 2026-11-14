@@ -198,11 +198,11 @@ jobs:
           grep -q 'sweet_early_map_final();' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q '0x9c000000ULL | ARM_TTE_VALID' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q 'lavender_guard_mark 7' dxb/xnu/osfmk/arm64/start.s
-          grep -q 'Stage 3..7: green 16x16 tiles' dxb/xnu/osfmk/arm64/start.s
           grep -q 'LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'lavender_console_mark(stage, label)' dxb/xnu/osfmk/arm64/sweet_early.c
-          if grep -q 'Skipping patch .*0103-lavender-visible-early-checkpoints.patch' xnu-build.log; then
-            echo "Verbose checkpoint patch was skipped; refusing to package a non-verbose kernel."
+          grep -q 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
+          if grep -q 'Skipping patch .*0105-lavender-verbose-boot-console.patch' xnu-build.log; then
+            echo "Verbose boot console patch 0105 was skipped; refusing to package a non-verbose kernel."
             exit 1
           fi
           grep -q '#if !VMAPPLE && !defined(KERNEL_INTEGRITY_KTRR)' dxb/xnu/osfmk/arm64/start.s
