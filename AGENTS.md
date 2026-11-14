@@ -18,12 +18,12 @@ Working rules:
 
 ## Latest verified state — 2026-11-14
 
-- Latest verified integrated build source remains `d863da08a707353e73166502dcdaee3f5a117fdc` (run #153). A later source-only reset-safety commit `08cb637c6bfc5215d1bb0307eb348add9f285070` closes the pre-guardian PSCI-only reset gap; its matching CI/build result is not yet verified. The #153 image does not contain that later fix.
-- Latest verified integrated XNU + RAM-only packaging run: #153, ID `43573274639`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43573274639. Build job `132382003804` and package job `132384831631` both succeeded.
-- Kernel artifact ID `14105541904`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
-- Fastboot package artifact ID `14105179582`; contains `iosboot.img` (16,527,360 bytes; SHA-256 `5160f44e77df55641654b7dfbcd0006ba64c1765afecd6248b6ff5ad42901dcd`). The artifact ZIP digest is `eec103ee5e3e2461b9eb533e8b18d772aac4f842e4c9aa31c97ee0cccfe12afc`.
-- Patches 0100 and 0101 are included and passed the integrated XNU build/entry-guard checks. The image independently parses as Android boot v2 with ARM64 shim, LAVENDRX payload, 10 XNU segments and a valid FDT; this is structural verification only.
-- Runner exposed 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; Make used `-j4` and XNU internal parallelism 4. Exact-key cache was cold and saved; no cache-hit speedup has been measured.
+- Latest verified integrated build source: `08cb637c6bfc5215d1bb0307eb348add9f285070` (run #154). It includes the watchdog-first reset in both the early shim reset path and the A53 guardian. XNU build and integrated packaging both passed.
+- Latest verified integrated XNU + RAM-only packaging run: #154, ID `43575320211`: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43575320211. Build job `132388179225` and package job `132389050961` both succeeded.
+- Kernel artifact ID `14105787768`; 16,570,168 bytes; SHA-256 `740c1f63844e9a231a4dbffe1a38b1ee08570ecb20ce0f73e36827e7778cc6cf`.
+- Fastboot package artifact ID `14105988012`; contains `iosboot.img` (16,527,360 bytes; SHA-256 `394efe92daf8205dec71a1a6dea0efc79a0af1e64beb0322d2a6f0c9db54e0fb`). The artifact ZIP digest is `7dcc37ae921db3b4797856f94b2c5592b58b61b9c6cb6e01c8d864e3d19145a3`.
+- Patches 0100 and 0101 are included and passed integrated XNU build/entry-guard checks. Run #154 also compiles the watchdog-first early shim reset fix. The image independently parses as Android boot v2 with ARM64 shim, LAVENDRX payload, 10 XNU segments and a valid FDT; this is structural verification only.
+- Runner exposed 4 physical / 4 logical CPUs and 15,032,385,536 bytes RAM; Make used `-j4` and XNU internal parallelism 4. Run #154 restored an exact-key cache hit (~228 MB); cache save was skipped as expected. This demonstrates a cache-hit build, not a CPU-parallelism-only speedup.
 - Packaging warned that `research/ipsw-x/d22ap.adt` was absent and omitted the ADT `/product` node; package still passed. Assess whether later startup needs it.
 - **No physical Apple logo or successful XNU boot is confirmed.** Last confirmed physical checkpoint remains `XNUSTAGE=1`. Do not request another device test until the early PSCI-only `shim.c::reset()` path and recoverability with the broken power button have been reviewed. Volume Up + Volume Down for 3 seconds requests reset only; it does not select recovery.
 - Full run evidence and independent image checks are recorded in `PROJECT_HANDOFF.md` section 44.21. Documentation-only commits may advance branch HEAD without changing the built source commit.
@@ -75,3 +75,10 @@ Working rules:
 - Corrected `.github/workflows/package-lavender.yml` so `BUILD-MANIFEST.txt` reflects watchdog-first reset ordering, with physical validation pending.
 - Corrected the key-chord wording: Volume Up + Volume Down held for 3 seconds requests a hardware reset only; it does not set a recovery boot target. Do not instruct the user that this chord enters recovery.
 - Package workflow is manually dispatched after a successful XNU run, with that XNU run ID. The selected XNU run #153 has not completed yet.
+
+
+## Current workflow caveats — 2026-11-14
+
+- `.github/workflows/xnu.yml` integrated package manifest still incorrectly labels Volume Up + Volume Down as a recovery chord; it requests reset only. Correct before the next image release. The separate manual package workflow already uses corrected wording.
+- The integrated workflow push path list omits several build/package-affecting tools (`tools/fix-lavender-pre-vbar.py`, `tools/mkadt-lavender.py`, `tools/adt.py`, `tools/mkpayload.py`, `tools/unpack_bootv2.py`, `tools/extract_appended_fdt.py`). Extend the path list so changes trigger validation.
+- Missing `research/ipsw-x/d22ap.adt` continues to omit the optional ADT `/product` node; investigate before claiming userland readiness.
