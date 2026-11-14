@@ -179,16 +179,18 @@ jobs:
           entry = source.index('sweet_early_mark(1, "arm_init entered (MMU on)")', start)
           vm = source.index("arm_vm_init(xmaxmem, args);", entry)
           stage15 = source.index('sweet_early_mark(15, "arm_vm_init returned")', vm)
-          stage16 = source.index('sweet_early_mark(16, "drawing logo through permanent framebuffer alias")', vm)
+          stage16 = source.index('sweet_early_mark(16, "drawing logo through permanent framebuffer alias")', stage15)
           logo = source.index("sweet_early_logo();", stage16)
           stage17 = source.index('sweet_early_mark(17, "Lavender diagnostic logo completed")', logo)
           if not (entry < vm < stage15 < stage16 < logo < stage17):
-              raise SystemExit("Lavender logo must be drawn only after arm_vm_init installs the permanent framebuffer alias")
+              raise SystemExit("Lavender logo must be drawn after arm_vm_init installs the permanent framebuffer alias")
           logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
-          logo_body = logo_source[logo_source.index("sweet_early_logo(void)"):logo_source.index("sweet_early_guard_init(")]
+          logo_start = logo_source.index("sweet_early_logo(void)")
+          logo_end = logo_source.index("sweet_early_guard_init(", logo_start)
+          logo_body = logo_source[logo_start:logo_end]
           if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
               raise SystemExit("Lavender logo must clear the full panel, not a rectangle")
-          print("PASS: Apple mark is drawn after arm_vm_init while the permanent framebuffer alias is active")
+          print("PASS: deferred Apple mark follows arm_vm_init and full-panel clear")
           PY
           grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/sweet_early.c
