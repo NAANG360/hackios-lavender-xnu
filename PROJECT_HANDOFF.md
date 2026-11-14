@@ -2988,3 +2988,29 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
 - This matches the shim's hardware selection: the A53 at MPIDR `0x0` lacks TGran16 and the A73 at MPIDR `0x100` is selected for XNU entry. The ADT's boot CPU identity is therefore consistent with the physical entry CPU.
 - The payload command line is explicitly `debug=0xc serial=3 cpus=1 keepsyms=1`. The ADT still describes all eight cores, but `cpus=1` intentionally prevents XNU from attempting secondary CPU startup during first bring-up.
 - Therefore secondary CPU startup, PSCI CPU_ON, per-CPU stacks, and cross-cluster scheduling are not yet tested. Do not describe SMP as implemented. Revisit only after primary-core MMU/exception startup and `arm_init()` are stable.
+
+
+### 44.17 TCR / TTBR / MAIR / SCTLR audit from the actual #138 build tree
+
+- The exact `sysreg_restore.tcr_el1` initializer in `xnu/osfmk/arm64/cpu.c` is `TCR_EL1_BOOT`. The Lavender profile defines `__ARM_16K_PG__=1`; `__ARM_42BIT_PA_SPACE__` is **not** defined for Lavender (its definition in `board_config.h` is scoped to T6000 only). Therefore:
+  - TG0 = 16 KiB (`0b10`);
+  - TG1 = 16 KiB (`0b01`);
+  - IPS = 40-bit physical address range (`0b010`);
+  - T0SZ = T1SZ = 17 (47-bit input VA ranges);
+  - both translation regimes use outer-shareable, write-back inner/outer attributes.
+- This matches the Cortex-A73 TRM: `ID_AA64MMFR0_EL1.TGran16=0x1` (16 KiB supported) and `PARange=0x2` (40-bit physical range). The official A73 TRM is `https://documentation-service.arm.com/static/5e7b6c837158f500bd5c03fc`. There is no 42-bit IPS mismatch for Lavender; the earlier concern came from reading the T6000-only branch of `board_config.h` out of context.
+- `start.s` installs TTBR0 with the V=P table at `x25` and TTBR1 with the KVA table at `x25 + PGBYTES`. The page-table layout and boot_args reservation use the same 16 KiB page size.
+- The MAIR byte table assembled by `start.s` is:
+  - Attr0 `0xFF`: Normal write-back;
+  - Attr1 `0x44`: Normal outer/inner non-cacheable (framebuffer write-combine);
+  - Attr2 `0xBB`: Normal write-through;
+  - Attr3 `0x00`: Device nGnRnE;
+  - Attr4 `0x4F`: outer non-cacheable / inner write-back;
+  - Attr5 `0x04`: Device nGnRE;
+  - Attr6 `0x08`: Device nGRE;
+  - Attr7 `0x0C`: Device GRE.
+  Combined `MAIR_EL1 = 0x0C08044F00BB44FF`.
+- `SCTLR_EL1_DEFAULT` enables MMU (`M`), data cache (`C`), instruction cache (`I`), stack alignment checks (`SA/SA0`), and the XNU-selected architectural defaults. The code writes it, executes `isb sy`, writes marker 2, performs the 8×8 framebuffer store, then writes marker `0x21`; after that it compares the saved SCTLR value against the default and would spin forever on mismatch. Thus marker `0x21` proves the framebuffer store returned, while the subsequent stage-3 marker proves the SCTLR readback check passed.
+- The generic `tlbi vmalle1; dsb ish` follows MAIR programming. The apparent lack of a DSB/ISB after `ic iallu` is not a Lavender defect: the actual exported `apple_arm64_common.h` defines `__ARM_IC_NOALIAS_ICACHE__=1`, so the conditional I-cache invalidation block in `start.s` is compiled out for this Apple arm64 target. The later `isb sy` synchronizes the SCTLR/MMU context change.
+- The first low VBAR is installed before MMU activation; after TTBR setup and mappings, the kernel KVA exception vector base is installed again before SCTLR.M is enabled. The marker sequence distinguishes these operations.
+- Source-level configuration now appears internally consistent with the A73's 16 KiB / 40-bit translation capabilities. Runtime register values and exception behavior remain unobserved on the phone.
