@@ -147,8 +147,8 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          if grep -q 'Skipping patch .*0103-lavender-visible-early-checkpoints.patch' xnu-build.log; then
-            echo "Verbose diagnostics patch was skipped; refusing this build."
+          if grep -q 'Skipping patch .*0105-lavender-verbose-boot-console.patch' xnu-build.log; then
+            echo "Verbose boot console patch 0105 was skipped; refusing this build."
             exit 1
           fi
           python3 - <<'PY'
