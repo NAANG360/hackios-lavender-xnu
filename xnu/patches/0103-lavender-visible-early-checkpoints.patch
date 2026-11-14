@@ -190,7 +190,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  	if (stage > 20) {
  		return;
  	}
-@@ -228,12 +317,15 @@
+@@ -228,11 +317,14 @@
  		*early_guard_cell = stage + 3u;
  		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
  	}
@@ -206,4 +206,3 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +		lavender_console_mark(stage, label);
  		return;
  	}
- 	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
