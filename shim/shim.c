@@ -354,13 +354,17 @@ static __attribute__((noreturn)) void test_lavender_a73_psci(uintptr_t dtb)
 		reset(15);
 	}
 
+	/* Finish all A53 framebuffer output before releasing the A73.
+	 * From this point onward XNU owns the display; the independent guardian
+	 * must remain silent so it cannot race the loader or Apple's early logo. */
+	con_str("BOOT CPU", "guardian active");
 	con_str("A73", "16K supported; launching XNU");
 	lavender_a73_state = A73_STATE_GO;
 	__asm__ volatile("dsb sy; sev" ::: "memory");
 
 	/* Keep the original A53 alive outside XNU. It is omitted from the
-	 * Apple Device Tree and runs the independent PMIC-key/watchdog guardian. */
-	con_str("BOOT CPU", "guardian active");
+	 * Apple Device Tree and runs the independent PMIC-key/watchdog guardian.
+	 * The guardian only polls RAM, timers and PMIC state after this point. */
 	lavender_guardian_run();
 }
 #endif /* TARGET_LAVENDER */
