@@ -1,0 +1,36 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -212,22 +212,31 @@
+ void
+ sweet_early_mark(unsigned int stage, const char *label)
+ {
+ 	(void)label;
+ 	if (stage > 20) {
+ 		return;
+ 	}
++	/*
++	 * Publish the arm_init entry and logo-start markers before any framebuffer
++	 * access. If the first display store faults, the A53 guardian must still
++	 * distinguish "arm_init entered" from a pre-MMU/start.s stall.
++	 */
++	if (early_guard_cell != 0 && stage <= 2) {
++		*early_guard_cell = stage + 3u;
++		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
++	}
+ 	/* A narrow per-stage bar at the bottom edge; no font or IOKit needed. */
+ 	uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
+ 	unsigned int x0 = stage * 48u;
+ 	for (unsigned int y = LAVENDER_FB_HEIGHT - 24u; y < LAVENDER_FB_HEIGHT - 8u; y++) {
+ 		for (unsigned int x = x0; x < x0 + 40u; x++) {
+ 			early_fb[y * LAVENDER_FB_STRIDE + x] = color;
+ 		}
+ 	}
+-	if (early_guard_cell != 0) {
++	if (early_guard_cell != 0 && stage > 2) {
+ 		/* High bit marks stage 20 as the end of the early-bootstrap guard. */
+ 		*early_guard_cell = (stage == 20) ? (0x80000000u | stage) : (stage + 3u);
+ 		__asm__ volatile("dc cvac, %0; dsb sy" :: "r"(early_guard_cell) : "memory");
+ 	}
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
