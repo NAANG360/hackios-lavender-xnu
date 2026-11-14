@@ -2923,3 +2923,17 @@ Commit `ce526931bf4dae15098b372c033f96d7acea0152` updates `shim/lavender_guardia
   - #138 corrected the insertion/escaping defects and passed the source guard, kernel artifact verification, and RAM-only packaging.
 - The full recursive repository tree contained 175 entries and was not truncated. Only the root `AGENTS.md` exists; no nested `AGENTS.md` / `agents.md` instruction files were found.
 - The run #141 XNU build artifact is not yet available. Do not dispatch the manual package workflow until #141 reports `success` and its kernel artifact is present. Then pass `43570550271` as `xnu_run_id` so the packaging workflow checks out the exact source revision `ce526931...`.
+
+
+### 44.11 Run #138 artifact manifest correction and package workflow repair
+
+- The #138 package was downloaded and checked locally. Its `iosboot.img` is 16,527,360 bytes; SHA-256 `6e9a4cf545f644f6c7d064c421b19db92a2235bb1b4f19115083c82cfe5998ca`. The image is byte-identical to `shim/out/shim-boot.img` in the artifact archive.
+- The embedded #138 `BUILD-MANIFEST.txt` contains an incorrect reset-order statement: it says watchdog first, then PSCI. Inspection of the exact #138 source at `352f7c3...` confirms the opposite: `PSCI_FEATURES` / `PSCI_SYSTEM_RESET` are called first, and the watchdog fallback is reached only if the SMC returns.
+- The #138 guardian also uses the older `CNTFRQ_EL0`-derived 128 ms timeout. This is not the Qualcomm watchdog input clock. The #138 image is therefore a structurally verified historical baseline, not the current guardian and not suitable for another physical test.
+- A local correction note was created alongside the downloaded image: `iosboot-BUILD-MANIFEST-CORRECTION.txt`. It preserves the original artifact manifest and explicitly records the corrected source-level reset order and safety caveat.
+- Commit `837cb45b0d367927c6b2af538fbf44ae7509535f` corrects the current manual packaging workflow's generated manifest:
+  - `PSCI SYSTEM_RESET` first;
+  - SDM660 one-tick watchdog bite at `0x17817000` only if PSCI returns;
+  - explicit warning that the watchdog fallback is unreachable if the PSCI SMC blocks without returning.
+- This manifest correction does not fix the reset-path reachability issue; it prevents future images from misrepresenting it. The #141 source still uses PSCI-first ordering. A bounded watchdog must be armed before entering the potentially non-returning SMC, or the vendor watchdog bite must become the primary reset path with PSCI secondary. Use the vendor `WDT_HZ=32765` default only as an explicitly grounded source value, not `CNTFRQ_EL0`; verify exact target clock assumptions before implementing a timed fallback.
+- The package workflow change does not trigger XNU compilation. It will be used when #141 succeeds and is manually packaged.
