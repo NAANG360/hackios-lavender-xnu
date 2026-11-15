@@ -24,12 +24,17 @@ Bring XNU 8796 (iOS 16 generation) up on Xiaomi Redmi Note 7/7S (lavender, SDM66
 ## Device facts
 Lavender, Qualcomm SDM660 / Kryo 260, ARM64. Observed Silver MPIDRs 0x0–0x3, Gold MPIDRs 0x100–0x103; boot path uses Gold 0x100 due the A53 16K-granule limitation observed so far. Revalidate before changing.
 
-## Current task — Run #252 failure
-XNU Run #252 (43733584216, source e463e56ca9d9c5b1d78c541ecfd751fe890f7a24) failed while assembling osfmk/arm/commpage/commpage_asm.s: two CASA instructions at source lines 276 and 326 require LSE, despite -mcpu=generic -march=armv8-a. These are handwritten assembly and are not controlled by the C compiler CPU default. The corrective patch 0112-lavender-commpage-armv8a-llsc.patch replaces each acquire CASA with ARMv8.0 LDAXR + STXR retry logic and retains the existing lock-busy failure path.
+## Current task — ARMv8-A commpage assembly correction
 
-The workflow must require patch 0112 and verify both helpers contain LL/SC and no CASA. This is a targeted ISA compatibility fix; subsequent builds may expose additional handwritten LSE instructions, which must be fixed narrowly rather than weakening the ARMv8-A target.
+XNU Run #252 (43733584216, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) failed because handwritten `CASA` instructions in `osfmk/arm/commpage/commpage_asm.s` lines 276 and 326 require LSE. The generic ARMv8-A C compiler flags do not rewrite handwritten assembly. The failure is confirmed in the build log; kernel verification and RAM-image packaging were skipped.
 
-Read Chapter 03. Run #252's raw kernel candidate is not verifier-approved and has no paired boot image; do not use it as a device image.
+Patch `0112-lavender-commpage-armv8a-llsc.patch` replaces both acquire-CAS sequences in `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue` with `LDAXR/STXR` retry loops, preserving the busy-lock failure path. The first patch attempt had incorrect hunk/source-guard details; commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` corrects those and the workflow requires 0112 plus source checks.
+
+**Current validation:** XNU #254 (`43736404806`, exact HEAD `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is in progress at “Build XNU 8796”; setup, Xcode selection, profile/cache checks and dependency install passed. XNU #253 (`43736362523`) used the earlier pre-correction commit and has been cancellation-requested as superseded. Do not count either as a successful kernel or package until verifier and artifact steps pass.
+
+Next: monitor #254, resolve any further ARMv8-A assembly failures narrowly, then require linked-kernel ISA verification and RAM-only image package checks. Preserve `-mcpu=generic -march=armv8-a`; do not re-enable LSE. Run #252's raw kernel candidate is not verifier-approved and has no paired boot image; never use it as a device image.
+
+Read Chapter 03. Keep the Run #240 callback mapping as the physical debugging lead after a new verified image is produced. No handset test until the power-button-independent recovery/reset safety gate is satisfied.
 
 ## Topaz reference
 MakrSas/ios-topaz is a useful iOS 16.7.16 / XNU 8796 comparison for Kryo 260-class topology, ARMv8.0 limitations, Gold-core handoff, GIC setup and boot-image-v4 shim. It targets Redmi Note 12 4G / SM6225 and is Sweet-derived, not a Lavender port. Never copy its MMIO/DT/ADT constants or cherry-pick patches without SDM660 evidence and linked-binary verification. See Chapter 02.
