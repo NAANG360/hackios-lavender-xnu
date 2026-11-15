@@ -7,7 +7,7 @@ Bring XNU 8796 (iOS 16 generation) up on Xiaomi Redmi Note 7/7S (lavender, SDM66
 
 ## Mandatory protocol
 
-When a difficult XNU/ARM issue benefits from independent review, the user may bring analysis from Gemini. Treat it as a second opinion: verify every proposed change against the exact XNU source, ARM semantics and linked instructions before applying it.
+When a difficult XNU/ARM issue benefits from independent review, the user may bring analysis from Gemini. Treat it as a second opinion: verify every proposed change against the exact XNU source, ARM semantics and linked instructions before applying it. The Gemini review of the commpage LL/SC conversion supports LDAXR/STXR and recommends CLREX on the busy-lock exit; that refinement is staged on fix/lavender-commpage-prebuild-guard, not yet merged into the active branch.
 1. Read PROJECT_HANDOFF.md, resolve live branch HEAD and newest relevant Actions runs.
 2. Follow the single current chapter route; do not load every chapter.
 3. Inspect exact source, CI logs/artifacts and physical evidence before edits.
