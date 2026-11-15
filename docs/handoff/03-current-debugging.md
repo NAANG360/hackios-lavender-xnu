@@ -1,9 +1,9 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Last failed code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252)
-**Current validation code:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` (XNU Run #254)
-**Current corrective source:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`
+**Last failed code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252; handwritten commpage CASA)
+**Current validation code:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` (XNU Run #254; LL/SC commpage correction)
+**Current corrective source:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` (patch 0112)
 **Corrective patch:** `0112-lavender-commpage-armv8a-llsc.patch` (added in the handoff fix commit)
 **Last successful build/package:** Run #242, workflow ID `43729225770`, source SHA `6876fd9030add877b5cb8b02ff82e14ed6b9bc3f`; this predates the current mutex-subtrace and generic-CPU changes.
 **Run #240 diagnostic baseline:** workflow ID `43709690089`, source SHA `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`, success
@@ -202,9 +202,9 @@ Run #252 uploaded raw diagnostic artifacts: kernel candidate ID `14169598249`, b
 
 **Patch correction history:** the initial 0112 patch attempt had incorrect hunk counts / source-guard matching. Commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` corrected the patch hunks and commpage source guard. The workflow file at that exact commit requires 0112.
 
-**Follow-up runs — live status checked 15 Nov 2026 22:13 IST:**
+**Follow-up runs — live status checked 15 Nov 2026 22:19 IST:**
 - XNU #253 (`43736362523`, source `3fd3bf03db75f80f64c15c3d7dc610116b437b89`) is **cancelled**; it used the initial 0112 patch before hunk/source-guard correction.
-- XNU #254 (`43736404806`, exact source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **in progress**. Job `132879850377`: runner setup, checkout, Xcode selection, pinned tooling, profile validation, cache restore, runner-capacity detection, dependency installation and legacy-cache invalidation all passed. Step 10, **Build XNU 8796**, is still running. The cache-aware build guard, Lavender entry guard, build-log upload, buildtree packaging, kernel collection, linked-kernel verification, cache save and fastboot-image package job are pending. The build log endpoint is not yet available while the step runs; do not infer success from the earlier setup steps.
+- XNU #254 (`43736404806`, exact source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **in progress**. Job `132879850377`: runner setup, checkout, Xcode selection, pinned tooling, profile validation, cache restore, runner-capacity detection, dependency installation and legacy-cache invalidation all passed. Step 10, **Build XNU 8796**, is still running. The cache-aware build guard, Lavender entry guard, build-log upload, buildtree packaging, kernel collection, linked-kernel verification, cache save and fastboot-image package job are pending. The latest log tail contains ordinary compile/header work but does not yet prove the commpage assembly objects completed; do not infer success from the earlier setup steps.
 
 #254 is the first validation run against corrected patch 0112. Keep the exact failure distinction: #252 failed on handwritten CASA, #253 was cancelled, #254 is running the LL/SC correction.
 
@@ -212,10 +212,10 @@ Do not assume this is the last unsupported instruction. If the corrected build e
 
 ## Immediate next operation
 
-1. Monitor XNU #254 until the build step completes; inspect its exact logs for any further ARMv8-A assembler failures.
-2. Require the Lavender build-path/source guard and linked-kernel verification, including no LSE in the audited atomic paths.
-3. Continue through Mach-O verification and RAM-only package checks. Record new kernel/image artifact IDs and SHA-256 values only after those gates pass.
-4. Do not use Run #252's raw kernel candidate as a boot image. Do not boot any new image until a power-button-independent recovery/reset route has been physically verified; RAM boot only, never flash.
+1. Keep #254 as the only active XNU build; do not start duplicate builds while its runner is compiling.
+2. Monitor the `Build XNU 8796` step to completion. If it fails, inspect the first assembler/compiler error and fix that exact source site without enabling LSE globally. The known #252 failure is the two handwritten commpage CASA instructions; patch 0112 is the current correction.
+3. Require both source guards, successful linked Mach-O verification and the RAM-only package job. Record new kernel/image artifact IDs and SHA-256 values only after those gates pass.
+4. Do not use #252's raw kernel candidate as a boot image. Do not boot any new image until a power-button-independent recovery/reset route has been physically verified; RAM boot only, never flash.
 
 
 ## Device safety
