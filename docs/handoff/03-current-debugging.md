@@ -1,11 +1,14 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Latest build/package:** Run #240, workflow ID `43709690089`, source SHA `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`, success
-**Diagnostic patch:** `xnu/patches/0109-lavender-startup-hook-trace.patch`
-**Diagnostic image:** artifact `lavender-fastboot-boot-test`, ID `14160128075`; exact filename `iosboot.img`
-**Image size / SHA-256:** 16,531,456 bytes / `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`
-**Kernel size / SHA-256:** 16,587,456 bytes / `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`
+**Branch HEAD:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`
+**Last successful build/package:** Run #242, workflow ID `43729225770`, source SHA `6876fd9030add877b5cb8b02ff82e14ed6b9bc3f`; this predates the current mutex-subtrace and generic-CPU changes.
+**Run #240 diagnostic baseline:** workflow ID `43709690089`, source SHA `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`, success
+**Diagnostic patches:** `0109-lavender-startup-hook-trace.patch`, `0110-lavender-mutex-startup-subtrace.patch`, `0111-lavender-armv8a-generic-cpu.patch`
+**Run #240 image:** artifact `lavender-fastboot-boot-test`, ID `14160128075`; exact filename `iosboot.img`
+**Run #240 image size / SHA-256:** 16,531,456 bytes / `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`
+**Run #240 kernel size / SHA-256:** 16,587,456 bytes / `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`
+**Current CI:** mutex inspection #25 (`43733584201`) and XNU build #252 (`43733584216`) are queued on the current HEAD; neither is accepted yet.
 **Latest reviewed physical batch:** `1000317701.mp4` (87.785 s), `1000317713.mp4` (27.531 s), `1000317714.mp4` (27.744 s), `1000317717.mp4` (54.303 s); Run #240 still untested
 
 ## Latest physical result — marker 0x109
@@ -25,7 +28,7 @@ Confirmed on the handset: C entry, platform init, CPU topology parsing, `cpu_boo
 
 ## New video batch — 15 November 2026
 
-Four physical recordings are now reviewed together. Keep them separate from Run #240: none shows the patch-0109 rolling trace labels (`TABLE`, `QSORT BEGIN/DONE`, `INIT BEGIN/DONE`, `HOOK idx=...`).
+Four physical recordings are reviewed as checkpoint-video evidence and remain separate from Run #240; none shows the full patch-0109 rolling trace. Two separate close-up screenshots expose a patch-0109 `HOOK` record; the screenshot-to-image provenance is still not checksum-bound. See the callback-resolution section below.
 
 | File | Duration | Visible evidence | Provenance |
 |---|---:|---|---|
@@ -45,7 +48,7 @@ Four physical recordings are now reviewed together. Keep them separate from Run 
 
 ### Critical next step
 
-The four checkpoint-video clips remain unassigned to Run #240. Later close-up screenshots do show a patch-0109 HOOK record, and the accompanying Run #240 table/symbol analysis resolves it to `_lck_mtx_startup_init` with `___startup_lck_mtx_spec_processor_updown_lock`. Treat this as the active source lead, while preserving uncertainty about screenshot-to-image provenance. The next operation is source inspection of that exact callback/specification, not another physical boot or speculative patch.
+The callback is resolved to `_lck_mtx_startup_init` with `___startup_lck_mtx_spec_processor_updown_lock`. Its source path has been traced through `lck_mtx_init()` and `lck_grp_reference()`. A compiler-target mismatch is now the active build-level lead; see the ARM64 ISA section below. Do not change callback order or bypass this mutex. Preserve the screenshot-to-image provenance uncertainty and keep device testing blocked by the recovery safety gate.
 
 ## Run #240 CI result and artifact provenance
 
@@ -145,12 +148,30 @@ The accompanying binary-analysis report states that the original XNU 8796 qsort(
 
 **Next engineering operation:** inspect the exact XNU 8796 implementation of _lck_mtx_startup_init, the ___startup_lck_mtx_spec_processor_updown_lock object/specification, and the ARM64 lock/mutex initialization path in the Run #240 buildtree. Trace every dereference and platform-dependent assumption relevant to this lock. Compare against the exact linked addresses and build configuration. Do not patch, skip, reorder, or gate the initializer until the source path identifies a concrete defect. Prefer a narrow source-level reproduction/guard and add post-callback diagnostic evidence only if needed; do not start another device test until the independent recovery/reset safety gate is satisfied.
 
+## ARM64 compiler-target mismatch — 15 November 2026
+
+The Run #240 build log shows Lavender C compilation with `-march=armv8-a -arch arm64`. On the same Xcode 16.0 toolchain selected by the XNU workflow, those flags resolve to Clang `-target-cpu apple-m1`; `-march=armv8-a` alone does not override the Apple-M1 CPU default.
+
+The exact Run #240 kernel's `_lck_grp_reference` contains an LSE `LDADD` at `0xfffffe0007324cd4`. The atomic counter update is therefore compiled for an instruction extension that is not part of the stated ARMv8-A baseline. A compiler probe on Xcode 16.0 confirms that adding `-mcpu=generic` changes the target CPU to `generic` and emits the relaxed atomic sequence as `LDXR/STXR`, not `LDADD`.
+
+Patch `0111-lavender-armv8a-generic-cpu.patch` changes only `MACHINE_FLAGS_ARM64_LAVENDER` in `makedefs/MakeInc.def` to append `-mcpu=generic`. The XNU workflow now:
+- requires patches 0110 and 0111;
+- uses a v3 cache key and removes the old `dxb/build/xnu.obj` tree plus its exported-header sentinel on a non-exact cache hit, preventing Apple-M1 objects from surviving the ISA change;
+- checks the actual compile command for `-march=armv8-a -mcpu=generic -arch arm64`;
+- disassembles the linked kernel and requires `_lck_grp_reference` to use `LDXR/STXR` with no LSE atomic mnemonic.
+
+**Causality limit:** `compact_id_table_init()` is an earlier LOCKS startup callback that also calls `lck_mtx_init()` and reaches `lck_grp_reference()`. If the observed phone image truly executed that earlier path successfully, LSE alone would not explain a later freeze at the processor-up/down mutex. Treat 0111 as a concrete ISA-portability correction and a controlled diagnostic step, not as proof that the callback stall is solved.
+
+Inspection #17 confirmed the Apple-M1 compiler default and decoded the Run #240 `LDADD`. Inspection #20 passed the Xcode 16.0 atomic probe using the generic target, but stopped later on an invalid 0111 patch hunk. The 0111 patch has since been regenerated with full context and locally checked against the exact Run #240 build-tree. Inspection #25 and XNU Run #252 are the corrected CI checks; both were queued at this handoff update.
+
+Patch `0110` adds events 9–15 around mutex assignment and group-reference handling, plus event 16 after the startup callback returns. It is intended to distinguish mutex-field initialization, the atomic counter update, optional group refcount retention, and callback return. Do not interpret a pre-callback `HOOK` as proof that the callback itself is the failing instruction.
+
 ## Immediate next operation
 
-1. Do not trigger another XNU build yet.
-2. Before requesting a new handset test, establish and physically verify a reboot/recovery path that does not depend on the broken power button. Volume Up + Volume Down is only documented as a reset request; it is not a verified recovery selector.
-3. Once a safe exit/recovery route exists, RAM-boot only the exact Run #240 `iosboot.img` and record the last complete bottom-row trace plus Guardian marker.
-4. Inspect _lck_mtx_startup_init and its processor_updown_lock startup spec in the exact Run #240 buildtree. Make a source change only after identifying a concrete defect; then run focused validation and one CI build.
+1. Review mutex inspection #25 (`43733584201`): confirm the 0110 and 0111 patches apply to the exact Run #240 build-tree and the Xcode 16.0 generic-CPU atomic probe passes.
+2. Review XNU Run #252 (`43733584216`): require a successful fresh build, the generic-CPU compile flag in the build log, and the linked `_lck_grp_reference` LDXR/STXR disassembly check. Reject any artifact with LSE remaining in that function or stale Apple-M1 objects.
+3. If build and package checks pass, record the new `iosboot.img` artifact ID, source SHA, image SHA-256 and kernel SHA-256. This is a new diagnostic candidate, not a confirmed physical test.
+4. Do not boot it until a power-button-independent reboot/recovery route has been physically verified. Then RAM-boot only; never flash it.
 
 ## Device safety
 
