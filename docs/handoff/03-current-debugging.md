@@ -165,7 +165,7 @@ Patch `0111-lavender-armv8a-generic-cpu.patch` changes only `MACHINE_FLAGS_ARM64
 
 **Causality limit:** `compact_id_table_init()` is an earlier LOCKS startup callback that also calls `lck_mtx_init()` and reaches `lck_grp_reference()`. If the observed phone image truly executed that earlier path successfully, LSE alone would not explain a later freeze at the processor-up/down mutex. Treat 0111 as a concrete ISA-portability correction and a controlled diagnostic step, not as proof that the callback stall is solved.
 
-Inspection #17 confirmed the Apple-M1 compiler default and decoded the Run #240 `LDADD`. Inspection #20 passed the Xcode 16.0 atomic probe using the generic target, but stopped later on an invalid 0111 patch hunk. The 0111 patch has since been regenerated with full context and locally checked against the exact Run #240 build-tree. Inspection #25 and XNU Run #252 are the corrected CI checks; both were queued at this handoff update.
+Inspection #17 confirmed the Apple-M1 compiler default and decoded the Run #240 `LDADD`. Inspection #20 passed the Xcode 16.0 atomic probe using the generic target, but stopped later on an invalid 0111 patch hunk. The 0111 patch has since been regenerated with full context and locally checked against the exact Run #240 build-tree. Inspection #25 (`43733584201`) completed successfully. XNU Run #252 (`43733584216`) did not pass: the build failed on the two handwritten CASA instructions described below, and the verifier/package steps were skipped. Do not describe #252 as queued or successful.
 
 Patch `0110` adds events 9–15 around mutex assignment and group-reference handling, plus event 16 after the startup callback returns. It is intended to distinguish mutex-field initialization, the atomic counter update, optional group refcount retention, and callback return. Do not interpret a pre-callback `HOOK` as proof that the callback itself is the failing instruction.
 
@@ -188,9 +188,11 @@ Run #252 uploaded raw diagnostic artifacts: kernel candidate ID `14169598249`, b
 
 **Patch correction history:** the initial 0112 patch attempt had incorrect hunk counts / source-guard matching. Commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` corrected the patch hunks and commpage source guard. The workflow file at that exact commit requires 0112.
 
-**Follow-up runs:**
-- XNU #253 (`43736362523`, source `3fd3bf03db75f80f64c15c3d7dc610116b437b89`) was triggered by the first 0112/handoff commit before the patch hunk/source-guard correction. It is superseded; cancellation was requested.
-- XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is the corrected validation build. Latest job-step inspection shows setup, Xcode 16 selection, machine-profile/cache validation and dependency installation passed; **Build XNU 8796 is in progress**. Later verification, artifact collection and package steps have not run yet.
+**Follow-up runs — live status checked 15 Nov 2026 22:13 IST:**
+- XNU #253 (`43736362523`, source `3fd3bf03db75f80f64c15c3d7dc610116b437b89`) is **cancelled**; it used the initial 0112 patch before hunk/source-guard correction.
+- XNU #254 (`43736404806`, exact source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **in progress**. Job `132879850377`: runner setup, checkout, Xcode selection, pinned tooling, profile validation, cache restore, runner-capacity detection, dependency installation and legacy-cache invalidation all passed. Step 10, **Build XNU 8796**, is still running. The cache-aware build guard, Lavender entry guard, build-log upload, buildtree packaging, kernel collection, linked-kernel verification, cache save and fastboot-image package job are pending. The build log endpoint is not yet available while the step runs; do not infer success from the earlier setup steps.
+
+#254 is the first validation run against corrected patch 0112. Keep the exact failure distinction: #252 failed on handwritten CASA, #253 was cancelled, #254 is running the LL/SC correction.
 
 Do not assume this is the last unsupported instruction. If the corrected build exposes further handwritten LSE sites, fix each individually while preserving ARMv8-A.
 
