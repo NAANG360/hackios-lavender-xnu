@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/inspect-run240-hook.yml"
       - "xnu/patches/0110-lavender-mutex-startup-subtrace.patch"
+      - "xnu/patches/0111-lavender-armv8a-generic-cpu.patch"
 
 permissions:
   actions: read
@@ -45,7 +46,8 @@ jobs:
             cat generic-armv8a.s
             exit 1
           fi
-          grep -E '\\b(ldaxr|stlxr)' generic-armv8a.s
+          grep -E '^[[:space:]]+ldxr[[:space:]]' generic-armv8a.s
+          grep -E '^[[:space:]]+stxr[[:space:]]' generic-armv8a.s
       - name: Inspect group reference and exact lock startup data
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,9 +64,16 @@ jobs:
           echo "=== 0110 patch applicability against exact Run 240 patched source ==="
           git apply --check --directory=evidence/source/xnu xnu/patches/0110-lavender-mutex-startup-subtrace.patch
           git apply --directory=evidence/source/xnu xnu/patches/0110-lavender-mutex-startup-subtrace.patch
+          echo "=== 0111 generic ARMv8-A target patch applicability ==="
+          git apply --check --directory=evidence/source/xnu xnu/patches/0111-lavender-armv8a-generic-cpu.patch
+          git apply --directory=evidence/source/xnu xnu/patches/0111-lavender-armv8a-generic-cpu.patch
           python3 - <<'PY'
           import pathlib
           root=pathlib.Path("evidence/source/xnu")
+          makeinc=(root/"makedefs/MakeInc.def").read_text()
+          machine_line=next(line for line in makeinc.splitlines() if line.startswith("MACHINE_FLAGS_ARM64_LAVENDER"))
+          assert "-march=armv8-a -mcpu=generic" in machine_line, machine_line
+          print("PASS: Lavender compile target is explicitly generic ARMv8-A")
           startup=(root/"osfmk/kern/startup.c").read_text()
           mtx=(root/"osfmk/kern/lock_mtx.c").read_text()
           grp=(root/"osfmk/kern/lock_group.c").read_text()
