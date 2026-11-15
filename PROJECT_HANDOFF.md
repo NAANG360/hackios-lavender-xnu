@@ -11,22 +11,21 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 
 ## Current task / chapter route
 
-**Active task:** resolve the failed ARMv8-A build by removing the two handwritten LSE `CASA` instructions from XNU's ARM commpage without enabling LSE globally.
+**Active task:** fix the malformed patch 0112 hunk counts that caused XNU #254 to skip the ARMv8.0 commpage LL/SC correction. Do not investigate the physical mutex callback until a newly verified image exists.
 
-**Failure — XNU #252** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43733584216), source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`): `Build XNU 8796` failed assembling `osfmk/arm/commpage/commpage_asm.s`. Explicit `CASA w10, w11, [x3]` at line 276 in `_pfz_trylock_and_enqueue` and `CASA w10, w11, [x2]` at line 326 in `_pfz_trylock_and_dequeue` each failed with `instruction requires: lse`. These are handwritten instructions; generic compiler targeting does not rewrite them. Kernel verification and RAM-only package jobs were skipped. Raw kernel candidate is unapproved; #252 produced no `iosboot.img`.
+**XNU #252** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43733584216), source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) failed on handwritten `CASA` instructions at `commpage_asm.s:276` and `:326`, each requiring LSE. Generic ARMv8-A compiler flags cannot rewrite handwritten assembly.
 
-**Fix already committed:** `0112-lavender-commpage-armv8a-llsc.patch` replaces both acquire-CASA operations with ARMv8.0 `LDAXR/STXR` retry loops, preserving the busy-lock failure return and existing release-store unlock. The corrected patch and source guards are in commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`. The workflow requires 0112 and checks that the two helpers use the LL/SC sequences and contain no CASA.
+**XNU #254** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43736404806), source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) failed because patch 0112 was malformed and skipped at line 24: its hunk counts did not match the actual context/add/remove lines. The original CASA instructions consequently remained and the assembler failed at the same two source locations. The build job failed; the linked-kernel verifier and RAM-only package job were skipped. Raw candidate artifact `14171510404` and buildtree artifact `14170687291` are diagnostic only; **no #254 `iosboot.img` exists**.
 
-**Current CI — live status checked 15 November 2026, 22:19 IST:**
-- **XNU #252** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43733584216), source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) **failed** in `Build XNU 8796`: handwritten `CASA` at `commpage_asm.s:276` and `:326` each produced `instruction requires: lse`. The kernel verifier and RAM-only package job were skipped. Its raw kernel candidate is not boot-approved; no #252 `iosboot.img` exists.
-- **Corrective patch 0112** (`0112-lavender-commpage-armv8a-llsc.patch`) replaces both acquire-CASA operations with ARMv8.0 `LDAXR/STXR` retry loops, retaining the busy-lock failure return and release-store unlock. Source/patch guards in commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` require the patch and check both helper bodies for LL/SC and absence of CASA.
-- **XNU #254** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43736404806), source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **in progress**. Runner setup, Xcode/toolchain selection, pinned tooling, machine profile, cache handling and dependencies passed. `Build XNU 8796` remains active; commpage assembly success is not yet confirmed. Linked-kernel verification, output collection and RAM-only packaging remain pending.
-- **XNU #253** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43736362523)) is cancelled as superseded. **Inspection #25** passed, but is not a kernel build.
-- No new verified kernel or `iosboot.img` exists. Run #240 remains the last fully verified packaged diagnostic image and predates patches 0110–0112.
+**Fix committed:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` corrects the patch hunk headers:
+- enqueue: `@@ -272,11 +272,16`
+- dequeue: `@@ -322,9 +327,14`
 
-**Next operation:** monitor #254. If another explicit LSE instruction fails, fix only that source site with a semantics-preserving ARMv8.0 implementation; do not re-enable LSE globally. Accept a candidate only after the source guards pass, the linked Mach-O is verified for ARMv8-A, and the RAM-only package job uploads `iosboot.img`. Never use #252's raw candidate. Do not test on the handset until the power-button-independent recovery/reset safety gate is physically verified; RAM boot only, never flash.
+The LL/SC implementation itself is unchanged. The new commit pushes the XNU workflow path filter; its new run is not yet confirmed here. Do not claim it is queued, running, passed or packaged without live Actions evidence.
 
-The Run #240 `HOOK idx=680` mapping to `_lck_mtx_startup_init(___startup_lck_mtx_spec_processor_updown_lock)` remains the physical debugging lead **after** a newly verified image exists. Do not skip, reorder or gate that initializer.
+**Next operation:** inspect the Actions run for commit `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`. Confirm patch 0112 applies without a skip warning, both commpage helpers contain `LDAXR/STXR` and no CASA, XNU compiles, the source guards pass, linked Mach-O verification succeeds, and the RAM-only package job produces exact `iosboot.img`. Do not globally enable LSE or weaken verification. Do not use #254's raw candidate.
+
+Keep the Run #240 `HOOK idx=680` mutex mapping as the later physical debugging lead, not the current build blocker. Do not skip/reorder that initializer. No handset retest until the power-button-independent recovery/reset safety gate is physically verified; RAM boot only, never flash.
 
 **Read now:** [Chapter 03 — Current debugging](docs/handoff/03-current-debugging.md).
 
