@@ -1,0 +1,167 @@
+diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -215,7 +215,7 @@
+ extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
+     uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
+-static bool __startup_data lavender_startup_trace_enabled;
++bool __startup_data lavender_startup_trace_enabled;
+ #endif
+ 
+ SECURITY_READ_ONLY_LATE(startup_subsystem_id_t) startup_phase = STARTUP_SUB_NONE;
+@@ -444,6 +444,14 @@
+ #endif
+ 		cur->func(cur->arg);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++		if (lavender_startup_trace_enabled) {
++			sweet_early_trace_startup(16,
++			    ((uintptr_t)cur - (uintptr_t)startup_entries) / sizeof(*cur),
++			    cur->subsystem, cur->rank, (uintptr_t)cur->func,
++			    (uintptr_t)cur->arg);
++		}
++#endif
+ 		startup_entry_cur = ++cur;
+ 	}
+ }
+diff --git a/osfmk/kern/lock_mtx.c b/osfmk/kern/lock_mtx.c
+--- a/osfmk/kern/lock_mtx.c
++++ b/osfmk/kern/lock_mtx.c
+@@ -250,6 +250,12 @@
+ 
+ #pragma mark lck_mtx_t: alloc/init/destroy/free
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern bool lavender_startup_trace_enabled;
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++#endif
++
+ lck_mtx_t *
+ lck_mtx_alloc_init(lck_grp_t *grp, lck_attr_t *attr)
+ {
+@@ -271,6 +277,10 @@
+ void
+ lck_mtx_init(lck_mtx_t *lck, lck_grp_t *grp, lck_attr_t *attr)
+ {
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (lavender_startup_trace_enabled) {
++		sweet_early_trace_startup(9, (uintptr_t)lck, (uintptr_t)grp, (uintptr_t)attr, 0, 0);
++	}
++#endif
+ 	if (attr == LCK_ATTR_NULL) {
+ 		attr = &lck_attr_default;
+ 	}
+@@ -282,7 +292,19 @@
+ 		lck->lck_mtx.data |= LCK_MTX_PROFILE;
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (lavender_startup_trace_enabled) {
++		sweet_early_trace_startup(10, (uintptr_t)lck, (uintptr_t)grp, 0, 0, 0);
++		sweet_early_trace_startup(11, (uintptr_t)grp,
++		    (uintptr_t)&grp->lck_grp_mtxcnt, 0, 0, 0);
++	}
++#endif
+ 	lck_grp_reference(grp, &grp->lck_grp_mtxcnt);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (lavender_startup_trace_enabled) {
++		sweet_early_trace_startup(15, (uintptr_t)lck, (uintptr_t)grp, 0, 0, 0);
++	}
++#endif
+ }
+diff --git a/osfmk/kern/lock_group.c b/osfmk/kern/lock_group.c
+--- a/osfmk/kern/lock_group.c
++++ b/osfmk/kern/lock_group.c
+@@ -270,13 +270,29 @@
+ void
+ lck_grp_reference(lck_grp_t *grp, uint32_t *cnt)
+ {
++	#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	extern bool lavender_startup_trace_enabled;
++	extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++	    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++	if (lavender_startup_trace_enabled) {
++		sweet_early_trace_startup(12, (uintptr_t)grp, (uintptr_t)cnt, 0, 0, 0);
++	}
++	#endif
+ 	if (cnt) {
+ 		os_atomic_inc(cnt, relaxed);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++		if (lavender_startup_trace_enabled) {
++			sweet_early_trace_startup(13, (uintptr_t)grp, (uintptr_t)cnt,
++			    (uintptr_t)*cnt, 0, 0);
++		}
++#endif
+ 	}
+ 	if (grp->lck_grp_attr_id & LCK_GRP_ATTR_ALLOCATED) {
+ 		os_ref_retain_raw(&grp->lck_grp_refcnt, NULL);
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (lavender_startup_trace_enabled) {
++		sweet_early_trace_startup(14, (uintptr_t)grp, (uintptr_t)cnt,
++		    (uintptr_t)grp->lck_grp_attr_id, 0, 0);
++	}
++#endif
+ }
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -326,6 +326,41 @@
+ 		lavender_trace_append_text(text, &length, "SUBSYS LOG DONE id=");
+ 		lavender_trace_append_decimal(text, &length, a);
+ 		break;
++	case 9:
++		lavender_trace_append_text(text, &length, "MTX ENTER l=");
++		lavender_trace_append_hex(text, &length, a);
++		lavender_trace_append_text(text, &length, " g=");
++		lavender_trace_append_hex(text, &length, b);
++		lavender_trace_append_text(text, &length, " a=");
++		lavender_trace_append_hex(text, &length, c);
++		break;
++	case 10:
++		lavender_trace_append_text(text, &length, "MTX SET l=");
++		lavender_trace_append_hex(text, &length, a);
++		lavender_trace_append_text(text, &length, " g=");
++		lavender_trace_append_hex(text, &length, b);
++		break;
++	case 11:
++		lavender_trace_append_text(text, &length, "MTX REF CALL g=");
++		lavender_trace_append_hex(text, &length, a);
++		lavender_trace_append_text(text, &length, " c=");
++		lavender_trace_append_hex(text, &length, b);
++		break;
++	case 12:
++		lavender_trace_append_text(text, &length, "GRP REF IN g=");
++		lavender_trace_append_hex(text, &length, a);
++		lavender_trace_append_text(text, &length, " c=");
++		lavender_trace_append_hex(text, &length, b);
++		break;
++	case 13:
++		lavender_trace_append_text(text, &length, "GRP REF INC c=");
++		lavender_trace_append_hex(text, &length, b);
++		lavender_trace_append_text(text, &length, " n=");
++		lavender_trace_append_decimal(text, &length, c);
++		break;
++	case 14:
++		lavender_trace_append_text(text, &length, "GRP REF OUT g=");
++		lavender_trace_append_hex(text, &length, a);
++		lavender_trace_append_text(text, &length, " id=");
++		lavender_trace_append_hex(text, &length, c);
++		break;
++	case 15:
++		lavender_trace_append_text(text, &length, "MTX REF DONE l=");
++		lavender_trace_append_hex(text, &length, a);
++		lavender_trace_append_text(text, &length, " g=");
++		lavender_trace_append_hex(text, &length, b);
++		break;
++	case 16:
++		lavender_trace_append_text(text, &length, "HOOK DONE idx=");
++		lavender_trace_append_decimal(text, &length, a);
++		lavender_trace_append_text(text, &length, " sub=");
++		lavender_trace_append_decimal(text, &length, b);
++		lavender_trace_append_text(text, &length, " rank=");
++		lavender_trace_append_hex(text, &length, c);
++		break;
+ 	default:
+ 		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
+ 		break;
