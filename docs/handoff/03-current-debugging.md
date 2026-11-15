@@ -11,8 +11,22 @@
 **Run #240 image:** artifact `lavender-fastboot-boot-test`, ID `14160128075`; exact filename `iosboot.img`
 **Run #240 image size / SHA-256:** 16,531,456 bytes / `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`
 **Run #240 kernel size / SHA-256:** 16,587,456 bytes / `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`
-**Current CI:** inspection #25 (`43733584201`) passed. XNU build #252 (`43733584216`) failed during assembly. Corrective build `43736404806` (source `58bda409...`) is the active validation run; initial commit run `43736362523` is superseded by the hunk-count/guard correction. No new verified boot image yet.
+**Current CI:** inspection #25 (`43733584201`) passed. XNU #252 (`43733584216`, source `e463e56...`) failed because two handwritten `CASA` instructions in `commpage_asm.s` require LSE. Patch 0112 replaces them with ARMv8.0 `LDAXR/STXR` retry loops. XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is in progress; setup/toolchain/profile/cache/dependency steps passed and `Build XNU 8796` remains active. Source guards, linked-kernel verification, artifact collection and RAM-image packaging are pending. #253 (`43736362523`) is cancelled. No new verified boot image yet.
 **Latest reviewed physical batch:** `1000317701.mp4` (87.785 s), `1000317713.mp4` (27.531 s), `1000317714.mp4` (27.744 s), `1000317717.mp4` (54.303 s); Run #240 still untested
+
+## Failed build diagnosis and active correction — 15 November 2026
+
+XNU #252 failed at the assembler stage, not in the mutex startup callback. The build log identifies two explicit LSE instructions in `osfmk/arm/commpage/commpage_asm.s`:
+- line 276: `casa w10, w11, [x3]` in `_pfz_trylock_and_enqueue`;
+- line 326: `casa w10, w11, [x2]` in `_pfz_trylock_and_dequeue`.
+
+Both fail with `instruction requires: lse`. These are handwritten assembly instructions, so `-mcpu=generic -march=armv8-a` does not lower them automatically. #252's kernel-verification and RAM-only package jobs were skipped; its raw kernel candidate is not bootable/approved and no #252 `iosboot.img` exists.
+
+Patch `0112-lavender-commpage-armv8a-llsc.patch`, corrected in source commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`, replaces both acquire-CASA operations with `LDAXR/STXR` retry loops. It retains the existing failed-lock return path and release-store unlock. The workflow now requires patch 0112 and checks both helper bodies for ARMv8.0 LL/SC sequences and absence of CASA.
+
+**Current attempt:** XNU #254 (`43736404806`) uses the corrected source. Its runner setup, Xcode selection, pinned tools, machine-profile validation, cache handling and dependency steps passed. The latest observed job state has `Build XNU 8796` in progress; the latest log tail was still ordinary compile/header work. Do not assume the commpage assembler step has passed until the build completes or logs show it. Subsequent source guards, linked-kernel ISA verification, artifact collection and packaging must all pass before accepting `iosboot.img`.
+
+The generic CPU target remains necessary but is not sufficient: audit any additional *explicit* LSE assembly instructions individually. Do not enable LSE globally, weaken the verifier, or use #252's raw candidate. Keep the Run #240 mutex callback lead separate; the present CI failure occurs earlier, during commpage assembly.
 
 ## Latest physical result — marker 0x109
 
@@ -51,7 +65,7 @@ Four physical recordings are reviewed as checkpoint-video evidence and remain se
 
 ### Critical next step
 
-The callback is resolved to `_lck_mtx_startup_init` with `___startup_lck_mtx_spec_processor_updown_lock`. Its source path has been traced through `lck_mtx_init()` and `lck_grp_reference()`. A compiler-target mismatch is now the active build-level lead; see the ARM64 ISA section below. Do not change callback order or bypass this mutex. Preserve the screenshot-to-image provenance uncertainty and keep device testing blocked by the recovery safety gate.
+The callback is resolved to `_lck_mtx_startup_init` with `___startup_lck_mtx_spec_processor_updown_lock`. Its source path has been traced through `lck_mtx_init()` and `lck_grp_reference()`. The active build-level failure is now confirmed as two handwritten LSE CASA instructions in the commpage; see the failed-build diagnosis above. The generic CPU target alone cannot fix explicit assembly. Do not change callback order or bypass this mutex. Preserve the screenshot-to-image provenance uncertainty and keep device testing blocked by the recovery safety gate.
 
 ## Run #240 CI result and artifact provenance
 
