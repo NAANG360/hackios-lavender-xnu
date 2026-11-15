@@ -27,7 +27,8 @@ Bring XNU 8796 (iOS 16 generation) up on Xiaomi Redmi Note 7/7S (`lavender`, SDM
 Xiaomi Redmi Note 7/7S, codename `lavender`, Qualcomm SDM660 / Kryo 260, ARM64; observed A53 Silver cluster MPIDRs `0x0–0x3`, A73 Gold cluster `0x100–0x103`. The physical XNU boot path has used Gold MPIDR `0x100` because the A53 reports no 16 KiB granule while the A73 reports support. Verify against current source and handset evidence before changing.
 
 ## Current task
-See `PROJECT_HANDOFF.md` → **Current task / chapter route**. At this handoff revision the active task is the first physical test of Run #236's newly instrumented image, then interpret marker 5–14. A parallel comparative audit of Topaz's ARMv8.0/A53-A73 changes is supporting research only; do not transplant unvalidated code.
+
+Run #236 physical evidence now reaches marker `0x109`: entry to `kernel_startup_bootstrap()`; no return marker `0x10A` observed. Read Chapter 03. Next work is narrow source-level tracing inside XNU 8796 `startup.c` (table validation, sort, startup callback loop), without touching the Guardian's shared progress cell or changing boot behavior. Do not repeat the same test or create a blind build. No new handset test until the power-button-independent recovery path is established.
 
 ## Chapter router
 - `docs/handoff/README.md` — chapter routing and one-line resume protocol.
