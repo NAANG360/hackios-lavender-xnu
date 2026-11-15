@@ -11,7 +11,7 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 
 ## Current task / chapter route
 
-**Active task:** The 15 November physical-video batch has been reviewed. The clips corroborate the older checkpoint frontier at `0x109` but do not show Run #240's patch-0109 rolling trace. Run #240 remains the untested diagnostic candidate. Preserve video provenance as unknown unless tied to an artifact by evidence. Do not diagnose a specific startup hook or build a fix from these clips alone; first satisfy the power-button-independent recovery/reset safety gate, then capture Run #240's bottom-row trace.
+**Active task:** User-supplied close-up screenshots show the patch-0109 bottom-row hook record: idx=680, subsystem 3 (LOCKS), rank 3. The accompanying analysis replayed XNU 8796 qsort() against Run #240's extracted startup table and resolved the function/argument addresses against that exact kernel: _lck_mtx_startup_init with argument ___startup_lck_mtx_spec_processor_updown_lock. This is the current source-level lead. It identifies the callback about to execute, not conclusively the point of the hang: patch 0109 has no post-callback event, so a non-returning callback and an immediate post-call pointer-advance/store fault remain distinguishable possibilities. Audit the exact callback, startup spec/object and ARM64 mutex initialization path in the Run #240 buildtree before changing code. Do not guess, skip, reorder or gate the initializer. Keep screenshot-to-image provenance unverified unless independently tied to the artifact. No further handset test until the power-button-independent recovery/reset safety gate is satisfied.
 
 **Read now:** [Chapter 03 — Current debugging](docs/handoff/03-current-debugging.md).
 
@@ -31,7 +31,7 @@ Do not read every chapter by default.
 - Kernel artifact `xnu-kernel`, ID `14159918757`; kernel size 16,587,456 bytes; SHA-256 `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`. Official verifier passes ARM64 Mach-O, Lavender identity and compiled stage-8/stage-9 sequences.
 - Buildtree artifact ID `14160182439`; build log artifact ID `14160376884`.
 - Runs #238 and #239 failed only in the temporary source-guard check while its ordering/delimiter assertions were being corrected. Run #240 is the corrected passing run. Run #237 also failed the patch guard before the patch was added.
-- This is a successfully compiled and packaged diagnostic candidate, **not** a newer physical test. The only observed phone result remains Run #236 at marker `0x109`.
+- This is a successfully compiled and packaged diagnostic candidate. The newly supplied screenshots expose a patch-0109 hook line and the accompanying binary analysis maps it against this kernel's table/symbols; however, the screenshots are not yet independently checksum-bound to the Run #240 image, so do not overstate physical artifact provenance.
 
 ## Run #236 physical recording
 
