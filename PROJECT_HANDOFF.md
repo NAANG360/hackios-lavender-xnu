@@ -111,14 +111,32 @@ These checks make a malformed/empty startup table and pathological host-side sor
 
 The device power button is broken. Do not request another physical boot until a recovery/reboot path independent of that button is established. Preserve Android/recovery; no flashing, erasing or repartitioning. The Volume Up + Volume Down chord has not been verified as a recovery selector.
 
-## Comparative reference lead
+## Latest CI state — 15 November 2026
 
-Topaz (`MakrSas/ios-topaz`) is a **fork of** `dipa-studio/ios-sweet`, not an independent codebase. Its verified public patches are useful:
-- `0080-topaz-cpu-topology-skip-sweet-hw.patch`: changes Sweet CPU matching to MPIDR Aff1 cluster / Aff0 core ranges `0x0–0x3` A53 and `0x100–0x103` A73; names CPU Kryo 260; gates inherited SM7150-specific keys/touch/USB probes behind `sweethw=1`.
-- `0081-topaz-armv8.0-no-lse-no-pan.patch`: selects `-mcpu=cortex-a53`, replaces LSE atomics in selected paths with LL/SC loops and adds user-mode LSE/LDAPR emulation; removes the PAN-available define.
-- `0082-topaz-boot-on-gold-cpu.patch`: requires boot logical CPU 0 to have physical MPIDR `0x100`, documenting that the shim boots XNU on the Gold core because the Silver cluster lacks 16K granule support.
+- **Mutex inspection #25** — run `43733584201`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`: **passed**. All inspection job steps completed successfully, including the Xcode 16.0 ARMv8-A atomic-codegen comparison and inspection of the exact Run #240 group-reference/startup data.
+- **XNU build #252** — run `43733584216`, same source SHA: **in progress**. Runner setup, toolchain selection, machine-profile validation, cache handling and dependency installation completed; **Build XNU 8796 is still running**. The build-path guard, kernel verification, output collection and artifact packaging have not yet run.
+- No new `iosboot.img` is available from #252 yet. Do not treat the successful inspection #25 as a kernel build or package result.
 
-These are reference evidence, not drop-in Lavender patches. Topaz inherits Sweet; its boot/driver/ADT and SoC constants are not Lavender facts. Audit exact source, compiler flags, XNU build configuration and Lavender hardware observations before proposing any adaptation. Do not describe patch 0080 as merely a “topology skip” or assume it changes Lavender's topology correctly.
+## Comparative reference: iOS Topaz
+
+Primary reference: [`MakrSas/ios-topaz`](https://github.com/MakrSas/ios-topaz), branch `topaz`, especially its [README](https://github.com/MakrSas/ios-topaz/blob/topaz/README.md), `xnu/patches/`, `shim/`, and `tools/`. This is a working iOS 16.7.16 + XNU 8796 port for Xiaomi Redmi Note 12 4G (`topaz/tapas`, Qualcomm SM6225 / Snapdragon 685). It is a fork/continuation of [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet), not an independent implementation; its README credits earlier HackiOS work too.
+
+### Why it matters to Lavender (SDM660 / Kryo 260)
+
+Topaz is a useful *architectural and XNU bring-up reference*, not a same-SoC port. Its documented Kryo 260-class big/little split and ARMv8.0 constraints overlap with the issues being investigated here:
+- **CPU topology / execution core:** Topaz describes A53 Silver cores at MPIDR `0x0–0x3` and A73 Gold cores at `0x100–0x103`. Its shim wakes a Gold core with PSCI and parks the Silver boot core because the Silver cores report no 16K translation-granule support. This is a strong lead to compare against Lavender's actual MPIDR, `ID_AA64MMFR0.TGran16`, PSCI and ADT observations; do not assume the exact topology or CPU handoff is identical.
+- **ARMv8.0 instruction baseline:** Topaz documents no LSE atomics, RCpc/`ldapr`, or PAN on its target cores. It explicitly overrides Apple's `apple-m1` default with `-mcpu=cortex-a53`, replaces relevant kernel LSE operations with LL/SC loops, removes PAN assumptions, and emulates remaining userland LSE/LDAPR instructions. This directly supports auditing the current Lavender compiler-target mismatch and checking the *linked* kernel for unsupported instructions, but does not prove that the current mutex callback stall has the same cause.
+- **Interrupt bring-up:** Topaz's shim prepares GIC distributor/redistributor state and Group 1 SGI/PPI delivery before entering XNU. Compare the sequence and register assumptions only after Lavender's own GIC map, security state and interrupt IDs are established.
+- **Boot-image handoff:** Topaz uses a boot-image-v4 shim and appends the XNU payload after the shim's `_end`; it documents Xiaomi ABL dropping a v1/v2 ramdisk. Treat this as a packaging/ABL comparison point, not a substitute for validating Lavender's bootloader behavior.
+- **Platform drivers and MMIO:** Topaz's UFS, GIC, framebuffer, TLMM, power, modem and GPU addresses belong to SM6225/topaz. They must **not** be copied into Lavender's SDM660 device tree, shim, or drivers.
+
+### Relevant upstream patch series
+
+- `0080-topaz-cpu-topology-skip-sweet-hw.patch`: changes Sweet CPU matching to the A53/A73 MPIDR ranges and gates inherited SM7150-specific keys/touch/USB probes behind `sweethw=1`. Read the actual patch and its call sites; it is not a generic topology fix.
+- `0081-topaz-armv8.0-no-lse-no-pan.patch`: selects `-mcpu=cortex-a53`, replaces selected kernel LSE atomics with LL/SC sequences, adds user-mode LSE/LDAPR emulation, and removes the PAN-available define.
+- `0082-topaz-boot-on-gold-cpu.patch`: requires boot logical CPU 0 to be physical MPIDR `0x100`, documenting the Gold-core handoff for 16K-page support.
+
+**Application rule:** use Topaz to generate concrete comparison questions and identify reusable *concepts*. Do not cherry-pick its patches or copy SoC constants blindly. For every proposed Lavender adaptation, verify source applicability, exact XNU configuration, compiler output, Lavender hardware registers/ADT, and the existing handoff evidence first.
 
 ## Safety and acceptance gates
 
