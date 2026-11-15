@@ -509,6 +509,21 @@ jobs:
           otool -tvV "$kernel" > out/KERNEL-DISASSEMBLY.txt 2>&1 || true
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
 
+      - name: Upload compiled kernel diagnostics
+        if: always() && steps.xnu-build.outcome == 'success' && steps.xnu-rebuild.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-kernel-diagnostics
+          path: |
+            out/kernel.development.lavender
+            out/SHA256SUMS
+            out/KERNEL-VERIFICATION.txt
+            out/KERNEL-MACHO-SECTIONS.txt
+            out/KERNEL-LOAD-COMMANDS.txt
+            out/KERNEL-DISASSEMBLY.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Save XNU build cache after successful compilation
         if: always() && steps.xnu-build.outcome == 'success' && steps.xnu-rebuild.outcome == 'success' && steps.xnu-kernel-verify.outcome == 'success' && steps.xnu-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
