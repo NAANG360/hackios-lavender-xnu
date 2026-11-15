@@ -19,7 +19,8 @@ Port XNU 8796 (iOS 16 generation) to physical Xiaomi Redmi Note 7/7S (`lavender`
 - Never claim compile = verified kernel = packaged image = physical boot = Apple logo = Darwin userspace.
 
 ## Current pointer
-Run #231 (`43677707091`) compiled but failed official Mach-O verification: non-executable file-backed `__CTF,__ctf` metadata is rejected because segment VM size is zero. Fix `tools/verify-lavender-kernel.py` narrowly, test retained candidate `14147107920` locally, then run one corrected CI build. Full details: [Chapter 03](docs/handoff/03-current-debugging.md).
+
+Physical boot evidence reached XNU assembly marker 9 on A73, then stalled before `arm_init()`. Current leading cause: `physBase=0xA0400000` is not 32 MiB aligned for XNU's 16 KiB-granule L2 block bootstrap map. Candidate correction committed as `f2a4cfd4a65829352736783def33c6a5b61e4a68`; shim/ADT regression workflow #47 passed, XNU build #233 is in progress. Full details: [Chapter 03](docs/handoff/03-current-debugging.md).
 
 ## Selective chapters
 - [01 Device and safety](docs/handoff/01-device-and-safety.md)

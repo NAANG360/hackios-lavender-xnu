@@ -10,26 +10,25 @@
 
 ## Current state — read first
 
-**Current blocker:** Run #231's official Mach-O verifier rejects valid non-executable, file-backed `__CTF,__ctf` metadata because its segment has `vmsize=0`. XNU compiled and source guards passed; packaging was skipped.
+**Physical bring-up blocker:** Run #232's footage shows the A73 reaching XNU assembly Stage 9, immediately before `ret` to `arm_init()`. The A53 guardian later timed out and intentionally reset the handset. Current source-level root-cause candidate is a 4 MiB TTBR1 mapping offset: `physBase=0xA0400000` is misaligned for 32 MiB L2 block descriptors while `virtBase` is aligned.
 
-- Latest run: #231 / `43677707091`, attempt 1, source `abff246071db828dab395bfa2d98587bf86b2474` — failed only at Mach-O verifier.
-- Retained #231 candidate artifact: `14147107920`; extracted kernel SHA-256 `b2d0abef3e20282d24945083cf530ce82c42bbfaeec2f1fa796d3aa0a8e6c1b3`.
-- Independent inspection confirms stage 8 at file offset `0x47a8c0` / VM `0xfffffe000747e8c0`, and stage 9 at `0x47a94c` / VM `0xfffffe000747e94c`. Both actual instruction sequences were independently disassembled. **This is not an official verifier pass.**
-- Last fully verified kernel + structural RAM-only image: Run #230 / `43677616958`. Image artifact `14147915512`, exact filename `iosboot.img`, SHA-256 `aed49f435687ec05d970f8f350ee0e3bd83d2a362d9166e5e505e5298a770f06`. Not physically tested.
-- No Apple logo or Darwin userspace has been verified.
+- Fix commit: `f2a4cfd4a65829352736783def33c6a5b61e4a68`.
+- `tools/mkadt-lavender.py`: XNU aperture now begins at `0xA2000000`, the next 32 MiB boundary after audited RAM start `0xA0400000`; advertised end remains `0xEA848000` before the 1 MiB panic reservation.
+- `tools/mkpayload.py`: rejects Lavender payloads whose `virt_base` and `phys_base` offsets differ modulo 32 MiB.
+- `tests/test_lavender_adt.py`: checks aligned base and rejects the old `0xA0400000` value.
+- Shim/ADT workflow #47 (`43695509648`) passed, including ADT invariants, regression test and shim compile.
+- XNU workflow #233 (`43695509652`) is in progress. No new kernel/image is accepted yet.
+
+**Memory-map caveat:** the current aperture boundary is based on the live Linux `/proc/iomem` audit recorded in the ADT builder, not a complete bootloader-provided RAM/reservation map. Treat the change as a build candidate until the exact runtime memory map and all reserved regions are reconciled. No physical test yet.
 
 ## Immediate next action
 
-1. Query live branch HEAD and newest Actions runs.
-2. Fix `tools/verify-lavender-kernel.py`: allow file-backed sections in zero-VM-size segments only for non-executable metadata and only when file bounds are valid. Preserve strict Mach-O/load-command/section/file bounds. Executable sections must remain mapped, executable and VM/file-contained.
-3. Test locally against retained #231 candidate; print section inventory and stage-8/9 locations + decoded instructions. Add negative tests for malformed executable/file ranges.
-4. Ensure `.github/workflows/xnu.yml` retains raw kernel, section/load-command inventory, verifier report, SHA-256 and full `__TEXT_EXEC,__text` disassembly even on failure.
-5. Commit one narrow fix; run one XNU workflow. Confirm real build path, verifier pass and cache save.
-6. Manually dispatch `.github/workflows/package-lavender.yml` using that successful run ID; independently verify exact `iosboot.img`, kernel identity, payload, DTB/ADT, load ranges and hash.
-7. Do not request physical testing until a recovery/reboot path independent of the broken power button is established. Then use RAM-only boot only.
+1. Poll XNU Run #233. Confirm build path, official Mach-O verifier, instruction verification and preserved artifacts.
+2. If successful, manually package only from #233 and inspect exact `iosboot.img`, payload/ADT values, kernel identity, DTB and load ranges.
+3. Before any handset test, resolve the RAM-map caveat against the best available bootloader/runtime evidence and establish recovery independent of the broken power button.
+4. If the corrected image is eventually tested, expect marker `0x100` as proof of C entry; later C-stage markers and console output are required before claiming further progress.
 
-**Do not restart XNU source work or weaken verifier guards. Do not overlap Actions builds.**
-
+**Do not flash. Do not infer physical success from CI.**
 ## Chapter index — load selectively
 
 | Chapter | Open when |
