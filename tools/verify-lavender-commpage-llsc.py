@@ -78,6 +78,7 @@ def validate_source_function(source: str, name: str, address_reg: str) -> None:
         (rf"^[ \t]*cbnz[ \t]+w12,[ \t]*Ltrylock_{stem}_lock\b", "retry after failed exclusive store"),
         (rf"^[ \t]*b[ \t]+Ltrylock_{stem}_success\b", "success branch"),
         (rf"^[ \t]*Ltrylock_{stem}_failed:[ \t]*$", "busy-lock failure label"),
+        (r"^[ \t]*clrex[ \t]*$", "clear exclusive monitor on busy-lock exit"),
         (r"^[ \t]*mov[ \t]+x0,[ \t]*#-1\b", "existing failure return value"),
         (rf"^[ \t]*b[ \t]+Ltrylock_{stem}_exit\b", "existing failure exit"),
     ]
@@ -99,6 +100,8 @@ def validate_disassembly_function(disassembly: str, name: str) -> None:
         raise ValueError(
             f"linked {name} is missing expected ARMv8.0 LDAXR/STXR; found {sorted(set(mnemonics))}"
         )
+    if "clrex" not in mnemonics:
+        raise ValueError(f"linked {name} is missing CLREX on the busy-lock exit path")
 
 
 def main() -> int:
