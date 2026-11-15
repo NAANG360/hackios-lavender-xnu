@@ -100,3 +100,16 @@ Be direct and precise. The user expects the image, not another generic progress 
 - Compiled stage-8/stage-9 presence: NOT YET DETERMINED for #227/#228.
 - RAM-only image packaging: SKIPPED.
 - New verified iosboot.img: NOT PRODUCED.
+
+
+## Current correction — 2026-11-15: Mach-O parser NUL-terminator defect
+
+- Live branch HEAD was verified as `af097580a5f46be2a5f0d4540c874cf9a18e546d` before the fix.
+- Inspection of the exact Run #228 job log and `.github/workflows/xnu.yml` found the concrete section-name bug: the Python parser used `split(b"\\\\0", 1)`, which searches for the two literal bytes backslash and zero rather than the NUL byte in fixed-width Mach-O names. Use `split(b"\\0", 1)`.
+- The verifier has been changed to parse all `LC_SEGMENT_64` commands, validate the complete load-command region and each command/section table before reading, inspect all non-empty executable sections, validate file bounds, and emit a segment/section inventory. It no longer assumes the executable text must be named exactly `__TEXT_EXEC,__text`.
+- The verifier now reports each stage marker's segment, section, file offset and instruction words. It also captures `otool -l` and `otool -tvV` output for independent inspection.
+- A diagnostic artifact named `xnu-kernel-diagnostics` is uploaded after successful compilation even if binary verification fails. It includes the exact compiled kernel and any available parser inventory, load-command dump, disassembly, verification report and SHA-256 file.
+- Fix commits: parser correction `2a64ff651e0f98a0a09a9ea3a35b0a50c564c6b5`; diagnostic-artifact addition `235d71e71dc834a6bda7289aa33b764d278a093e`.
+- These two workflow commits triggered runs #229 (`43677604405`, parser fix only) and #230 (`43677616958`, parser fix plus diagnostic upload). Both were in progress at the time of this record. Do not start another build while either is active.
+- Stage 8/9 instruction patterns remain provisional until compared with the actual compiled kernel's disassembly. Do not claim their presence or absence until the new verifier reports exact offsets and the diagnostic disassembly is inspected.
+- No new `iosboot.img` exists yet. Packaging remains gated on binary verification; do not request physical testing.
