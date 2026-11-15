@@ -220,7 +220,7 @@ jobs:
           import re
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/commpage/commpage_asm.s").read_text()
-          if re.search(r"\\bcasa\\b", source, re.IGNORECASE):
+          if re.search(r"\bcasa\b", source, re.IGNORECASE):
               raise SystemExit("unsupported LSE CASA remains in commpage assembly")
           for name, next_name in (("_pfz_trylock_and_enqueue:", "_pfz_trylock_and_dequeue:"), ("_pfz_trylock_and_dequeue:", None)):
               start = source.index(name)
