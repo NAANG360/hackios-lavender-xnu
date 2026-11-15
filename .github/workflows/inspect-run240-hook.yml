@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 10
     steps:
-      - name: Inspect exact ARM64 lock init and group startup order
+      - name: Inspect exact mutex implementation and startup prerequisites
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -28,24 +28,36 @@ jobs:
           unzip -q kernel.zip -d evidence/kernel
           unzip -q buildtree.zip -d evidence/buildtree
           tar -xzf evidence/buildtree/buildtree.tgz -C evidence/source
-          echo "=== lock_mtx.c functions and architecture-specific paths ==="
-          grep -n 'lck_mtx_init\|lck_grp_lckcnt_incr\|store-exclusive\|LSE\|__ARM_FEATURE_ATOMICS\|__arm64__' evidence/source/xnu/osfmk/kern/lock_mtx.c | head -160 || true
-          sed -n '620,790p' evidence/source/xnu/osfmk/kern/lock_mtx.c
-          echo "=== group lock and group startup initialization ==="
-          grep -n -A 110 -B 10 'lck_grp_init\|lck_grp_startup_init\|lck_grp_lckcnt_incr\|lck_mod_init' evidence/source/xnu/osfmk/kern/lock_group.c | head -340
-          echo "=== ARM64 lock primitives source ==="
-          grep -R -n -E 'lck_mtx_init\(|lck_mtx_init_ext\(|LSE|store-exclusive|__ARM_FEATURE_ATOMICS|ldadd|ldaxr|stlxr' evidence/source/xnu/osfmk/arm64 evidence/source/xnu/osfmk/arm evidence/source/xnu/osfmk/kern evidence/source/xnu/libkern/os 2>/dev/null | head -250
-          echo "=== exact target compile flags ==="
-          grep -n 'MACHINE_FLAGS_ARM64_LAVENDER\|MACHINE_FLAGS_ARM64_SWEET' evidence/source/xnu/makedefs/MakeInc.def
-          echo "=== full ARM64 disassembly of Run 240 kernel ==="
-          xcrun llvm-objdump --macho --disassemble --no-show-raw-insn evidence/kernel/kernel.development.lavender > evidence/kernel/full.disasm
-          echo "=== mutex/group symbol labels ==="
-          grep -n -A 100 -B 2 -E '^_lck_mtx_init:|^_lck_mtx_init_ext:|^_lck_grp_init:|^_lck_grp_startup_init:|^_lck_mtx_startup_init:' evidence/kernel/full.disasm | head -700 || true
-          echo "=== exact replay of startup table entries including group initialization ==="
-          qsort_source=evidence/source/xnu/bsd/kern/qsort.c
-          python3 - "$qsort_source" <<'PY'
+          python3 - <<'PY'
+          import pathlib,re
+          root=pathlib.Path("evidence/source/xnu")
+          terms=("lck_mtx_init","lck_mtx_init_ext","lck_grp_lckcnt_incr","store-exclusive","LSE","lck_grp_startup_init")
+          print("=== ALL SOURCE FILE MATCHES ===")
+          for p in root.rglob("*"):
+              if not p.is_file() or p.suffix not in (".c",".h",".s",".S",".inc"): continue
+              try: lines=p.read_text(errors="ignore").splitlines()
+              except: continue
+              hits=[(i,x) for i,x in enumerate(lines) if any(t in x for t in terms)]
+              if hits:
+                  print(f"FILE {p}")
+                  for i,x in hits:
+                      if any(t in x for t in ("lck_mtx_init(","lck_mtx_init_ext(","lck_grp_lckcnt_incr","store-exclusive","LSE","lck_grp_startup_init")):
+                          lo=max(0,i-10); hi=min(len(lines),i+35)
+                          print("\n".join(f"{j+1}: {lines[j]}" for j in range(lo,hi)))
+          print("=== lock_mtx.c around ARMv8.1 comment ===")
+          p=root/"osfmk/kern/lock_mtx.c"
+          lines=p.read_text(errors="ignore").splitlines()
+          for i,x in enumerate(lines):
+              if "store-exclusive" in x or "armv8.1 LSE" in x:
+                  print("\n".join(f"{j+1}: {lines[j]}" for j in range(max(0,i-30),min(len(lines),i+45))))
+          print("=== lock_mtx.h declaration and struct ===")
+          lines=(root/"osfmk/kern/lock_mtx.h").read_text().splitlines()
+          print("\n".join(f"{j+1}: {lines[j]}" for j in range(68,115)))
+          PY
+          echo "=== exact sort replay: group hook plus neighboring mutexes ==="
+          python3 - <<'PY'
           import pathlib,sys
-          src=pathlib.Path(sys.argv[1]).read_text().replace("#include <sys/kpi_private.h>","")
+          src=pathlib.Path("evidence/source/xnu/bsd/kern/qsort.c").read_text().replace("#include <sys/kpi_private.h>","")
           prefix=r"""
           #include <sys/types.h>
           #include <stdint.h>
@@ -56,22 +68,23 @@ jobs:
           """
           main=r"""
           struct startup_entry { uint32_t subsystem; uint32_t rank; uint64_t func; uint64_t arg; };
-          static int cmp(const void *x,const void *y) {
-            const struct startup_entry *a=x,*b=y;
-            if(a->subsystem==b->subsystem) return a->rank==b->rank?0:(a->rank>b->rank?1:-1);
-            return a->subsystem>b->subsystem?1:-1;
-          }
-          int main(int argc,char **argv){
-            struct startup_entry e[4076]; FILE *f=fopen(argv[1],"rb");
-            if(!f||fseek(f,0xb1cd58L,SEEK_SET)||fread(e,sizeof(e),1,f)!=1)return 2;
-            xnu_qsort(e,4076,sizeof(e[0]),cmp);
-            for(int i=0;i<4076;i++) if(e[i].arg==0xfffffe0007be9cb8ULL)
-              printf("GROUP_ENTRY idx=%d sub=%u rank=%u fn=0x%llx arg=0x%llx\n",i,e[i].subsystem,e[i].rank,(unsigned long long)e[i].func,(unsigned long long)e[i].arg);
-            for(int i=674;i<=686;i++)
-              printf("LOCK_WINDOW idx=%d sub=%u rank=%u fn=0x%llx arg=0x%llx\n",i,e[i].subsystem,e[i].rank,(unsigned long long)e[i].func,(unsigned long long)e[i].arg);
-            return 0;
-          }"""
+          static int cmp(const void*x,const void*y){const struct startup_entry*a=x,*b=y;if(a->subsystem==b->subsystem)return a->rank==b->rank?0:(a->rank>b->rank?1:-1);return a->subsystem>b->subsystem?1:-1;}
+          int main(int argc,char**argv){struct startup_entry e[4076];FILE*f=fopen(argv[1],"rb");if(!f||fseek(f,0xb1cd58L,SEEK_SET)||fread(e,sizeof(e),1,f)!=1)return 2;xnu_qsort(e,4076,sizeof(e[0]),cmp);
+          for(int i=0;i<4076;i++)if(e[i].arg==0xfffffe0007be9cb8ULL)printf("GROUP_ENTRY idx=%d sub=%u rank=%u fn=0x%llx arg=0x%llx\n",i,e[i].subsystem,e[i].rank,(unsigned long long)e[i].func,(unsigned long long)e[i].arg);
+          for(int i=674;i<=686;i++)printf("LOCK_WINDOW idx=%d sub=%u rank=%u fn=0x%llx arg=0x%llx\n",i,e[i].subsystem,e[i].rank,(unsigned long long)e[i].func,(unsigned long long)e[i].arg);return 0;}"""
           pathlib.Path("evidence/group-order.c").write_text(prefix+src+main)
           PY
           clang -w evidence/group-order.c -o evidence/group-order
           evidence/group-order evidence/kernel/kernel.development.lavender
+          echo "=== full disassembly selected symbols ==="
+          xcrun llvm-objdump --macho --disassemble --no-show-raw-insn evidence/kernel/kernel.development.lavender > evidence/kernel/full.disasm
+          python3 - <<'PY'
+          import pathlib,re
+          p=pathlib.Path("evidence/kernel/full.disasm")
+          lines=p.read_text(errors="replace").splitlines()
+          hits=[i for i,x in enumerate(lines) if re.search(r'lck_mtx_init|lck_grp_init|processor_updown',x,re.I)]
+          print("disassembly lines",len(lines),"matching",len(hits))
+          for i in hits[:30]:
+              print("\n--- line",i+1,"---")
+              print("\n".join(lines[max(0,i-3):min(len(lines),i+65)]))
+          PY
