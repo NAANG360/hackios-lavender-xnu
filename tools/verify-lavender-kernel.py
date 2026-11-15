@@ -131,12 +131,38 @@ def parse_macho(data: bytes) -> tuple[int, int, list[ExecutableSection], list[st
                 executable_segment = bool(initprot & VM_PROT_EXECUTE)
                 text_named = sectname in ("__text", "__text_exec", "__TEXT_EXEC")
 
+                if section_segname != segname:
+                    raise ValueError(
+                        f"section {section_segname},{sectname} is nested in segment {segname!r}"
+                    )
+
                 if size > 0:
-                    if addr < vmaddr or addr > vmaddr + vmsize or size > vmaddr + vmsize - addr:
+                    # A zero-VM-size, non-executable segment can legitimately carry
+                    # file-backed metadata (for example __CTF,__ctf). Such bytes are
+                    # not mapped, so VM containment is inapplicable; file containment
+                    # remains mandatory. Never apply this exception to instruction
+                    # sections or segments executable now or permitted to execute.
+                    unmapped_metadata = (
+                        vmsize == 0
+                        and not ((initprot | maxprot) & VM_PROT_EXECUTE)
+                        and not instruction_section
+                        and file_backed
+                    )
+                    if instruction_section and not executable_segment:
                         raise ValueError(
-                            f"section {section_segname},{sectname} VM range exceeds segment "
-                            f"{segname!r}: addr=0x{addr:x} size=0x{size:x}"
+                            f"instruction section {section_segname},{sectname} is in "
+                            f"non-executable segment {segname!r}"
                         )
+                    if not unmapped_metadata:
+                        if (
+                            addr < vmaddr
+                            or addr > vmaddr + vmsize
+                            or size > vmaddr + vmsize - addr
+                        ):
+                            raise ValueError(
+                                f"section {section_segname},{sectname} VM range exceeds segment "
+                                f"{segname!r}: addr=0x{addr:x} size=0x{size:x}"
+                            )
                     if file_backed:
                         if offset > len(data) or size > len(data) - offset:
                             raise ValueError(
@@ -153,11 +179,14 @@ def parse_macho(data: bytes) -> tuple[int, int, list[ExecutableSection], list[st
                                 f"segment {segname!r}: off=0x{offset:x} size=0x{size:x}"
                             )
 
+                    if unmapped_metadata:
+                        inventory[-1] += " mapping=unmapped-file-backed-metadata"
+
                 if (
                     size > 0
                     and file_backed
                     and section_segname == segname
-                    and (executable_segment or instruction_section)
+                    and executable_segment
                     and (instruction_section or text_named)
                 ):
                     sections.append(
@@ -236,7 +265,7 @@ def main() -> int:
         for section, file_offset, vm_address, words in matches:
             encoded = " ".join(f"{word:08x}" for word in words)
             decoded = (
-                "ADD X0, X20, #1; "
+                "ADD X0, X20, #1, LSL #12; "
                 f"MOV W1, #{stage}; "
                 "STR W1, [X0]; DC CVAC, X0; DSB SY"
             )
