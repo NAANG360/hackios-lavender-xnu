@@ -1,7 +1,8 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Last failed code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252 / inspection #25)
+**Last failed code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252)
+**Current validation code:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` (XNU Run #254)
 **Current corrective source:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`
 **Corrective patch:** `0112-lavender-commpage-armv8a-llsc.patch` (added in the handoff fix commit)
 **Last successful build/package:** Run #242, workflow ID `43729225770`, source SHA `6876fd9030add877b5cb8b02ff82e14ed6b9bc3f`; this predates the current mutex-subtrace and generic-CPU changes.
@@ -183,14 +184,20 @@ The instructions are handwritten in `_pfz_trylock_and_enqueue` and `_pfz_trylock
 
 Run #252 uploaded raw diagnostic artifacts: kernel candidate ID `14169598249`, buildtree ID `14170183341`, build-log ID `14170312913`. The kernel candidate was not verifier-approved, the package job was skipped, and no `iosboot.img` exists for #252.
 
-**Narrow correction:** patch `0112-lavender-commpage-armv8a-llsc.patch` replaces each acquire CASA with `LDAXR` followed by `STXR` retry logic. A nonzero lock value follows the existing busy-lock failure return; the existing release-store unlock remains unchanged. Workflow acceptance requires patch 0112 and checks both helpers for LL/SC and absence of CASA.
+**Narrow correction:** patch `0112-lavender-commpage-armv8a-llsc.patch` replaces each acquire CASA with `LDAXR` followed by `STXR` retry logic. A nonzero lock value follows the existing busy-lock failure return; the existing release-store unlock remains unchanged. The XNU workflow requires patch 0112, checks both helper bodies for LL/SC and absence of CASA, and verifies the patch/source guard before accepting the build.
 
-Do not assume this is the last unsupported instruction. Rebuild and fix any further handwritten LSE sites individually while preserving ARMv8-A.
+**Patch correction history:** the initial 0112 patch attempt had incorrect hunk counts / source-guard matching. Commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` corrected the patch hunks and commpage source guard. The workflow file at that exact commit requires 0112.
+
+**Follow-up runs:**
+- XNU #253 (`43736362523`, source `3fd3bf03db75f80f64c15c3d7dc610116b437b89`) was triggered by the first 0112/handoff commit before the patch hunk/source-guard correction. It is superseded; cancellation was requested.
+- XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is the corrected validation build. Latest job-step inspection shows setup, Xcode 16 selection, machine-profile/cache validation and dependency installation passed; **Build XNU 8796 is in progress**. Later verification, artifact collection and package steps have not run yet.
+
+Do not assume this is the last unsupported instruction. If the corrected build exposes further handwritten LSE sites, fix each individually while preserving ARMv8-A.
 
 ## Immediate next operation
 
-1. Verify patch 0112 applies cleanly to pinned XNU 8796.141.3 and the workflow source guard passes.
-2. Run a fresh XNU build. Confirm both commpage routines assemble, generic-CPU C flags remain present, and linked `_lck_grp_reference` still uses `LDXR/STXR` without LSE.
+1. Monitor XNU #254 until the build step completes; inspect its exact logs for any further ARMv8-A assembler failures.
+2. Require the Lavender build-path/source guard and linked-kernel verification, including no LSE in the audited atomic paths.
 3. Continue through Mach-O verification and RAM-only package checks. Record new kernel/image artifact IDs and SHA-256 values only after those gates pass.
 4. Do not use Run #252's raw kernel candidate as a boot image. Do not boot any new image until a power-button-independent recovery/reset route has been physically verified; RAM boot only, never flash.
 
