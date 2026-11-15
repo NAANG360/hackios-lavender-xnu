@@ -11,6 +11,8 @@ Read `PROJECT_HANDOFF.md` first. Resolve the live branch HEAD and newest Actions
 
 Do not read all chapters at session start. Do not read historical material unless it changes the current decision.
 
+The 15 November physical-video batch is indexed in Chapter 03 and Chapter 04. Treat the 1000317713/7714/7717 clips as unknown-build corroboration of checkpoint 09; they are not Run #240 evidence because they do not show the patch-0109 rolling trace.
+
 ## Resume prompt
 
 ```text
