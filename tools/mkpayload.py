@@ -132,6 +132,23 @@ def add_ramdisk_to_adt(adt_blob, phys, size):
     return adt.serialize(root)
 
 
+LAVENDER_L2_BLOCK_SIZE = 0x02000000
+
+
+def validate_lavender_bootstrap_alignment(virt_base, phys_base):
+    """Require matching 32 MiB offsets for Lavender's L2 block bootstrap map."""
+    mask = LAVENDER_L2_BLOCK_SIZE - 1
+    virt_offset = virt_base & mask
+    phys_offset = phys_base & mask
+    if virt_offset != phys_offset:
+        raise ValueError(
+            "Lavender bootstrap mapping requires virt_base and phys_base "
+            f"to share a 32 MiB offset: virt_base={virt_base:#x} "
+            f"(offset {virt_offset:#x}), phys_base={phys_base:#x} "
+            f"(offset {phys_offset:#x})"
+        )
+
+
 def adt_dram(adt_blob):
     """Kernel-managed RAM <base, size> from the ADT's /chosen dram-base/dram-size."""
     root, _ = adt.parse(adt_blob)
@@ -156,6 +173,8 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None, machine="SWEET"):
     adt_blob = open(adt_path, 'rb').read()
     # The ADT decides where the kernel's RAM is (mkadt.py --highmem).
     PHYS_BASE, MEM_SIZE = adt_dram(adt_blob)
+    if machine == "LAVENDER":
+        validate_lavender_bootstrap_alignment(virt_base, PHYS_BASE)
     pieces = [(s['vmaddr'], s['vmsize'], buf[s['fileoff']:s['fileoff'] + s['filesize']]) for s in segs]
     ramdisk = None
     if ramdisk_path:

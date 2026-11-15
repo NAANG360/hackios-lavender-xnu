@@ -19,8 +19,12 @@ import adt  # noqa: E402
 #   a0400000-feabffff System RAM
 #   ea948000-fe7fffff reserved
 #   fe87c000-feabffff reserved (split subranges)
-# Keep XNU's contiguous physBase/memSize below the first reserved carve-out.
-PHYS_BASE = 0xA0400000
+# The first 28 MiB are deliberately left outside XNU's managed aperture:
+# 16 KiB-granule bootstrap L2 block descriptors cover 32 MiB and encode
+# the output PA with the low 25 bits cleared. Keep physBase block-aligned.
+RAM_START = 0xA0400000
+BOOTSTRAP_L2_BLOCK_SIZE = 0x02000000
+PHYS_BASE = 0xA2000000
 SAFE_RAM_END = 0xEA948000
 MEM_SIZE_TOTAL = SAFE_RAM_END - PHYS_BASE
 PANIC_LOG_SIZE = 0x100000
@@ -267,7 +271,10 @@ def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
     base = struct.unpack('<Q', get('dram-base'))[0]
     size = struct.unpack('<Q', get('dram-size'))[0]
     assert base == PHYS_BASE
+    assert RAM_START <= base < SAFE_RAM_END
+    assert base % BOOTSTRAP_L2_BLOCK_SIZE == 0
     assert base + size == SAFE_RAM_END - PANIC_LOG_SIZE
+    assert base + size + PANIC_LOG_SIZE == SAFE_RAM_END
     assert base + size == PHYS_BASE + MEM_SIZE_TOTAL - PANIC_LOG_SIZE
     cpus = next(c for c in root.children if c.name == 'cpus')
     regs = [struct.unpack('<I', next(v for n, _, v in c.props if n == 'reg'))[0]

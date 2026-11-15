@@ -9,6 +9,10 @@ spec = importlib.util.spec_from_file_location("mkadt_lavender", ROOT / "tools/mk
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
+payload_spec = importlib.util.spec_from_file_location("mkpayload", ROOT / "tools/mkpayload.py")
+payload_mod = importlib.util.module_from_spec(payload_spec)
+payload_spec.loader.exec_module(payload_mod)
+
 def props(node):
     return {name: value for name, _, value in node.props}
 
@@ -24,9 +28,21 @@ def run():
     chosen = props(child(parsed, "chosen"))
     base = struct.unpack("<Q", chosen["dram-base"])[0]
     size = struct.unpack("<Q", chosen["dram-size"])[0]
-    assert base == 0xA0400000
+    assert base == 0xA2000000
     assert base + size == 0xEA848000
-    assert base % 0x4000 == 0 and size % 0x4000 == 0
+    assert base % mod.BOOTSTRAP_L2_BLOCK_SIZE == 0
+    assert size % 0x4000 == 0
+    # The first 28 MiB of System RAM are intentionally excluded so every
+    # KVA L2 block maps to the same physical offset used by the shim loader.
+    assert base - mod.RAM_START == 0x01C00000
+    virt_base = 0xFFFFFFE006000000
+    payload_mod.validate_lavender_bootstrap_alignment(virt_base, base)
+    try:
+        payload_mod.validate_lavender_bootstrap_alignment(virt_base, 0xA0400000)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("misaligned Lavender phys_base was accepted")
     pram = props(child(parsed, "pram"))
     panic_base, panic_size = struct.unpack("<QQ", pram["reg"])
     assert (panic_base, panic_size) == (base + size, 0x100000)
