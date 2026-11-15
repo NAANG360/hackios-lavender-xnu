@@ -13,10 +13,9 @@ permissions:
 jobs:
   inspect:
     runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
       - name: Inspect group reference and exact lock startup data
         env:
           GH_TOKEN: ${{ github.token }}
