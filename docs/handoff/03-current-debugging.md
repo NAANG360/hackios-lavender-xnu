@@ -1,7 +1,7 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Branch HEAD:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`
+**Code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252 / inspection #25)
 **Last successful build/package:** Run #242, workflow ID `43729225770`, source SHA `6876fd9030add877b5cb8b02ff82e14ed6b9bc3f`; this predates the current mutex-subtrace and generic-CPU changes.
 **Run #240 diagnostic baseline:** workflow ID `43709690089`, source SHA `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`, success
 **Diagnostic patches:** `0109-lavender-startup-hook-trace.patch`, `0110-lavender-mutex-startup-subtrace.patch`, `0111-lavender-armv8a-generic-cpu.patch`
