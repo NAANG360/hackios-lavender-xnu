@@ -3489,3 +3489,28 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - Stage 8 / stage 9 in compiled #227/#228 kernels: UNKNOWN.
 - RAM-only image packaging: SKIPPED.
 - New verified iosboot.img: NOT PRODUCED.
+
+
+## 44.36 — 2026-11-15: Mach-O section parser root cause found and corrected
+
+### Exact root cause
+- The live branch HEAD before this fix was `af097580a5f46be2a5f0d4540c874cf9a18e546d`.
+- Re-read the Run #228 build-job log (job `132532193569`) and the exact workflow source. The verifier's fixed-width Mach-O name parsing used `split(b"\\\\0", 1)`. In Python this is a search for the literal two-byte sequence backslash + zero, not the NUL terminator used to pad Mach-O's 16-byte segment/section name fields.
+- Therefore valid segment and section names retained their NUL padding and failed comparisons against `"__TEXT_EXEC"` and `"__text"`. This explains the exact failure `could not locate __TEXT_EXEC,__text for binary stage verification`; it was a parser defect, not evidence that the compiled kernel lacked executable text.
+
+### Workflow correction
+- Commit `2a64ff651e0f98a0a09a9ea3a35b0a50c564c6b5` changes name parsing to split on the actual NUL byte and removes the single-name assumption.
+- The new parser enumerates all `LC_SEGMENT_64` commands and sections, validates header/load-command bounds, validates section-table sizes, checks file offsets and sizes, skips zero-fill sections, and scans every valid executable section (segment execute protection or instruction-section flags).
+- It emits a complete section inventory and reports stage-8/stage-9 pattern matches with the actual segment, section, file offset and instruction words.
+- It also captures `otool -l` and `otool -tvV` output to support independent verification of the load commands and actual compiled instructions.
+- Commit `235d71e71dc834a6bda7289aa33b764d278a093e` adds an `xnu-kernel-diagnostics` artifact uploaded after a successful compile even if the binary verifier fails. This artifact retains the exact kernel and any available inventory, load-command dump, disassembly, verification report and hash, preventing another verifier failure from discarding the binary needed to diagnose it.
+
+### Validation runs
+- Run #229: `43677604405`, source `2a64ff651e0f98a0a09a9ea3a35b0a50c564c6b5` (parser correction only).
+- Run #230: `43677616958`, source `235d71e71dc834a6bda7289aa33b764d278a093e` (parser correction plus diagnostic artifact).
+- Both runs were in progress when this section was written. Run #230 is the canonical candidate because it includes diagnostic artifact retention. Do not trigger another full build while either is active.
+
+### Still unverified / acceptance gates
+- The stage-8 and stage-9 opcode patterns are still provisional. The new verifier's pattern matches must be checked against the captured `otool -tvV` disassembly and, if needed, the patched assembly object. Report exact offsets and decoded instructions; do not accept a guessed pattern merely because it matches bytes.
+- The actual #227/#228 kernel binaries were not included in their published artifacts, so those two binaries cannot be retrospectively section-enumerated from the retained artifacts. #230 is intended to retain its exact kernel even if verification fails.
+- Packaging remains blocked until the new kernel passes the corrected Mach-O and instruction checks. No new `iosboot.img` has been produced. Do not request another physical test; keep the RAM-only fastboot path and broken-power-button recovery constraint.
