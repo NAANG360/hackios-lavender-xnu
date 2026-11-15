@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 10
     steps:
-      - name: Resolve processor mutex pointers and inspect lck_mtx_init call chain
+      - name: Inspect exact ARM64 lock init and group startup order
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -28,34 +28,50 @@ jobs:
           unzip -q kernel.zip -d evidence/kernel
           unzip -q buildtree.zip -d evidence/buildtree
           tar -xzf evidence/buildtree/buildtree.tgz -C evidence/source
-          echo "=== ALL IMPLEMENTATIONS/CALLS OF lck_mtx_init ==="
-          grep -R -n -B 8 -A 55 'lck_mtx_init_ext\|lck_mtx_init(' evidence/source/xnu/osfmk evidence/source/xnu/bsd 2>/dev/null | head -500 || true
-          echo "=== processor_updown group init declaration ==="
-          grep -R -n -B 8 -A 22 'processor_updown_grp' evidence/source/xnu/osfmk 2>/dev/null || true
-          echo "=== symbols (including local) ==="
-          xcrun nm -an evidence/kernel/kernel.development.lavender > evidence/kernel/kernel.nm
-          grep -E 'processor_updown|lck_mtx_init|lck_grp_init|lck_mtx_startup_init|lck_grp_startup_init' evidence/kernel/kernel.nm | head -120 || true
-          echo "=== resolve exact spec field pointers to symbols ==="
-          python3 - <<'PY'
-          import bisect,pathlib,re
-          p=pathlib.Path("evidence/kernel/kernel.nm")
-          syms=[]
-          for line in p.read_text(errors="replace").splitlines():
-              m=re.match(r"^\s*([0-9a-fA-F]{8,16})\s+([A-Za-z])\s+(.+?)\s*$",line)
-              if m and m.group(2).upper()!="U":
-                  syms.append((int(m.group(1),16),m.group(3)))
-          syms.sort()
-          for name,addr in [("mutex",0xfffffe0007b10718),("group",0xfffffe0007ac5ec0),("spec",0xfffffe0007be9d08)]:
-              i=bisect.bisect_right(syms,(addr,chr(0x10ffff)))-1
-              j=bisect.bisect_left(syms,(addr,""))
-              exact=syms[j:j+6]
-              prev=f"{syms[i][1]} + 0x{addr-syms[i][0]:x}" if i>=0 else "unresolved"
-              print(name,hex(addr),"nearest",prev,"next/exact",exact)
+          echo "=== lock_mtx.c functions and architecture-specific paths ==="
+          grep -n 'lck_mtx_init\|lck_grp_lckcnt_incr\|store-exclusive\|LSE\|__ARM_FEATURE_ATOMICS\|__arm64__' evidence/source/xnu/osfmk/kern/lock_mtx.c | head -160 || true
+          sed -n '620,790p' evidence/source/xnu/osfmk/kern/lock_mtx.c
+          echo "=== group lock and group startup initialization ==="
+          grep -n -A 110 -B 10 'lck_grp_init\|lck_grp_startup_init\|lck_grp_lckcnt_incr\|lck_mod_init' evidence/source/xnu/osfmk/kern/lock_group.c | head -340
+          echo "=== ARM64 lock primitives source ==="
+          grep -R -n -E 'lck_mtx_init\(|lck_mtx_init_ext\(|LSE|store-exclusive|__ARM_FEATURE_ATOMICS|ldadd|ldaxr|stlxr' evidence/source/xnu/osfmk/arm64 evidence/source/xnu/osfmk/arm evidence/source/xnu/osfmk/kern evidence/source/xnu/libkern/os 2>/dev/null | head -250
+          echo "=== exact target compile flags ==="
+          grep -n 'MACHINE_FLAGS_ARM64_LAVENDER\|MACHINE_FLAGS_ARM64_SWEET' evidence/source/xnu/makedefs/MakeInc.def
+          echo "=== full ARM64 disassembly of Run 240 kernel ==="
+          xcrun llvm-objdump --macho --disassemble --no-show-raw-insn evidence/kernel/kernel.development.lavender > evidence/kernel/full.disasm
+          echo "=== mutex/group symbol labels ==="
+          grep -n -A 100 -B 2 -E '^_lck_mtx_init:|^_lck_mtx_init_ext:|^_lck_grp_init:|^_lck_grp_startup_init:|^_lck_mtx_startup_init:' evidence/kernel/full.disasm | head -700 || true
+          echo "=== exact replay of startup table entries including group initialization ==="
+          qsort_source=evidence/source/xnu/bsd/kern/qsort.c
+          python3 - "$qsort_source" <<'PY'
+          import pathlib,sys
+          src=pathlib.Path(sys.argv[1]).read_text().replace("#include <sys/kpi_private.h>","")
+          prefix=r"""
+          #include <sys/types.h>
+          #include <stdint.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          #define __private_extern__
+          #define qsort xnu_qsort
+          """
+          main=r"""
+          struct startup_entry { uint32_t subsystem; uint32_t rank; uint64_t func; uint64_t arg; };
+          static int cmp(const void *x,const void *y) {
+            const struct startup_entry *a=x,*b=y;
+            if(a->subsystem==b->subsystem) return a->rank==b->rank?0:(a->rank>b->rank?1:-1);
+            return a->subsystem>b->subsystem?1:-1;
+          }
+          int main(int argc,char **argv){
+            struct startup_entry e[4076]; FILE *f=fopen(argv[1],"rb");
+            if(!f||fseek(f,0xb1cd58L,SEEK_SET)||fread(e,sizeof(e),1,f)!=1)return 2;
+            xnu_qsort(e,4076,sizeof(e[0]),cmp);
+            for(int i=0;i<4076;i++) if(e[i].arg==0xfffffe0007be9cb8ULL)
+              printf("GROUP_ENTRY idx=%d sub=%u rank=%u fn=0x%llx arg=0x%llx\n",i,e[i].subsystem,e[i].rank,(unsigned long long)e[i].func,(unsigned long long)e[i].arg);
+            for(int i=674;i<=686;i++)
+              printf("LOCK_WINDOW idx=%d sub=%u rank=%u fn=0x%llx arg=0x%llx\n",i,e[i].subsystem,e[i].rank,(unsigned long long)e[i].func,(unsigned long long)e[i].arg);
+            return 0;
+          }"""
+          pathlib.Path("evidence/group-order.c").write_text(prefix+src+main)
           PY
-          echo "=== disassemble symbol table and lock code ==="
-          xcrun llvm-objdump --version | head -5
-          xcrun llvm-objdump --macho --disassemble --symbolize-operands --no-show-raw-insn --disassemble-symbols=_lck_mtx_startup_init,_lck_mtx_init,_lck_mtx_init_ext,_lck_grp_startup_init evidence/kernel/kernel.development.lavender 2>&1 | head -500 || true
-          echo "=== kernel verifier disassembly references ==="
-          grep -n -i -A 45 -B 4 'lck_mtx_init\|lck_grp_init\|processor_updown' evidence/kernel/KERNEL-DISASSEMBLY.txt | head -300 || true
-          echo "=== source compilation configuration hints ==="
-          grep -R -n -E -- '-mcpu=|-march=|-target |armv8\.[0-9]' evidence/source/xnu evidence/buildtree 2>/dev/null | head -150 || true
+          clang -w evidence/group-order.c -o evidence/group-order
+          evidence/group-order evidence/kernel/kernel.development.lavender
