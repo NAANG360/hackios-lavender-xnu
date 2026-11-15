@@ -14,6 +14,30 @@
 **Current CI:** inspection #25 (`43733584201`) passed. XNU #252 (`43733584216`, source `e463e56...`) failed because two handwritten `CASA` instructions in `commpage_asm.s` require LSE. Patch 0112 replaces them with ARMv8.0 `LDAXR/STXR` retry loops. XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is in progress; setup/toolchain/profile/cache/dependency steps passed and `Build XNU 8796` remains active. Source guards, linked-kernel verification, artifact collection and RAM-image packaging are pending. #253 (`43736362523`) is cancelled. No new verified boot image yet.
 **Latest reviewed physical batch:** `1000317701.mp4` (87.785 s), `1000317713.mp4` (27.531 s), `1000317714.mp4` (27.744 s), `1000317717.mp4` (54.303 s); Run #240 still untested
 
+## Live correction — patch 0112 was skipped in XNU #254
+
+**Latest verified result:** XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **failed**, not running. Build job `132879850377` completed with failure; package job `132884368318` was skipped. Its log explicitly says:
+
+```text
+Skipping patch 0112-lavender-commpage-armv8a-llsc.patch
+error: patch fragment without header at line 24:
+@@ -322,10 +327,15 @@ _pfz_trylock_and_dequeue:
+```
+
+The failure is a hunk-count mismatch, not a new architecture or mutex problem. Counting the actual patch lines gives:
+- enqueue hunk: 11 old lines / 16 new lines, but header claimed 10 / 15;
+- dequeue hunk: 9 old lines / 14 new lines, but header claimed 10 / 15.
+
+Because patch 0112 was skipped, the original `CASA` instructions remained. The assembler then failed at `commpage_asm.s:276` and `:326` with `instruction requires: lse`. The raw kernel candidate artifact is `14171510404`; buildtree is `14170687291`; build log is `14170144930`. These are not verifier-approved. No `iosboot.img` was packaged.
+
+**Corrective commit:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` updates only the two hunk headers:
+- `@@ -272,11 +272,16 @@ _pfz_trylock_and_enqueue:`
+- `@@ -322,9 +327,14 @@ _pfz_trylock_and_dequeue:`
+
+The ARMv8.0 `LDAXR/STXR` retry loops, lock-busy return behavior and existing release-store unlock are unchanged. This patch commit matches the `.github/workflows/xnu.yml` push path filter. The next Actions run has not yet been independently observed; do not invent a run ID or status.
+
+**Next gate:** verify the new run first reports patch 0112 applied (no skip warning), then both source guards pass, the linked kernel passes the ARMv8-A Mach-O/instruction verifier, and the RAM-only package job uploads `iosboot.img`. Only then is a new candidate acceptable. Never use #254's raw kernel candidate.
+
 ## Failed build diagnosis and active correction — 15 November 2026
 
 XNU #252 failed at the assembler stage, not in the mutex startup callback. The build log identifies two explicit LSE instructions in `osfmk/arm/commpage/commpage_asm.s`:
