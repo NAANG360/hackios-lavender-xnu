@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 10
     steps:
-      - name: Download immutable Run 240 artifacts
+      - name: Download immutable Run 240 artifacts and unpack source tree
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -27,12 +27,19 @@ jobs:
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14160182439/zip" -o buildtree.zip
           unzip -q kernel.zip -d evidence/kernel
           unzip -q buildtree.zip -d evidence/buildtree
-          echo "=== KERNEL ARTIFACT FILES ==="
-          find evidence/kernel -type f -maxdepth 4 -print
-          echo "=== BUILDTREE ARTIFACT FILES (first 100) ==="
-          find evidence/buildtree -type f -maxdepth 6 -print | head -100
-          echo "=== EXACT XNU QSORT SOURCE CANDIDATES ==="
-          find evidence/buildtree -type f -path '*/bsd/kern/qsort.c' -print
-          echo "=== KERNEL SYMBOL TOOLS ==="
-          xcrun --find nm
-          xcrun --find otool
+          test -s evidence/buildtree/buildtree.tgz
+          mkdir -p evidence/source
+          tar -xzf evidence/buildtree/buildtree.tgz -C evidence/source
+          echo "=== XNU SOURCES ==="
+          find evidence/source -type f \( -path '*/bsd/kern/qsort.c' -o -path '*/osfmk/kern/startup.c' -o -path '*/osfmk/kern/locks.c' \) -print
+          echo "=== QSORT SOURCE ==="
+          qsort_source="$(find evidence/source -type f -path '*/bsd/kern/qsort.c' -print -quit)"
+          test -n "$qsort_source"
+          sed -n '1,260p' "$qsort_source"
+          echo "=== LOCK STARTUP SOURCE HITS ==="
+          rg -n -C 3 'STARTUP\(LOCKS|lck_.*startup_init|SIMPLE_LOCK_DECLARE' evidence/source --glob '*.[ch]' | head -180
+          echo "=== KERNEL SYMBOLS ==="
+          xcrun nm -nm evidence/kernel/kernel.development.lavender > evidence/kernel/kernel.nm
+          rg 'lck_.*startup_init|startup_entry_cmp|kernel_startup_initialize_upto|_qsort' evidence/kernel/kernel.nm | head -100
+          echo "=== SECTION LOAD COMMANDS ==="
+          rg -n -A 8 -B 3 'init_entry_set|__BOOTDATA' evidence/kernel/MACHO-LOAD-COMMANDS.txt | head -80
