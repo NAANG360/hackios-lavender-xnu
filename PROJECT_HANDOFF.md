@@ -3514,3 +3514,24 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - The stage-8 and stage-9 opcode patterns are still provisional. The new verifier's pattern matches must be checked against the captured `otool -tvV` disassembly and, if needed, the patched assembly object. Report exact offsets and decoded instructions; do not accept a guessed pattern merely because it matches bytes.
 - The actual #227/#228 kernel binaries were not included in their published artifacts, so those two binaries cannot be retrospectively section-enumerated from the retained artifacts. #230 is intended to retain its exact kernel even if verification fails.
 - Packaging remains blocked until the new kernel passes the corrected Mach-O and instruction checks. No new `iosboot.img` has been produced. Do not request another physical test; keep the RAM-only fastboot path and broken-power-button recovery constraint.
+
+
+## 44.37 — 2026-11-15: Standalone Mach-O verifier refactor and run reconciliation
+
+### Reconciliation with section 44.36
+- The NUL-terminator correction was already present in commit `2a64ff651e0f98a0a09a9ea3a35b0a50c564c6b5`; diagnostic retention was added by `235d71e71dc834a6bda7289aa33b764d278a093e`. The current session verified the original #228 source at commit `560a6fde4b3fe670c247532fffca2a5c818df599` used the incorrect escaped form, while the later 2a64ff version uses the actual NUL escape. Do not duplicate or misattribute that earlier fix.
+- Runs #229 (`43677604405`, source 2a64ff...) and #230 (`43677616958`, source 235d71...) were already in progress when this session began. At last live check both build jobs remained in progress: #229 job `132701058521`; #230 job `132701098575`. No artifacts had been published yet. #230 remains the preferred evidence run because it retains diagnostics after successful compilation.
+
+### Follow-on verifier refactor made in this session
+- Commit `3da171772362b9346adb7e6f7378a8636c585940` adds `tools/verify-lavender-kernel.py`.
+- Commit `abff246071db828dab395bfa2d98587bf86b2474` refactors `.github/workflows/xnu.yml` to call the standalone verifier and uploads `xnu-kernel-candidate` before verification. This change was made after the #229/#230 runs were already active; inspect its resulting workflow run before doing any more build work.
+- The standalone parser validates Mach-O 64-bit ARM64/MH_EXECUTE identity, load-command region bounds, each command's declared size, LC_SEGMENT_64 section-table bounds, segment file bounds, section VM/file bounds, and zero-fill section types. It enumerates segment/section names, sizes, offsets, flags and protections.
+- It scans non-empty executable text candidates and independently checks the stage-8 and stage-9 publication word sequences, reporting each match's segment, section, file offset, VM address, encoded words and expected mnemonics.
+- Local synthetic tests: a synthetic ARM64 Mach-O with a NUL-padded executable section and both marker sequences passed; a deliberately corrupted section file offset was rejected. These tests validate parser mechanics only and do not establish anything about the real XNU output.
+
+### Remaining risks and next actions
+- The standalone script currently scans sections that are executable by segment protection or instruction flags and are text-named or instruction-flagged. If the actual binary uses a different executable-section convention, inspect the emitted inventory and adjust discovery without weakening bounds checks.
+- The stage opcode patterns remain provisional until checked against the actual compiled kernel's `otool -tvV` disassembly and, if necessary, the patched assembly object. Do not accept the patterns solely because the synthetic test matches.
+- The refactor commit replaced the previous rich `xnu-kernel-diagnostics` upload step with a raw `xnu-kernel-candidate` upload. Restore the richer inventory/load-command/disassembly artifact after #229/#230 and any run triggered by the refactor have settled. Do not launch overlapping full builds.
+- The workflow commit changes a path included in the workflow's push trigger. It may have started an additional run; no run ID for the refactor commit was surfaced by the available run-listing action at the time of this update. Resolve this before triggering anything else.
+- Current workflow commit: `abff246071db828dab395bfa2d98587bf86b2474`. The documentation-only commit that follows does not change the workflow. No new verified `iosboot.img` exists; packaging and physical testing remain blocked pending real-binary verification and structural package validation.
