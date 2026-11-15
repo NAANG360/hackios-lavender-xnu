@@ -28,11 +28,9 @@ Xiaomi Redmi Note 7/7S, codename `lavender`, Qualcomm SDM660 / Kryo 260, ARM64; 
 
 ## Current task
 
-Run #240 (source `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`) successfully builds and packages the `0109-lavender-startup-hook-trace.patch` diagnostic image. Physical handset evidence still stops at Run #236 marker `0x109` (entered `kernel_startup_bootstrap()`; no `0x10A` return seen). Read Chapter 03.
+The 15 November video batch (`1000317701.mp4`, `1000317713.mp4`, `1000317714.mp4`, `1000317717.mp4`) was reviewed. It corroborates the checkpoint-based image reaching `[09] entering kernel_startup_bootstrap`, but none shows patch-0109's `TABLE/QSORT/INIT/HOOK` trace. Build provenance of the three newer clips is unknown; do not assign them to Run #240. Run #240 remains untested.
 
-Next: capture and interpret the bottom-row trace from Run #240. It distinguishes table validation, `qsort`, subsystem logging and each startup callback. Static audit of the actual Run #240 table found 4,076 valid entries; 874 callbacks in TUNABLES/TIMEOUTS/LOCKS; no invalid callback pointers, invalid non-null argument pointers or simulated sort-order violations. Do not skip or change callbacks on this basis.
-
-No further XNU build until the trace identifies a source change. The device power button is broken; do not request a handset test until a reboot/recovery path independent of that button is established. Keep Android/recovery intact; no flashing, erasing or repartitioning.
+Read Chapter 03. Do not infer a specific callback or change code based on these clips. The next evidence target is the Run #240 bottom-row trace, only after the power-button-independent recovery/reset safety gate is established. No extra build before that evidence.
 
 ## Chapter router
 - `docs/handoff/README.md` — chapter routing and one-line resume protocol.
