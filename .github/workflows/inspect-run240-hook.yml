@@ -15,31 +15,94 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 10
     steps:
-      - name: Download immutable Run 240 artifacts and unpack source tree
+      - name: Download Run 240 artifacts and unpack exact XNU source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p evidence/kernel evidence/buildtree
+          mkdir -p evidence/kernel evidence/buildtree evidence/source
           curl -fLsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14159918757/zip" -o kernel.zip
           curl -fLsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/14160182439/zip" -o buildtree.zip
           unzip -q kernel.zip -d evidence/kernel
           unzip -q buildtree.zip -d evidence/buildtree
-          test -s evidence/buildtree/buildtree.tgz
-          mkdir -p evidence/source
           tar -xzf evidence/buildtree/buildtree.tgz -C evidence/source
-          echo "=== XNU SOURCES ==="
-          find evidence/source -type f \( -path '*/bsd/kern/qsort.c' -o -path '*/osfmk/kern/startup.c' -o -path '*/osfmk/kern/locks.c' \) -print
-          echo "=== QSORT SOURCE ==="
+          test -s evidence/kernel/kernel.development.lavender
           qsort_source="$(find evidence/source -type f -path '*/bsd/kern/qsort.c' -print -quit)"
+          startup_source="$(find evidence/source -type f -path '*/osfmk/kern/startup.c' -print -quit)"
           test -n "$qsort_source"
-          sed -n '1,260p' "$qsort_source"
-          echo "=== LOCK STARTUP SOURCE HITS ==="
-          rg -n -C 3 'STARTUP\(LOCKS|lck_.*startup_init|SIMPLE_LOCK_DECLARE' evidence/source --glob '*.[ch]' | head -180
-          echo "=== KERNEL SYMBOLS ==="
-          xcrun nm -nm evidence/kernel/kernel.development.lavender > evidence/kernel/kernel.nm
-          rg 'lck_.*startup_init|startup_entry_cmp|kernel_startup_initialize_upto|_qsort' evidence/kernel/kernel.nm | head -100
-          echo "=== SECTION LOAD COMMANDS ==="
-          rg -n -A 8 -B 3 'init_entry_set|__BOOTDATA' evidence/kernel/MACHO-LOAD-COMMANDS.txt | head -80
+          test -n "$startup_source"
+          echo "Exact qsort source: $qsort_source"
+          echo "Exact startup source: $startup_source"
+          echo "=== LOCK INITIALIZER REGISTRATIONS ==="
+          grep -R -n -E 'STARTUP\(LOCKS|lck_.*startup_init|SIMPLE_LOCK_DECLARE' evidence/source/xnu/osfmk evidence/source/xnu/bsd 2>/dev/null | head -200 || true
+          echo "=== KERNEL SYMBOL TABLE ==="
+          xcrun nm -n evidence/kernel/kernel.development.lavender > evidence/kernel/kernel.nm
+          echo "=== REPLAY EXACT XNU QSORT ON LINKED INIT TABLE ==="
+          python3 - "$qsort_source" <<'PY'
+          import pathlib, sys
+          src = pathlib.Path(sys.argv[1]).read_text()
+          src = src.replace("#include <sys/kpi_private.h>", "")
+          prefix = r"""
+          #include <sys/types.h>
+          #include <stdint.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          #define __private_extern__
+          #define qsort xnu_qsort
+          """
+          main = r"""
+          struct startup_entry { uint32_t subsystem; uint32_t rank; uint64_t func; uint64_t arg; };
+          _Static_assert(sizeof(struct startup_entry) == 24, "startup_entry ABI mismatch");
+          static int startup_entry_cmp(const void *x, const void *y) {
+              const struct startup_entry *a = (const struct startup_entry *)x;
+              const struct startup_entry *b = (const struct startup_entry *)y;
+              if (a->subsystem == b->subsystem) {
+                  if (a->rank == b->rank) return 0;
+                  return a->rank > b->rank ? 1 : -1;
+              }
+              return a->subsystem > b->subsystem ? 1 : -1;
+          }
+          int main(int argc, char **argv) {
+              struct startup_entry entries[4076];
+              FILE *f;
+              if (argc != 2 || !(f = fopen(argv[1], "rb"))) return 2;
+              if (fseek(f, 0xb1cd58L, SEEK_SET) != 0 ||
+                  fread(entries, sizeof(entries), 1, f) != 1) return 3;
+              fclose(f);
+              xnu_qsort(entries, 4076, sizeof(entries[0]), startup_entry_cmp);
+              for (int i = 674; i <= 686; i++) {
+                  printf("ENTRY %d sub=%u rank=%u fn=0x%016llx arg=0x%016llx\n",
+                      i, entries[i].subsystem, entries[i].rank,
+                      (unsigned long long)entries[i].func,
+                      (unsigned long long)entries[i].arg);
+              }
+              return 0;
+          }
+          """
+          pathlib.Path("evidence/host-qsort.c").write_text(prefix + src + main)
+          PY
+          clang -O0 -w evidence/host-qsort.c -o evidence/host-qsort
+          evidence/host-qsort evidence/kernel/kernel.development.lavender | tee evidence/hook-window.txt
+          echo "=== SYMBOL RESOLUTION ==="
+          python3 - <<'PY'
+          import bisect, pathlib, re, subprocess
+          nm = pathlib.Path("evidence/kernel/kernel.nm").read_text()
+          syms = []
+          for line in nm.splitlines():
+              m = re.match(r"^\s*(?:0x)?([0-9a-fA-F]{8,16})\s+([A-Za-z])\s+(.+?)\s*$", line)
+              if m and m.group(2).upper() != "U":
+                  syms.append((int(m.group(1), 16), m.group(3)))
+          syms.sort()
+          for line in pathlib.Path("evidence/hook-window.txt").read_text().splitlines():
+              m = re.search(r"ENTRY (\d+) sub=(\d+) rank=(\d+) fn=0x([0-9a-fA-F]+) arg=0x([0-9a-fA-F]+)", line)
+              if not m: continue
+              idx, sub, rank = map(int, m.group(1,2,3))
+              fn, arg = int(m.group(4),16), int(m.group(5),16)
+              j = bisect.bisect_right(syms, (fn, chr(0x10ffff))) - 1
+              k = bisect.bisect_right(syms, (arg, chr(0x10ffff))) - 1
+              fs = f"{syms[j][1]} + 0x{fn-syms[j][0]:x}" if j >= 0 else "unresolved"
+              ars = f"{syms[k][1]} + 0x{arg-syms[k][0]:x}" if k >= 0 else "unresolved"
+              print(f"ENTRY {idx}: sub={sub} rank={rank} fn={fs} arg={ars}")
+          PY
