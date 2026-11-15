@@ -1,18 +1,11 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Last failed code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252; handwritten commpage CASA)
-**Current validation code:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` (XNU Run #254; LL/SC commpage correction)
-**Current corrective source:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` (patch 0112)
-**Corrective patch:** `0112-lavender-commpage-armv8a-llsc.patch` (added in the handoff fix commit)
-**Last successful build/package:** Run #242, workflow ID `43729225770`, source SHA `6876fd9030add877b5cb8b02ff82e14ed6b9bc3f`; this predates the current mutex-subtrace and generic-CPU changes.
-**Run #240 diagnostic baseline:** workflow ID `43709690089`, source SHA `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`, success
-**Diagnostic patches:** `0109-lavender-startup-hook-trace.patch`, `0110-lavender-mutex-startup-subtrace.patch`, `0111-lavender-armv8a-generic-cpu.patch`, `0112-lavender-commpage-armv8a-llsc.patch`
-**Run #240 image:** artifact `lavender-fastboot-boot-test`, ID `14160128075`; exact filename `iosboot.img`
-**Run #240 image size / SHA-256:** 16,531,456 bytes / `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`
-**Run #240 kernel size / SHA-256:** 16,587,456 bytes / `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`
-**Current CI:** inspection #25 (`43733584201`) passed. XNU #252 (`43733584216`, source `e463e56...`) failed because two handwritten `CASA` instructions in `commpage_asm.s` require LSE. Patch 0112 replaces them with ARMv8.0 `LDAXR/STXR` retry loops. XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is in progress; setup/toolchain/profile/cache/dependency steps passed and `Build XNU 8796` remains active. Source guards, linked-kernel verification, artifact collection and RAM-image packaging are pending. #253 (`43736362523`) is cancelled. No new verified boot image yet.
-**Latest reviewed physical batch:** `1000317701.mp4` (87.785 s), `1000317713.mp4` (27.531 s), `1000317714.mp4` (27.744 s), `1000317717.mp4` (54.303 s); Run #240 still untested
+**Latest patch correction:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` (corrected 0112 hunk counts)
+**Last completed XNU run:** #254, workflow `43736404806`, failed because 0112 was skipped as malformed.
+**Last successful packaged diagnostic image:** Run #240, artifact `14160128075`; it predates patches 0110–0112 and remains physically untested.
+**Current acceptance state:** no newly verified kernel or `iosboot.img`; the corrected patch commit should trigger the XNU workflow, but the resulting run ID/status has not yet been independently observed.
+**Current routed chapter:** this chapter for the active build blocker; Chapter 02 only for patch/build mechanics. Chapter 01 remains mandatory before any handset action.
 
 ## Live correction — patch 0112 was skipped in XNU #254
 
@@ -236,11 +229,11 @@ Do not assume this is the last unsupported instruction. If the corrected build e
 
 ## Immediate next operation
 
-1. Keep #254 as the only active XNU build; do not start duplicate builds while its runner is compiling.
-2. Monitor the `Build XNU 8796` step to completion. If it fails, inspect the first assembler/compiler error and fix that exact source site without enabling LSE globally. The known #252 failure is the two handwritten commpage CASA instructions; patch 0112 is the current correction.
-3. Require both source guards, successful linked Mach-O verification and the RAM-only package job. Record new kernel/image artifact IDs and SHA-256 values only after those gates pass.
-4. Do not use #252's raw kernel candidate as a boot image. Do not boot any new image until a power-button-independent recovery/reset route has been physically verified; RAM boot only, never flash.
-
+1. Inspect the XNU Actions run triggered by patch-fix commit `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`; do not start a duplicate build.
+2. Confirm the build log shows patch 0112 applied and does not contain `Skipping patch 0112`.
+3. Confirm the post-patch source guards find both ARMv8.0 `LDAXR/STXR` sequences and no commpage `CASA`.
+4. Require successful XNU compilation, linked Mach-O ARMv8-A verification, and the RAM-only package job producing exact `iosboot.img`. Record run ID, artifact IDs and SHA-256 only after they are observed.
+5. If the patch still fails, inspect the first exact patch/application error; do not enable LSE globally or weaken checks. Never use #254's raw kernel candidate.
 
 ## Device safety
 
