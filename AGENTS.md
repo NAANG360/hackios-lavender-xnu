@@ -6,6 +6,8 @@
 Bring XNU 8796 (iOS 16 generation) up on Xiaomi Redmi Note 7/7S (lavender, SDM660 / Kryo 260, ARM64); Darwin userspace is later.
 
 ## Mandatory protocol
+
+When a difficult XNU/ARM issue benefits from independent review, the user may bring analysis from Gemini. Treat it as a second opinion: verify every proposed change against the exact XNU source, ARM semantics and linked instructions before applying it.
 1. Read PROJECT_HANDOFF.md, resolve live branch HEAD and newest relevant Actions runs.
 2. Follow the single current chapter route; do not load every chapter.
 3. Inspect exact source, CI logs/artifacts and physical evidence before edits.
@@ -32,7 +34,9 @@ Lavender, Qualcomm SDM660 / Kryo 260, ARM64. Observed Silver MPIDRs 0x0–0x3, G
 
 **Fix committed:** commit `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` corrects the hunk headers to `@@ -272,11 +272,16` and `@@ -322,9 +327,14`. This is a patch-format correction only; it preserves the ARMv8.0 `LDAXR/STXR` loops, busy-lock failure return and release-store unlock. The push matches the XNU workflow's `xnu/patches/**` trigger. A new run must prove the patch actually applies, both source guards pass, the linked Mach-O verifier passes, and the RAM-only package job uploads `iosboot.img`. Do not assume the new run has passed until its live status and artifacts are checked.
 
-**Next:** inspect the new Actions run for commit `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`. First confirm there is no `Skipping patch 0112` line and the commpage source has no CASA. Then require successful XNU compilation, source guards, linked-kernel ARMv8-A verification and RAM-only image packaging. Do not re-enable LSE globally, weaken checks, use #254's raw candidate, or start overlapping builds.
+**Live validation — 15 November 2026:** XNU #255 (run `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`) is in progress at **Build XNU 8796**. Runner setup, Xcode/tooling, machine profile, cache handling and dependency installation passed. The build has not yet completed; no #255 kernel-verification or package result is available. Do not infer that patch 0112 applied until the build log or source artifact confirms it.
+
+**Next:** let #255 finish before starting another XNU build. Inspect its log for an applied 0112 and absence of `Skipping patch 0112`; then require successful compilation, source guards, linked-kernel ARMv8-A verification and RAM-only packaging. Do not re-enable LSE globally, weaken checks, use #254's raw candidate, or start overlapping builds.
 
 The Run #240 callback mapping remains the later physical debugging lead. Do not bypass or reorder the mutex initializer. No handset retest until a power-button-independent recovery/reset route is physically verified; RAM boot only, never flash.
 
