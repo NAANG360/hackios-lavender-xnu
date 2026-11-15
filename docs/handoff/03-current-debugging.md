@@ -98,7 +98,7 @@ The accepted table's 874 pre-lockdown callbacks comprise:
 - TIMEOUTS (18): 15 `_machine_timeout_init`, and one each of `_hw_lock_test_to_init`, `_ml_io_init_timeouts`, and `_ml_init_lock_timeout`.
 - LOCKS (614): 280 `_lck_grp_startup_init`, 184 `_lck_mtx_startup_init`, 58 `_lck_attr_startup_init`, 43 `_lck_rw_startup_init`, 28 `_lck_spin_startup_init`, 13 `_usimple_lock_startup_init`, and eight remaining callbacks.
 
-Static table and linked-code checks show no malformed table, unexpected callback pointer, invalid non-null argument mapping, or simulated comparator-order defect. This is not evidence that the phone ran those callbacks successfully. The Run #240 physical trace remains necessary before modifying or gating any initializer.
+Static table and linked-code checks show no malformed table, unexpected callback pointer, invalid non-null argument mapping, or simulated comparator-order defect. This is not evidence that the phone ran those callbacks successfully. The screenshot trace now identifies the callback entry in the Run #240 table/symbol analysis. Physical provenance of the screenshot must still be confirmed before calling it a byte-bound Run #240 handset test. Do not modify or gate the initializer until its source path is audited.
 
 ## Exact Run #240 startup-table audit
 
@@ -127,12 +127,30 @@ These are optional device-tree tunables: `kernel_startup_tunable_dt_init()` skip
 The CSR tunable callback also checks `/chosen/asmb`. That node exists; `lp-sip0` is 8 bytes and `lp-sip1` is 4 bytes, matching `_csr_get_dt_uint64()` and `_csr_get_dt_bool()` in XNU 8796. This specific CSR/ADT size path is not a strong stall candidate.
 
 
+## Latest callback resolution — screenshot trace correlated with Run #240 kernel
+
+Two user-supplied close-up screenshots expose the bottom-row patch-0109 HOOK record. The reported readable fields are:
+
+```
+subsystem: 3 (LOCKS)
+index:     680
+rank:      3
+function:  _lck_mtx_startup_init
+argument:  ___startup_lck_mtx_spec_processor_updown_lock
+```
+
+The accompanying binary-analysis report states that the original XNU 8796 qsort() ordering was replayed against the startup table extracted from Run #240's actual kernel, and the function/argument addresses were resolved against that same kernel's symbol table. This maps the displayed entry to initialization of the processor_updown_lock mutex. Treat this as a symbol-resolution result for the Run #240 kernel, not a generic inference from index 680.
+
+**Interpretation boundary:** patch 0109 emits HOOK immediately before cur->func(cur->arg); it has no post-callback event. A last-visible record therefore establishes the callback about to be invoked, but does not by itself prove the callback is where execution hangs. The callback may fail to return, or execution may fault in the immediate post-call pointer-advance/store path. Also preserve screenshot-to-image provenance as unverified unless the tested image is independently bound to the Run #240 artifact.
+
+**Next engineering operation:** inspect the exact XNU 8796 implementation of _lck_mtx_startup_init, the ___startup_lck_mtx_spec_processor_updown_lock object/specification, and the ARM64 lock/mutex initialization path in the Run #240 buildtree. Trace every dereference and platform-dependent assumption relevant to this lock. Compare against the exact linked addresses and build configuration. Do not patch, skip, reorder, or gate the initializer until the source path identifies a concrete defect. Prefer a narrow source-level reproduction/guard and add post-callback diagnostic evidence only if needed; do not start another device test until the independent recovery/reset safety gate is satisfied.
+
 ## Immediate next operation
 
 1. Do not trigger another XNU build yet.
 2. Before requesting a new handset test, establish and physically verify a reboot/recovery path that does not depend on the broken power button. Volume Up + Volume Down is only documented as a reset request; it is not a verified recovery selector.
 3. Once a safe exit/recovery route exists, RAM-boot only the exact Run #240 `iosboot.img` and record the last complete bottom-row trace plus Guardian marker.
-4. Inspect only the indicated source callback or boundary, make the smallest evidence-backed fix, and then build once.
+4. Inspect _lck_mtx_startup_init and its processor_updown_lock startup spec in the exact Run #240 buildtree. Make a source change only after identifying a concrete defect; then run focused validation and one CI build.
 
 ## Device safety
 
