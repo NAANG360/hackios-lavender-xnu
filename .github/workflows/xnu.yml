@@ -477,7 +477,8 @@ jobs:
           if [[ "$MACHINE_CONFIG" == "LAVENDER" ]]; then
             OBJDUMP="$(xcrun --find llvm-objdump)"
             "$OBJDUMP" --macho --arch=arm64 --disassemble --section=__text --mattr=+lse "$kernel" > out/KERNEL-ARM64-ISA.txt
-            python3 tools/verify-lavender-commpage-llsc.py --disassembly out/KERNEL-ARM64-ISA.txt
+            "$OBJDUMP" --macho --arch=arm64 --disassemble --section=__commpage_text --mattr=+lse "$kernel" > out/COMMPAGE-ARM64-ISA.txt
+            python3 tools/verify-lavender-commpage-llsc.py --disassembly out/COMMPAGE-ARM64-ISA.txt
             python3 - <<'PY'
           import pathlib, re
           lines = pathlib.Path("out/KERNEL-ARM64-ISA.txt").read_text(errors="replace").splitlines()
