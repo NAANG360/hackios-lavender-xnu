@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 10
     steps:
-      - name: Download Run 240 artifacts and inspect processor_updown_lock path
+      - name: Inspect exact Run 240 mutex spec, implementation and linked instructions
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -28,20 +28,54 @@ jobs:
           unzip -q kernel.zip -d evidence/kernel
           unzip -q buildtree.zip -d evidence/buildtree
           tar -xzf evidence/buildtree/buildtree.tgz -C evidence/source
-          echo "=== lck_mtx_startup_init source ==="
-          sed -n '3220,3275p' evidence/source/xnu/osfmk/kern/locks.c
-          echo "=== mutex startup spec macro and struct ==="
-          grep -R -n -B 12 -A 18 'lck_mtx_startup_spec\|STARTUP_RANK_FOURTH\|LCK_MTX_DECLARE' evidence/source/xnu/osfmk/kern/lock_mtx.h evidence/source/xnu/osfmk/kern/locks.h evidence/source/xnu/osfmk/kern/processor.c
-          echo "=== processor_updown_lock declaration and usage ==="
-          grep -R -n -B 12 -A 20 'processor_updown_lock' evidence/source/xnu/osfmk evidence/source/xnu/bsd
-          echo "=== related mutex init implementation ==="
-          grep -n -E '^lck_mtx_init_ext|^lck_mtx_init\(|^lck_mtx_init_lock_group|^lck_mtx_init_grp' evidence/source/xnu/osfmk/kern/locks.c
-          echo "=== kernel symbol neighborhoods ==="
-          grep -n -A 5 -B 5 '_lck_mtx_startup_init\|_lck_mtx_init_ext\|_lck_mtx_init' evidence/kernel/KERNEL-DISASSEMBLY.txt | head -160
-          echo "=== kernel disassembly header around mutex startup init ==="
-          xcrun otool -tvV evidence/kernel/kernel.development.lavender > evidence/kernel/otool-disassembly.txt
-          grep -n -A 90 -B 5 '_lck_mtx_startup_init' evidence/kernel/otool-disassembly.txt | head -120
-          echo "=== relevant symbol starts ==="
-          grep -E '_lck_mtx_startup_init|_lck_mtx_init_ext|_lck_mtx_init$|_lck_grp_init' evidence/kernel/kernel.nm || true
-          echo "=== architecture compile flags ==="
-          grep -R -n -E -- '-mcpu=|-march=| -target |armv8\.[0-9]' evidence/source 2>/dev/null | head -100 || true
+          echo "=== lck_mtx_init and init_ext exact source ==="
+          grep -n 'lck_mtx_init_ext\|lck_mtx_init(' evidence/source/xnu/osfmk/kern/locks.c | tail -25
+          python3 - <<'PY'
+          import pathlib
+          s = pathlib.Path("evidence/source/xnu/osfmk/kern/locks.c").read_text().splitlines()
+          for term in ("lck_mtx_init_ext(", "lck_mtx_init("):
+              hits=[i for i,x in enumerate(s) if term in x]
+              print(f"--- {term}: {hits[-5:]} ---")
+              for i in hits[-3:]:
+                  lo=max(0,i-8); hi=min(len(s),i+75)
+                  print("\n".join(f"{j+1}: {s[j]}" for j in range(lo,hi)))
+          PY
+          echo "=== spec macro ==="
+          sed -n '170,198p' evidence/source/xnu/osfmk/kern/lock_mtx.h
+          echo "=== lock group init ==="
+          grep -n -A 55 -B 8 'lck_grp_startup_init\|lck_group_init' evidence/source/xnu/osfmk/kern/lock_group.c | head -150
+          echo "=== exact mutex/group symbols ==="
+          grep -E 'processor_updown|_lck_mtx_startup_init|_lck_mtx_init|_lck_grp_startup_init|_lck_grp_init|_lck_mod_init' evidence/kernel/kernel.nm || true
+          echo "=== target startup spec data bytes ==="
+          xcrun otool -l evidence/kernel/kernel.development.lavender > evidence/kernel/load.txt
+          python3 - <<'PY'
+          import pathlib,re,struct
+          p=pathlib.Path("evidence/kernel/load.txt").read_text().splitlines()
+          segs=[]
+          for i,line in enumerate(p):
+              if line.strip()=="cmd LC_SEGMENT_64":
+                  d={}
+                  for x in p[i+1:i+12]:
+                      m=re.match(r"\s*(segname|vmaddr|vmsize|fileoff|filesize)\s+(\S+)",x)
+                      if m:d[m.group(1)]=m.group(2)
+                  if len(d)==5:segs.append(d)
+          va=0xfffffe0007be9d08
+          data=pathlib.Path("evidence/kernel/kernel.development.lavender").read_bytes()
+          for s in segs:
+              base=int(s["vmaddr"],16); size=int(s["filesize"],0)
+              if base<=va<base+size:
+                  off=int(s["fileoff"],0)+(va-base)
+                  raw=data[off:off+24]
+                  vals=struct.unpack("<QQQ",raw)
+                  print("segment",s,"spec_file_offset",hex(off),"raw",raw.hex())
+                  print("spec fields lock/group/attr:",*[hex(x) for x in vals])
+                  break
+          else: raise SystemExit("processor_updown_lock startup spec VA not covered by file-backed segment")
+          PY
+          echo "=== disassembly of exact lock initializers and called helpers ==="
+          for sym in _lck_mtx_startup_init _lck_mtx_init _lck_mtx_init_ext _lck_grp_startup_init _lck_grp_init; do
+            echo "--- $sym ---"
+            xcrun otool -tvV -p "$sym" evidence/kernel/kernel.development.lavender 2>&1 | head -120 || true
+          done
+          echo "=== ARM atomic/system instructions in lck_mtx initializer functions (raw range from disassembly) ==="
+          grep -n -A 100 -B 2 'lck_mtx_startup_init\|lck_mtx_init_ext\|lck_mtx_init' evidence/kernel/KERNEL-DISASSEMBLY.txt | head -300 || true
