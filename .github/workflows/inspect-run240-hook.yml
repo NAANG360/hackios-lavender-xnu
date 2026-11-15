@@ -74,17 +74,23 @@ jobs:
               if any(x in line for x in ("lck_grp_reference","lck_grp_deallocate","lck_mtx_init","lck_grp_init_flags","processor_updown")):
                   print(line)
           PY
-          echo "=== FULL ARM64 TEXT DISASSEMBLY ==="
-          xcrun otool -arch arm64 -tvV evidence/kernel/kernel.development.lavender > evidence/kernel/otool-text.txt
+          echo "=== COMPILER ISA MACROS: RUN 240 FLAG ORDER ==="
+          xcrun clang -march=armv8-a -arch arm64 -dM -E -x c /dev/null | grep -E '^#define (__ARM_ARCH|__ARM_FEATURE_ATOMICS|__ARM_FEATURE_LSE)' || true
+          echo "=== COMPILER ISA MACROS: REVERSED FLAG ORDER ==="
+          xcrun clang -arch arm64 -march=armv8-a -dM -E -x c /dev/null | grep -E '^#define (__ARM_ARCH|__ARM_FEATURE_ATOMICS|__ARM_FEATURE_LSE)' || true
+          echo "=== COMPILER DRIVER TARGET ==="
+          xcrun clang -march=armv8-a -arch arm64 -### -c -x c /dev/null 2>&1 | tail -12
+          echo "=== LINKED ARM64 DISASSEMBLY WITH LSE DECODE ENABLED ==="
+          xcrun --find llvm-objdump
+          xcrun llvm-objdump --macho --arch=arm64 --disassemble --section=__text --mattr=+lse evidence/kernel/kernel.development.lavender > evidence/kernel/llvm-text.txt
           python3 - <<'PY'
-          import pathlib,re
-          lines=pathlib.Path("evidence/kernel/otool-text.txt").read_text(errors="replace").splitlines()
-          print("text lines:",len(lines))
-          for sym in ("_lck_grp_reference","_lck_mtx_init","_lck_grp_init_flags","_lck_grp_startup_init"):
-              hits=[i for i,x in enumerate(lines) if sym in x]
-              print(f"\n=== {sym}: {hits[:6]} ===")
-              for i in hits[:2]:
-                  print("\n".join(lines[max(0,i-2):min(len(lines),i+90)]))
+          import pathlib
+          lines=pathlib.Path("evidence/kernel/llvm-text.txt").read_text(errors="replace").splitlines()
+          for sym in ("_compact_id_table_init", "_lck_grp_reference", "_lck_mtx_init", "_lck_mtx_startup_init"):
+              hits=[i for i,x in enumerate(lines) if x.strip() == sym + ":"]
+              print(f"\\n=== {sym} ===")
+              for i in hits[:1]:
+                  print("\\n".join(lines[i:min(len(lines),i+32)]))
           PY
           echo "=== startup table mapping and source identity ==="
           shasum -a 256 evidence/kernel/kernel.development.lavender
