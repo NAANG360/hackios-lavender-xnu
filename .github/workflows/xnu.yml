@@ -201,7 +201,7 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0112-lavender-commpage-armv8a-llsc.patch; do
+          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0112-lavender-commpage-armv8a-llsc.patch 0113-lavender-corecrypto-sha2-file-scope.patch; do
             if grep -q "Skipping patch .*${required_patch}" xnu-build.log; then
               echo "Required Lavender diagnostic patch ${required_patch} was skipped; refusing this build."
               exit 1
@@ -229,6 +229,13 @@ jobs:
               if "ldaxr" not in body or "stxr" not in body:
                   raise SystemExit(name + " is missing its ARMv8.0 LL/SC sequence")
           print("PASS: commpage queue locks use ARMv8.0 LDAXR/STXR; no CASA remains")
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path("dxb/xnu/osfmk/arm64/corecrypto/sha256_compress_arm64.s").read_text()
+          if ".arch_extension sha2" not in source:
+              raise SystemExit("SHA256 assembly is missing its file-scoped SHA2 architecture declaration")
+          print("PASS: SHA2 is enabled only in the SHA256 assembly translation unit")
           PY
           grep -Fq -- "-march=armv8-a -mcpu=generic -arch arm64" xnu-build.log
           python3 - <<'PY'
