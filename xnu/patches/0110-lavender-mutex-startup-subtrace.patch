@@ -1,7 +1,7 @@
 diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -215,7 +215,7 @@
+@@ -215,6 +215,6 @@
  extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
      uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
 -static bool __startup_data lavender_startup_trace_enabled;
@@ -9,7 +9,7 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  #endif
  
  SECURITY_READ_ONLY_LATE(startup_subsystem_id_t) startup_phase = STARTUP_SUB_NONE;
-@@ -444,6 +444,14 @@
+@@ -444,5 +444,13 @@
  #endif
  		cur->func(cur->arg);
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -39,7 +39,7 @@ diff --git a/osfmk/kern/lock_mtx.c b/osfmk/kern/lock_mtx.c
  lck_mtx_t *
  lck_mtx_alloc_init(lck_grp_t *grp, lck_attr_t *attr)
  {
-@@ -271,6 +277,10 @@
+@@ -271,6 +277,11 @@
  void
  lck_mtx_init(lck_mtx_t *lck, lck_grp_t *grp, lck_attr_t *attr)
  {
@@ -51,7 +51,7 @@ diff --git a/osfmk/kern/lock_mtx.c b/osfmk/kern/lock_mtx.c
  	if (attr == LCK_ATTR_NULL) {
  		attr = &lck_attr_default;
  	}
-@@ -282,7 +292,19 @@
+@@ -282,5 +292,17 @@
  		lck->lck_mtx.data |= LCK_MTX_PROFILE;
  	}
  
@@ -72,7 +72,7 @@ diff --git a/osfmk/kern/lock_mtx.c b/osfmk/kern/lock_mtx.c
 diff --git a/osfmk/kern/lock_group.c b/osfmk/kern/lock_group.c
 --- a/osfmk/kern/lock_group.c
 +++ b/osfmk/kern/lock_group.c
-@@ -270,13 +270,29 @@
+@@ -270,10 +270,30 @@
  void
  lck_grp_reference(lck_grp_t *grp, uint32_t *cnt)
  {
@@ -106,7 +106,7 @@ diff --git a/osfmk/kern/lock_group.c b/osfmk/kern/lock_group.c
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -326,6 +326,41 @@
+@@ -326,6 +326,58 @@
  		lavender_trace_append_text(text, &length, "SUBSYS LOG DONE id=");
  		lavender_trace_append_decimal(text, &length, a);
  		break;
