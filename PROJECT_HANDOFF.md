@@ -24,7 +24,7 @@ Do not read every chapter by default.
 
 ## Latest diagnostic candidate — Run #240
 
-- Live branch HEAD and Run #240 source SHA: `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`.
+- Live branch HEAD: `9f637cd7791cd393949387d058f79088e8af9229` (the commits after Run #240 are documentation-only handoff updates). Run #240 image/build source SHA: `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`.
 - Workflow ID `43709690089`, conclusion `success`; XNU build and RAM-only package jobs both passed, including the Lavender entry guard, Mach-O verifier, and boot-image structure/payload verification.
 - `0109-lavender-startup-hook-trace.patch` was applied and both `startup.c` and `sweet_early.c` compiled into the accepted kernel.
 - Fastboot artifact `lavender-fastboot-boot-test`, ID `14160128075`. Image exact name `iosboot.img`, size 16,531,456 bytes; SHA-256 `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`. The ZIP contains the same bytes at `shim/out/shim-boot.img`.
