@@ -95,3 +95,22 @@ CI Run #236 compiled, verified and packaged a RAM-only image. The latest confirm
 ## Current source-level stopping point
 
 The exact Run #236 buildtree's XNU 8796 `osfmk/kern/startup.c` shows that `kernel_startup_bootstrap()` validates the startup-entry table, sorts it with `qsort`, then runs initializers through `STARTUP_SUB_LOCKS`. The callback loop advances `startup_entry_cur` only after each callback returns. The next diagnostic should print table validation/sort boundaries and per-callback begin/end events to the early Lavender console, without changing the Guardian's shared progress marker. This is instrumentation, not a confirmed failure diagnosis.
+
+
+## New close-up hook screenshots and callback resolution — 15 November 2026
+
+Two user-supplied close-up screenshots capture the bottom-row patch-0109 HOOK trace. The reported readable fields are idx=680, sub=3 (LOCKS), and rank=3. The accompanying analysis recovered Run #240's kernel artifact, extracted its startup table, replayed the original XNU 8796 qsort() ordering, and resolved the function and argument addresses against that kernel's symbol table. The resulting mapping is:
+
+- Function: _lck_mtx_startup_init
+- Argument/specification: ___startup_lck_mtx_spec_processor_updown_lock
+- Meaning: startup initialization of the processor_updown_lock mutex.
+
+This is substantially narrower than the earlier generic LOCKS-phase lead. Do not misstate the rank as 2; the reported trace rank is 3. Index 680 alone was not sufficient to name the callback; the mapping depends on the binary/table/symbol resolution described above.
+
+### What the trace proves — and does not prove
+
+Patch 0109 writes the hook record immediately before invoking cur->func(cur->arg). It does not emit a post-callback marker. Thus the last visible record identifies the callback about to run, but cannot by itself prove that the callback body is the exact hang site: the callback may not return, or execution may fail immediately after return in the pointer-advance/store path. The screenshots' exact tested-image provenance is not independently checksum-bound in this handoff; keep that distinction explicit even though the address resolution was performed against Run #240's exact kernel artifact.
+
+### Follow-up
+
+Inspect _lck_mtx_startup_init, the ___startup_lck_mtx_spec_processor_updown_lock startup specification/object, and the corresponding ARM64 lock initialization implementation in the Run #240 buildtree. Trace relevant dereferences, object layout, initialization state and platform assumptions. Make no speculative behavior change, callback skip, ordering change or rank change. Establish a concrete defect and focused validation first. Respect the independent recovery/reset safety gate before any further handset test.
