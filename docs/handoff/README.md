@@ -11,7 +11,7 @@ Read `PROJECT_HANDOFF.md` first. Resolve the live branch HEAD and newest Actions
 
 Do not read all chapters at session start. Do not read historical material unless it changes the current decision.
 
-The 15 November physical-video batch is indexed in Chapter 03 and Chapter 04. Treat the 1000317713/7714/7717 clips as unknown-build corroboration of checkpoint 09; they are not Run #240 evidence because they do not show the patch-0109 rolling trace.
+The 15 November checkpoint-video batch and later close-up hook screenshots are indexed in Chapter 03 and Chapter 04. The close-ups report HOOK idx=680 sub=3 rank=3, resolved against Run #240's kernel/table/symbol data to _lck_mtx_startup_init(___startup_lck_mtx_spec_processor_updown_lock). This identifies the callback entry, not conclusively a hang inside its body; screenshot-to-image provenance remains unverified.
 
 ## Resume prompt
 
