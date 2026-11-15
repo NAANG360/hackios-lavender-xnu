@@ -28,6 +28,23 @@ jobs:
           unzip -q kernel.zip -d evidence/kernel
           unzip -q buildtree.zip -d evidence/buildtree
           tar -xzf evidence/buildtree/buildtree.tgz -C evidence/source
+          echo "=== 0110 patch applicability against exact Run 240 patched source ==="
+          git apply --check --directory=evidence/source/xnu xnu/patches/0110-lavender-mutex-startup-subtrace.patch
+          git apply --directory=evidence/source/xnu xnu/patches/0110-lavender-mutex-startup-subtrace.patch
+          python3 - <<'PY'
+          import pathlib
+          root=pathlib.Path("evidence/source/xnu")
+          startup=(root/"osfmk/kern/startup.c").read_text()
+          mtx=(root/"osfmk/kern/lock_mtx.c").read_text()
+          grp=(root/"osfmk/kern/lock_group.c").read_text()
+          early=(root/"osfmk/arm64/sweet_early.c").read_text()
+          assert "bool __startup_data lavender_startup_trace_enabled;" in startup
+          assert startup.index("cur->func(cur->arg);") < startup.index("sweet_early_trace_startup(16",startup.index("cur->func(cur->arg);"))
+          assert mtx.index("sweet_early_trace_startup(9") < mtx.index("*lck = (lck_mtx_t){") < mtx.index("sweet_early_trace_startup(10") < mtx.index("lck_grp_reference(grp, &grp->lck_grp_mtxcnt);") < mtx.index("sweet_early_trace_startup(15")
+          assert grp.index("sweet_early_trace_startup(12") < grp.index("os_atomic_inc(cnt, relaxed);") < grp.index("sweet_early_trace_startup(13") < grp.index("sweet_early_trace_startup(14")
+          for e in range(9,17): assert f"case {e}:" in early
+          print("PASS: 0110 applies cleanly and brackets mutex assignment, group atomic, reference return and hook return")
+          PY
           python3 - <<'PY'
           import pathlib,re
           root=pathlib.Path("evidence/source/xnu")
