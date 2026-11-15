@@ -3535,3 +3535,48 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 - The refactor commit replaced the previous rich `xnu-kernel-diagnostics` upload step with a raw `xnu-kernel-candidate` upload. Restore the richer inventory/load-command/disassembly artifact after #229/#230 and any run triggered by the refactor have settled. Do not launch overlapping full builds.
 - The workflow commit changes a path included in the workflow's push trigger. It may have started an additional run; no run ID for the refactor commit was surfaced by the available run-listing action at the time of this update. Resolve this before triggering anything else.
 - Current workflow commit: `abff246071db828dab395bfa2d98587bf86b2474`. The documentation-only commit that follows does not change the workflow. No new verified `iosboot.img` exists; packaging and physical testing remain blocked pending real-binary verification and structural package validation.
+
+
+## 44.38 — 2026-11-15: Runs #229/#230 pass; stages 8/9 verified in real kernel and RAM-only image produced
+
+### Live branch and code revision
+- Live branch ci/lavender-machine-profile was resolved as HEAD 084d7d23bfe0a9c50c7898fe598d9f9f1a1ee0a4. This is documentation-only; latest workflow-code commit remains abff246071db828dab395bfa2d98587bf86b2474.
+- Inspected AGENTS.md, this handoff, .github/workflows/xnu.yml, tools/verify-lavender-kernel.py, tools/mkpayload.py, tools/mkadt-lavender.py, and tools/unpack_bootv2.py.
+- The abff246 refactor adds the standalone Mach-O verifier and a pre-verification raw-kernel artifact. Its workflow path is in the push trigger. Resolve its Actions run before starting another full build. The available Actions connector did not expose a listing of push-triggered runs, so that newer run ID/status was not resolved in this inspection.
+
+### Run outcomes
+- Run #229: ID 43677604405, source 2a64ff651e0f98a0a09a9ea3a35b0a50c564c6b5; build job 132701058521; package job 132704638967. Both succeeded. Boot-image artifact 14147063694.
+- Run #230: ID 43677616958, source 235d71e71dc834a6bda7289aa33b764d278a093e; build job 132701098575; package job 132704144253. Both succeeded.
+- Run #230 artifacts: build log 14146937253; build tree 14147795669; XNU kernel 14147131789; diagnostics 14147571158; RAM-only boot image 14147915512.
+- Run #230 restored a compatible legacy cache of about 228 MB, explicitly removed dxb/build/xnu.obj/kernel.development.lavender, and logged Building XNU kernel TARGET_CONFIGS=DEVELOPMENT ARM64 LAVENDER. The cache-aware gate passed with EXACT_CACHE_HIT=false. Required patches 0106 and 0107 applied. Build began at 04:39:39.488Z and completed at 04:51:17.052Z (~11m38s); the v2 cache was saved at 04:51:57Z.
+
+### Real binary verification
+- Run #230 kernel is 16,587,304 bytes; SHA-256 a979c798d2b206b8023ca7a798f325e2424a5a4f0786f64a815c2f30c9eef333.
+- CI passed ARM64 Mach-O/MH_EXECUTE and Lavender identity checks. Stage 8 matched at file offset 0x47a8c0; stage 9 at 0x47a94c.
+- Independently disassembled the actual __TEXT_EXEC,__text section with LLVM. Stage 8 decoded as add x0, x20, #1, lsl #12; mov w1, #8; str w1, [x0]; dc cvac, x0; dsb sy. Stage 9 is the same sequence with mov w1, #9. This is real-binary evidence, not a synthetic Mach-O test.
+- Diagnostics defect: artifact 14147571158 contains KERNEL-DISASSEMBLY.txt of only 57 bytes, showing only the empty __TEXT,__text section. Plain otool -tvV did not select __TEXT_EXEC,__text. LLVM disassembly of the downloaded kernel confirms the actual instructions at VM addresses 0xfffffe000747e8c0 and 0xfffffe000747e94c. Correct the CI command to explicitly select __TEXT_EXEC,__text and retain the complete output.
+
+### RAM-only image and package verification
+- Run #230 package artifact 14147915512 contains exact filename iosboot.img, 16,531,456 bytes; SHA-256 aed49f435687ec05d970f8f350ee0e3bd83d2a362d9166e5e505e5298a770f06.
+- The packaged shim/out/shim-boot.img has the same SHA-256. Kernel SHA-256 is a979c798d2b206b8023ca7a798f325e2424a5a4f0786f64a815c2f30c9eef333; payload SHA-256 66fa3107124d38d9285530f8036c56acaa411971020c262a1ee6ce1f5160a783; ADT SHA-256 eaf3c608195bca3a647aaea85ba7ae0b22073520ddb694e41e14a21072000281.
+- Package job verified the pinned Lucid Build 4 OTA SHA-256 d2b81388a57c685b82e3cb8f29da475f540dfcb9f5114003846d9337533d3219, selected DTB[0] compatible with qcom,sdm660-mtp / SDM 660 Lavender (406,950 bytes), and generated the ADT with boot MPIDR 0x100.
+- ADT check passed with RAM 0xa0400000+0x4a448000, the eight Lavender CPU MPIDRs, and framebuffer 0x9d400000+0x23ff000. Missing research/ipsw-x/d22ap.adt caused the optional /product node to be omitted; it did not fail the build.
+- Structural gate passed: ARM64 shim 155,648 bytes, LAVENDRX payload 15,959,424 bytes, DTB 406,950 bytes; load ranges are non-overlapping and DTB address is page-aligned.
+- This is a successful compile, real Mach-O marker verification, and structurally verified RAM-only image. It is not physical boot evidence. No Apple logo, arm_init C entry, or Darwin userspace has been observed from this new image.
+
+### Immediate next work
+1. Resolve the Actions run triggered by workflow-code commit abff246071db828dab395bfa2d98587bf86b2474; do not start an overlapping full build.
+2. Run tools/verify-lavender-kernel.py against the retained real Run #230 kernel locally and in CI. Confirm its output matches the LLVM-decoded instructions above.
+3. Fix disassembly capture to select __TEXT_EXEC,__text explicitly. Restore a rich diagnostic artifact with raw kernel, section inventory, load commands, full executable-section disassembly, verifier report, and SHA-256.
+4. Ensure packaging consumes the exact kernel SHA verified by the standalone verifier. Preserve structural checks and exact filename iosboot.img.
+5. Do not request a handset test until a recovery route independent of the broken power button is established. Then use RAM-only fastboot boot iosboot.img; never flash or erase a boot-critical partition.
+
+### Current acceptance state
+- Required 0106/0107 patches: PASS (#230).
+- Fresh XNU build after stale-kernel invalidation: PASS (#230).
+- ARM64 Mach-O and Lavender identity: PASS (#230).
+- Stage 8 / stage 9 in actual compiled binary: PASS (#230; independently LLVM-disassembled).
+- RAM-only package and structural validation: PASS (#230).
+- Standalone verifier refactor at abff246: committed; real-kernel CI validation pending.
+- Full executable-section diagnostic artifact: needs correction.
+- Physical boot / Apple logo / Darwin userspace: NOT YET VERIFIED.
