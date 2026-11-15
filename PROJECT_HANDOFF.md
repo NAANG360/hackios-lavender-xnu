@@ -11,7 +11,7 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 
 ## Current task / chapter route
 
-**Active task:** fix the malformed patch 0112 hunk counts that caused XNU #254 to skip the ARMv8.0 commpage LL/SC correction. Do not investigate the physical mutex callback until a newly verified image exists.
+**Active task:** validate the corrected patch 0112 in XNU #255, then integrate pre-compilation and linked-Mach-O guards for the ARMv8.0 commpage LL/SC replacement. Do not investigate the physical mutex callback until a newly verified image exists.
 
 **XNU #252** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43733584216), source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) failed on handwritten `CASA` instructions at `commpage_asm.s:276` and `:326`, each requiring LSE. Generic ARMv8-A compiler flags cannot rewrite handwritten assembly.
 
@@ -21,9 +21,11 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 - enqueue: `@@ -272,11 +272,16`
 - dequeue: `@@ -322,9 +327,14`
 
-The LL/SC implementation itself is unchanged. The new commit pushes the XNU workflow path filter; its new run is not yet confirmed here. Do not claim it is queued, running, passed or packaged without live Actions evidence.
+The LL/SC implementation itself is unchanged. The corrected patch commit triggered XNU #255 (run `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`). Live status: **in progress**, with `Build XNU 8796` still running. Setup/toolchain/profile/cache/dependency steps passed. No compile, linked-verification or package conclusion is available yet.
 
-**Next operation:** inspect the Actions run for commit `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`. Confirm patch 0112 applies without a skip warning, both commpage helpers contain `LDAXR/STXR` and no CASA, XNU compiles, the source guards pass, linked Mach-O verification succeeds, and the RAM-only package job produces exact `iosboot.img`. Do not globally enable LSE or weaken verification. Do not use #254's raw candidate.
+**Next operation:** do not overlap #255. When it completes, inspect its build log and artifacts to prove patch 0112 applied, both helpers contain `LDAXR/STXR` and no CASA, XNU compiles, linked Mach-O verification succeeds, and the RAM-only package job produces exact `iosboot.img`. Do not globally enable LSE or weaken verification. Do not use #254's raw candidate.
+
+**Guard hardening prepared:** `tools/verify-lavender-commpage-llsc.py` now validates both patched source functions and linked instruction mnemonics. Workflow integration is prepared on branch `fix/lavender-commpage-prebuild-guard`; it adds a `git apply --numstat` preflight, a post-patch/pre-compile source guard, and a linked disassembly check of `__TEXT_EXEC,__commpage_text`. It is deliberately not merged while #255 is compiling, to avoid starting an overlapping build.
 
 Keep the Run #240 `HOOK idx=680` mutex mapping as the later physical debugging lead, not the current build blocker. Do not skip/reorder that initializer. No handset retest until the power-button-independent recovery/reset safety gate is physically verified; RAM boot only, never flash.
 
