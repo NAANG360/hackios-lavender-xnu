@@ -1,3 +1,27 @@
+## New video batch — 15 November 2026
+
+Four physical recordings are now reviewed together. Keep them separate from Run #240: none shows the patch-0109 rolling trace labels (`TABLE`, `QSORT BEGIN/DONE`, `INIT BEGIN/DONE`, `HOOK idx=...`).
+
+| File | Duration | Visible evidence | Provenance |
+|---|---:|---|---|
+| `1000317701.mp4` | 87.785 s | Earlier review: completed checkpoints 01–08 and final visible `[09] entering kernel_startup_bootstrap`; later screen dark/charging indication | Run #236-consistent by labels, not checksum-bound |
+| `1000317713.mp4` | 27.531 s | SHIM/Lavender XNU red diagnostic panel; boot counters; white checkpoint list reaches `[09] entering kernel_startup_bootstrap`; remains on that display in early frames, later recording shows dark screen with a bright lower-edge line | Unknown build; no Run #240 trace |
+| `1000317714.mp4` | 27.744 s | Same SHIM/Lavender XNU diagnostic panel and boot-counter layout at start; screen becomes dark shortly after; bright lower-edge line persists; later battery icon appears | Unknown build; likely same diagnostic generation as adjacent clips, but not established |
+| `1000317717.mp4` | 54.303 s | Same red panel and checkpoint list; `[09] entering kernel_startup_bootstrap` remains the last visible completed checkpoint across the long middle section; near the end screen goes dark and battery icon appears | Unknown build; no Run #240 trace |
+
+### Cross-video interpretation
+
+- The new clips reinforce that the older checkpoint-based image reaches the *entry* to `kernel_startup_bootstrap()`; none visibly proves marker `0x10A` or a return from that function.
+- `1000317717.mp4` is the clearest sustained view: checkpoint 09 remains unchanged for roughly the visible middle of the 54.3-second recording. This is consistent with a stall after entering startup bootstrap, but the clip does not expose the internal patch-0109 trace, so it cannot identify table validation, qsort, subsystem logging or a particular callback.
+- `1000317713.mp4` and `1000317714.mp4` show the same boot-panel family but have insufficient provenance to assign a workflow/run. Treat as corroborating historical footage, not a new test of Run #240.
+- The red-panel counters include `BOOT CPU16K unsupported; trying A73`, A73 entry/target/observed fields, PSCI CPU fields, and MMFR value ending `101122`. These are shim diagnostics, not proof of an XNU startup-hook failure. Preserve exact readings as visual evidence; do not infer a new CPU bug from them alone.
+- The screen darkening and later battery icon are visible outcomes, but they do not establish a kernel panic, Guardian reset, or exact cause.
+- No separate 64-second clip was present in the mounted batch. The 54.303-second `1000317717.mp4` must not be mislabeled as the 1:04 clip mentioned by the user. The previously supplied 87.785-second `1000317701.mp4` is retained as the older Run #236-consistent reference.
+
+### Critical next step
+
+The Run #240 image remains untested in the evidence available here. Do not treat these clips as its output. The next useful diagnostic evidence is a recording of the bottom-row patch-0109 trace from the exact Run #240 `iosboot.img`, but only after the independent recovery/reset safety gate is satisfied. No code change or additional build is justified by these videos alone.
+
 # Chapter 4 — Evidence, provenance and historical traps
 
 ## Run #240 — startup-trace diagnostic candidate
