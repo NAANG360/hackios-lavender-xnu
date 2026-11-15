@@ -233,8 +233,8 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm64/corecrypto/sha256_compress_arm64.s").read_text()
-          if ".arch_extension sha2" not in source:
-              raise SystemExit("SHA256 assembly is missing its file-scoped SHA2 architecture declaration")
+          if ".arch armv8-a+sha2" not in source:
+              raise SystemExit("SHA256 assembly is missing its file-scoped ARMv8-A+SHA2 architecture declaration")
           print("PASS: SHA2 is enabled only in the SHA256 assembly translation unit")
           PY
           grep -Fq -- "-march=armv8-a -mcpu=generic -arch arm64" xnu-build.log
