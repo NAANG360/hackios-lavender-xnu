@@ -33,6 +33,7 @@ on:
       - ".github/workflows/package-lavender.yml"
       - "tools/validate-lavender-profile.sh"
       - "tools/fix-lavender-pre-vbar.py"
+      - "tools/verify-lavender-commpage-llsc.py"
       - "tools/verify-lavender-kernel.py"
       - "tools/mkadt-lavender.py"
       - "tools/mkpayload.py"
@@ -95,6 +96,7 @@ jobs:
           new = ("    patches" + chr(10) +
                  "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
                  '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
+                 "        python3 ../tools/verify-lavender-commpage-llsc.py --source xnu/osfmk/arm/commpage/commpage_asm.s || exit 1" + chr(10) +
                  "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c xnu/osfmk/arm/arm_init.c xnu/osfmk/kern/startup.c" + chr(10) +
                  "    fi" + chr(10) +
                  "    venv")
@@ -111,6 +113,16 @@ jobs:
       - name: Validate selected machine profile
         run: bash tools/validate-lavender-profile.sh "$MACHINE_CONFIG"
 
+      - name: Validate Lavender commpage LL/SC patch syntax
+        if: env.MACHINE_CONFIG == 'LAVENDER'
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch="xnu/patches/0112-lavender-commpage-armv8a-llsc.patch"
+          test -s "$patch"
+          echo "Checking unified-diff syntax before the expensive XNU build"
+          git apply --numstat "$patch"
+
       # v2 cache: only binary-verified kernels are accepted as exact hits. Legacy-prefix restores are object-cache inputs only.
       - name: Restore exact-match XNU build cache
         id: xnu-cache
@@ -119,7 +131,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/verify-lavender-commpage-llsc.py') }}
           restore-keys: |
             xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
@@ -499,7 +511,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/verify-lavender-commpage-llsc.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
