@@ -11,7 +11,7 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 
 ## Current task / chapter route
 
-**Active task:** Run #236's physical test is now recorded at marker `0x109` (entered `kernel_startup_bootstrap()`, but did not observe its return marker `0x10A`). The next narrow task is to add non-invasive internal trace points around startup-section validation, `qsort`, and the individual `STARTUP()` callbacks through `STARTUP_SUB_LOCKS`. Do not repeat the Run #236 test or start a blind rebuild.
+**Active task:** Run #240 now builds and packages patch `0109-lavender-startup-hook-trace.patch`. The next diagnostic is the bottom-row trace from that image, which distinguishes startup-table validation, `qsort`, subsystem logging and the individual `STARTUP()` callback where execution stops. The old physical frontier remains Run #236 marker `0x109`. The device power button is broken; do not request another boot until a reboot/recovery path independent of that button is established. Do not start another build before the diagnostic line is captured.
 
 **Read now:** [Chapter 03 — Current debugging](docs/handoff/03-current-debugging.md).
 
@@ -22,13 +22,21 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 
 Do not read every chapter by default.
 
-## Run #236 candidate and physical evidence
+## Latest diagnostic candidate — Run #240
 
-- Tested candidate: Run #236, workflow ID `43701501661`, source SHA `17a68fb21294a99e8c11c3ee38f7b79df501033d`; both XNU build and RAM-only package jobs succeeded.
-- Artifact `lavender-fastboot-boot-test`, ID `14156453574`; exact delivered filename `iosboot.img`, 16,531,456 bytes, SHA-256 `726a0708d2c47b21e26ddb2b7331b303013fc6b0bf3f0517f9a0cfd1d02758f8`.
-- Physical recording: `1000317701.mp4`, 87.8 seconds. Its checkpoint labels match the Run #236 post-`cpu_bootstrap` instrumentation. No device-side image checksum was captured, so the video is consistent with the delivered Run #236 image, not cryptographically tied to it.
-- The video shows markers 1–9, with the last visible line `[09] entering kernel_startup_bootstrap`. Marker `0x00000109` is the latest observed phone marker. There is no visible marker 10 / `0x10A` return.
-- The display goes black near the end and a charging/battery indication appears. This does not establish a kernel panic or prove why the display went dark.
+- Live branch HEAD and Run #240 source SHA: `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`.
+- Workflow ID `43709690089`, conclusion `success`; XNU build and RAM-only package jobs both passed, including the Lavender entry guard, Mach-O verifier, and boot-image structure/payload verification.
+- `0109-lavender-startup-hook-trace.patch` was applied and both `startup.c` and `sweet_early.c` compiled into the accepted kernel.
+- Fastboot artifact `lavender-fastboot-boot-test`, ID `14160128075`. Image exact name `iosboot.img`, size 16,531,456 bytes; SHA-256 `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`. The ZIP contains the same bytes at `shim/out/shim-boot.img`.
+- Kernel artifact `xnu-kernel`, ID `14159918757`; kernel size 16,587,456 bytes; SHA-256 `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`. Official verifier passes ARM64 Mach-O, Lavender identity and compiled stage-8/stage-9 sequences.
+- Buildtree artifact ID `14160182439`; build log artifact ID `14160376884`.
+- Runs #238 and #239 failed only in the temporary source-guard check while its ordering/delimiter assertions were being corrected. Run #240 is the corrected passing run. Run #237 also failed the patch guard before the patch was added.
+- This is a successfully compiled and packaged diagnostic candidate, **not** a newer physical test. The only observed phone result remains Run #236 at marker `0x109`.
+
+## Run #236 physical recording
+
+- Video `1000317701.mp4`, 87.8 seconds. Its checkpoint labels match Run #236's instrumentation. No device-side checksum was captured, so its association with Run #236 is consistent with the labels, not byte-for-byte proven.
+- The final visible line is `[09] entering kernel_startup_bootstrap` (marker `0x109`); marker `0x10A` is absent. The display later goes black and shows a charging/battery indication; the cause is unknown and must not be described as a confirmed kernel panic.
 
 ## Current physical frontier
 
@@ -52,15 +60,28 @@ Not confirmed: return from `kernel_startup_bootstrap()`, timer/CPU initializatio
 | `0x10E` | entering `arm_vm_init()` |
 | `0x10F` | `arm_vm_init()` returned |
 
-## Next diagnostic target — XNU 8796 startup hooks
+## Patch 0109 — current diagnostic logic
 
-The exact Run #236 buildtree contains XNU 8796 `osfmk/kern/startup.c`. `kernel_startup_bootstrap()` computes the number of `startup_entries`, panics if the table is empty or malformed, sorts it using `qsort(..., startup_entry_cmp)`, then calls `kernel_startup_initialize_upto(STARTUP_SUB_LOCKS)`.
+The new trace is a console-only rolling line at the bottom of the XNU framebuffer. It does **not** update the Guardian's shared progress cell and does not change startup callback order or skip any hook.
 
-The initializer asserts `startup_phase < upto`, then invokes each eligible `cur->func(cur->arg)` in a loop and advances `startup_entry_cur` only after the callback returns. The current marker cannot distinguish a section-validation problem, a `qsort` problem, or a callback that stalls.
+Events shown by the line:
+- `TABLE n=...`: table count, byte size and start/end addresses, before validation.
+- `QSORT BEGIN` / `QSORT DONE`: the sorting call boundary.
+- `INIT BEGIN` / `INIT DONE`: `kernel_startup_initialize_upto(STARTUP_SUB_LOCKS)` boundary.
+- `SUBSYS LOG BEGIN/DONE`: subsystem-name early logging boundary.
+- `HOOK idx=... sub=... rank=... fn=... arg=...`: callback about to execute. If this remains the last line, that callback (or the immediate post-call path) is the next source to inspect.
 
-Next patch should print compact console-only events before/after each boundary and each callback, including callback index, subsystem, rank and function address where safe. The early Lavender console has 108 text rows; keep the trace bounded and verify the final linked hook-table order rather than assuming source grep order.
+## Exact Run #240 startup-table audit
 
-**Do not update the Guardian's shared marker cell for these sub-events.** Any cell change resets its no-progress timer, and the high bit at stage 20 ends the early guard. Use a separate console-only trace helper. Do not reuse stage 16, 17 or 20. Preserve the existing `0x109` Guardian timeout semantics.
+The accepted Run #240 kernel has `__BOOTDATA,__init_entry_set` at file offset `0xb1cd58`, size `0x17e20` (97,824 bytes), exactly 4,076 entries of 24 bytes each. The same table extracted from the binary was sorted using the XNU 8796 `bsd/kern/qsort.c` algorithm against the actual `startup_entry_cmp` fields.
+
+- XNU qsort simulation: 10,790 comparisons; maximum recursion depth 7.
+- Simulated sorted entries: TUNABLES 242, TIMEOUTS 18, LOCKS 614 (874 callbacks total before `STARTUP_SUB_LOCKS` returns).
+- Every entry's function pointer fell inside a mapped executable segment; every non-null argument fell inside a mapped kernel segment.
+- The simulated result had zero subsystem/rank ordering violations.
+- Linked symbols in the accepted kernel include `_sweet_early_trace_startup`, `_kernel_startup_bootstrap`, `_kernel_startup_initialize_upto` and `_qsort`.
+
+These checks make a malformed/empty startup table and pathological host-side sort workload less likely. They do **not** prove the handset's physical qsort path completes or identify the blocking callback. The next useful evidence is the last visible Run #240 trace line.
 
 ## Safety gate
 
