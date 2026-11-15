@@ -16,9 +16,11 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 **Read now:** [Chapter 03 — Current debugging](docs/handoff/03-current-debugging.md).
 
 **Read additionally only if needed:**
-- Build/patch/cache/packaging change → [Chapter 02](docs/handoff/02-architecture-and-build.md).
+- Build/patch/cache/packaging change or Topaz/Sweet comparative research → [Chapter 02](docs/handoff/02-architecture-and-build.md).
 - Before any device action or safety decision → [Chapter 01](docs/handoff/01-device-and-safety.md).
 - Historical comparison/regression investigation → [Chapter 04](docs/handoff/04-evidence-and-history.md).
+
+**Topaz reference:** [`MakrSas/ios-topaz`](https://github.com/MakrSas/ios-topaz) is indexed in Chapter 02 and summarized below. It is a Redmi Note 12 4G / SM6225 target and Sweet-derived project; use it only for carefully validated comparative techniques, never as a Lavender hardware profile.
 
 Do not read every chapter by default.
 
