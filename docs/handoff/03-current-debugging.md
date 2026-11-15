@@ -3,9 +3,9 @@
 **Branch:** `ci/lavender-machine-profile`
 **Latest patch correction:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` (corrected 0112 hunk counts)
 **Last completed XNU run:** #254, workflow `43736404806`, failed because 0112 was skipped as malformed.
-**Current XNU run:** #255, workflow `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`; in progress at `Build XNU 8796`.
+**Latest XNU run:** #255, workflow `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`; **failed** in `Build XNU 8796` on ARM SHA2 assembly instructions.
 **Last successful packaged diagnostic image:** Run #240, artifact `14160128075`; it predates patches 0110–0112 and remains physically untested.
-**Current acceptance state:** no newly verified kernel or `iosboot.img`. #255 is testing the corrected patch; its build, verification and package outcomes are not yet known.
+**Current acceptance state:** no newly verified kernel or `iosboot.img`. #255 confirms patch 0112 applied, but compilation failed in `sha256_compress_arm64.s`; verification and packaging were skipped.
 **Current routed chapter:** this chapter for the active build blocker; Chapter 02 only for patch/build mechanics. Chapter 01 remains mandatory before any handset action.
 
 ## Live correction — patch 0112 was skipped in XNU #254
@@ -27,7 +27,7 @@ Because patch 0112 was skipped, the original `CASA` instructions remained. The a
 **Corrective commit:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` updates only the two hunk headers:
 - `@@ -272,11 +272,16 @@ _pfz_trylock_and_enqueue:`
 - `@@ -322,9 +327,14 @@ _pfz_trylock_and_dequeue:`
-**Run #255 — live status:** workflow `43743932922`, job `132902961436`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`. Runner setup, checkout, Xcode selection, pinned tooling, machine-profile validation, cache handling and dependency installation passed. `Build XNU 8796` is still in progress. No conclusion on patch application, successful compilation, linked verification or packaging is available yet.
+**Run #255 — completed result:** workflow `43743932922`, job `132902961436`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`; **failed** at `Build XNU 8796`. The log explicitly shows `Applying patch: ...0112-lavender-commpage-armv8a-llsc.patch` and contains no `Skipping patch 0112` line. The corrected commpage patch therefore got past the prior malformed-patch blocker. Compilation then failed in `osfmk/arm64/corecrypto/sha256_compress_arm64.s` with repeated `instruction requires: sha2` errors for `sha256su0`, `sha256h`, `sha256su1`, and `sha256h2`. The compile command uses `-march=armv8-a -mcpu=generic -arch arm64`; the selected generic baseline does not enable optional SHA2 instructions. Kernel verification and the RAM-only package job were skipped. Artifact `14174241207` is an unverified raw kernel candidate and must not be used for a handset test; no #255 `iosboot.img` exists.
 **Guard hardening prepared:** `tools/verify-lavender-commpage-llsc.py` checks both patched source functions and can validate linked instruction mnemonics. Workflow integration is prepared on branch `fix/lavender-commpage-prebuild-guard`: unified-diff syntax preflight, source verification immediately after patch application and before compilation, and a linked-binary check of `__TEXT_EXEC,__commpage_text`. Gemini's independent review supports the acquire `LDAXR` / relaxed `STXR` pattern and confirms w12 is a valid scratch/status register; it recommends `CLREX` on the busy-lock branch. That cold-path cleanup has been added to the staged patch and both source/binary guards now require it. Gemini mislabeled the routines as timebase readers; the actual exact-tag symbols are `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue`. Staged branch head: `a459b2479281be186683b5b4519a49fb5d824c57`. It is not merged into the active branch while #255 is compiling, to avoid overlapping builds.
 **Next gate:** do not start another XNU build until #255 completes. Then verify patch 0112 was applied (no skip warning), both source guards pass, the linked helpers contain `LDAXR/STXR` and no LSE atomics, and the RAM-only package job uploads `iosboot.img`. Only then is a new candidate acceptable. Never use #254's raw kernel candidate.
 
@@ -257,3 +257,18 @@ Do not assume this is the last unsupported instruction. If the corrected build e
 - [ ] Stable scheduler / interrupts / secondary CPU startup
 - [ ] Apple logo
 - [ ] Darwin userspace
+
+
+## Run #255 failure — optional ARM SHA2 instructions
+
+**Live result:** XNU #255 (`43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`) failed during `Build XNU 8796`. Patch 0112 is no longer the blocker: the log records it as applied and has no `Skipping patch 0112` warning. The ARMv8.0 commpage conversion therefore passed the patch-application stage.
+
+**Compiler failure:** XNU's `osfmk/arm64/corecrypto/sha256_compress_arm64.s` contains SHA-256 crypto-extension instructions. Clang rejects repeated instances with `instruction requires: sha2` because Lavender is compiled with `-march=armv8-a -mcpu=generic -arch arm64`. This is an optional ARM crypto extension, separate from the LSE/CASA issue. The failure is not caused by the commpage LL/SC patch.
+
+**Important safety distinction:** do not solve this by globally changing Lavender to `-march=armv8-a+crypto` or by assuming SHA2 is present on every Kryo 260 core. The board has heterogeneous A53/A73 clusters; before enabling the optimized routine, establish `ID_AA64ISAR0_EL1.SHA2` on every core that XNU may schedule it on, and verify how XNU/corecrypto selects the accelerated implementation. If feature support is absent or not safely uniform, use/enable a portable SHA-256 implementation for Lavender and ensure the SHA2 assembly is not assembled or selected. A file-local assembler feature directive only makes the instruction parse; it does not make the hardware support it.
+
+**Artifacts:** raw candidate `xnu-kernel-candidate`, artifact ID `14174241207`, was uploaded by an `always()` collection step despite the failed build. It is not verifier-approved. The build log was uploaded; no verified `xnu-kernel` artifact or RAM-only `iosboot.img` was produced. Package job `132908980175` was skipped.
+
+**Next narrow operation:** inspect XNU 8796's exact corecrypto build/source selection for `CCSHA2_VNG_ARM` and the portable SHA-256 fallback, including whether `sha256_compress_arm64.s` is compiled unconditionally or guarded by feature macros. Inspect Lavender's actual `ID_AA64ISAR0_EL1.SHA2` field on both A53 and A73 cores (and existing shim/Android evidence). Do not infer it from the SoC name or from the MMFR0 16K-granule report. Choose the smallest safe fix: either a runtime-safe accelerated path with verified uniform feature support, or a Lavender-specific portable implementation/build exclusion. Do not globally enable crypto extensions and do not weaken kernel verification. Only then integrate the staged commpage pre-build/linked-section guard and start one non-overlapping build.
+
+The raw candidate from #255 is diagnostic only. No physical test, flash, or use of this candidate is authorized. Keep the broken-power-button recovery gate and RAM-only rule unchanged.
