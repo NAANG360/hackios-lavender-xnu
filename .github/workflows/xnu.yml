@@ -95,7 +95,7 @@ jobs:
           new = ("    patches" + chr(10) +
                  "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
                  '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
-                 "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c xnu/osfmk/arm/arm_init.c" + chr(10) +
+                 "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c xnu/osfmk/arm/arm_init.c xnu/osfmk/kern/startup.c" + chr(10) +
                  "    fi" + chr(10) +
                  "    venv")
           if old not in source:
@@ -194,7 +194,7 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch; do
+          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch; do
             if grep -q "Skipping patch .*${required_patch}" xnu-build.log; then
               echo "Required Lavender diagnostic patch ${required_patch} was skipped; refusing this build."
               exit 1
@@ -290,6 +290,41 @@ jobs:
           if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
               raise SystemExit("Lavender logo must clear the full panel, not a rectangle")
           print("PASS: deferred Apple mark follows arm_vm_init and full-panel clear")
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          startup = Path("dxb/xnu/osfmk/kern/startup.c").read_text()
+          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          boot = startup.index("kernel_startup_bootstrap(void)")
+          enabled = startup.index("lavender_startup_trace_enabled = true", boot)
+          table = startup.index("sweet_early_trace_startup(1", enabled)
+          validate = startup.index("if (n == 0)", table)
+          sort_begin = startup.index("sweet_early_trace_startup(2", validate)
+          sort_call = startup.index("qsort(startup_entries", sort_begin)
+          sort_done = startup.index("sweet_early_trace_startup(3", sort_call)
+          init_begin = startup.index("sweet_early_trace_startup(4", sort_done)
+          init_call = startup.index("kernel_startup_initialize_upto(STARTUP_SUB_LOCKS);", init_begin)
+          init_done = startup.index("sweet_early_trace_startup(6", init_call)
+          disabled = startup.index("lavender_startup_trace_enabled = false", init_done)
+          if not (enabled < table < validate < sort_begin < sort_call < sort_done < init_begin < init_call < init_done < disabled):
+              raise SystemExit("Lavender startup trace boundaries are out of order")
+          loop = startup.index("kernel_startup_initialize_upto(startup_subsystem_id_t upto)")
+          hook = startup.index("sweet_early_trace_startup(5", loop)
+          callback = startup.index("cur->func(cur->arg);", hook)
+          if hook >= callback:
+              raise SystemExit("per-hook trace must run before invoking the startup callback")
+          log_begin = startup.index("sweet_early_trace_startup(7", loop)
+          log_call = startup.index("kernel_bootstrap_log(names[subsystem]);", log_begin)
+          log_done = startup.index("sweet_early_trace_startup(8", log_call)
+          if not (log_begin < log_call < log_done):
+              raise SystemExit("startup subsystem logging trace boundaries are invalid")
+          helper = early.index("sweet_early_trace_startup(unsigned int event")
+          if "case 5:" not in early[helper:] or "case 7:" not in early[helper:]:
+              raise SystemExit("startup callback/subsystem console trace cases are missing")
+          trace_body = early[helper:early.index("static int\\nlavender_logo_ellipse", helper)]
+          if "early_guard_cell" in trace_body or "sweet_early_mark(" in trace_body:
+              raise SystemExit("startup sub-trace must not modify the Guardian marker")
+          print("PASS: Lavender startup trace covers table, qsort, subsystem logs and callbacks without touching Guardian state")
           PY
           grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/sweet_early.c
