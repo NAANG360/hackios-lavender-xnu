@@ -460,11 +460,19 @@ jobs:
               raise SystemExit("could not locate linked _lck_grp_reference")
           end = next((i for i in range(start + 1, len(lines))
                       if re.match(r"^_?[A-Za-z0-9_.$]+:$", lines[i].strip())), len(lines))
-          body = "\\n".join(lines[start:end]).lower()
-          if re.search(r"\\b(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)\\b", body):
-              raise SystemExit("LSE atomic instruction remains in _lck_grp_reference")
-          if not re.search(r"\\bldxr\\b", body) or not re.search(r"\\bstxr\\b", body):
-              raise SystemExit("expected ARMv8-A exclusive-load/store atomic sequence is missing")
+          body_lines = lines[start:end]
+          mnemonics = []
+          for line in body_lines:
+              if ":" not in line:
+                  continue
+              words = line.split(":", 1)[1].split()
+              if len(words) >= 5 and all(len(word) == 2 and all(ch in "0123456789abcdefABCDEF" for ch in word) for word in words[:4]):
+                  mnemonics.append(words[4].lower())
+          forbidden = {"ldadd", "stadd", "cas", "casp", "swp", "ldclr", "ldeor", "ldset"}
+          if forbidden.intersection(mnemonics):
+              raise SystemExit("LSE atomic instruction remains in _lck_grp_reference: " + repr(sorted(forbidden.intersection(mnemonics))))
+          if "ldxr" not in mnemonics or "stxr" not in mnemonics:
+              raise SystemExit("expected ARMv8-A LDXR/STXR exclusive atomic sequence is missing: " + repr(mnemonics))
           print("PASS: linked _lck_grp_reference uses ARMv8-A LDXR/STXR, not LSE")
           PY
           fi
