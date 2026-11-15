@@ -105,7 +105,7 @@ Be direct and precise. The user expects the image, not another generic progress 
 ## Current correction — 2026-11-15: Mach-O parser NUL-terminator defect
 
 - Live branch HEAD was verified as `af097580a5f46be2a5f0d4540c874cf9a18e546d` before the fix.
-- Inspection of the exact Run #228 job log and `.github/workflows/xnu.yml` found the concrete section-name bug: the Python parser used `split(b"\\\\0", 1)`, which searches for the two literal bytes backslash and zero rather than the NUL byte in fixed-width Mach-O names. Use `split(b"\\0", 1)`.
+- Inspection of the exact Run #228 job log and `.github/workflows/xnu.yml` found the concrete section-name bug: the Python parser used `split(b"\\0", 1)`, which searches for the two literal bytes backslash and zero rather than the NUL byte in fixed-width Mach-O names. Use `split(b"\\0", 1)`.
 - The verifier has been changed to parse all `LC_SEGMENT_64` commands, validate the complete load-command region and each command/section table before reading, inspect all non-empty executable sections, validate file bounds, and emit a segment/section inventory. It no longer assumes the executable text must be named exactly `__TEXT_EXEC,__text`.
 - The verifier now reports each stage marker's segment, section, file offset and instruction words. It also captures `otool -l` and `otool -tvV` output for independent inspection.
 - A diagnostic artifact named `xnu-kernel-diagnostics` is uploaded after successful compilation even if binary verification fails. It includes the exact compiled kernel and any available parser inventory, load-command dump, disassembly, verification report and SHA-256 file.
