@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm/commpage/commpage_asm.s b/osfmk/arm/commpage/commpage_asm.s
 --- a/osfmk/arm/commpage/commpage_asm.s
 +++ b/osfmk/arm/commpage/commpage_asm.s
-@@ -272,11 +272,16 @@ _pfz_trylock_and_enqueue:
+@@ -272,11 +272,17 @@ _pfz_trylock_and_enqueue:
  
  	mov		w10, wzr		 // unlock value = w10 = 0
  	mov		w11, #1			 // locked value = w11 = 1
@@ -18,10 +18,11 @@ diff --git a/osfmk/arm/commpage/commpage_asm.s b/osfmk/arm/commpage/commpage_asm
 +	cbnz	w12, Ltrylock_enqueue_lock
 +	b		Ltrylock_enqueue_success
 +Ltrylock_enqueue_failed:
++	clrex
  	mov		x0, #-1			// Failed
  	b Ltrylock_enqueue_exit
  
-@@ -322,9 +327,14 @@ _pfz_trylock_and_dequeue:
+@@ -322,9 +327,15 @@ _pfz_trylock_and_dequeue:
  	// Try to grab the lock
  	mov		w10, wzr		 // unlock value = w10 = 0
  	mov		w11, #1			 // locked value = w11 = 1
@@ -37,5 +38,6 @@ diff --git a/osfmk/arm/commpage/commpage_asm.s b/osfmk/arm/commpage/commpage_asm
 +	cbnz	w12, Ltrylock_dequeue_lock
 +	b		Ltrylock_dequeue_success
 +Ltrylock_dequeue_failed:
++	clrex
  	mov		x0, #-1			// Failed
  	b Ltrylock_dequeue_exit
