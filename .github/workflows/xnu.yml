@@ -119,9 +119,9 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v2-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v3-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
           restore-keys: |
-            xnu8796-v2-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
+            xnu8796-v3-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
       - name: Detect runner capacity
         shell: bash
@@ -151,15 +151,22 @@ jobs:
           set -euo pipefail
           kernel_config="$(printf '%s' "$KERNEL_CONFIG" | tr '[:upper:]' '[:lower:]')"
           machine_config="$(printf '%s' "$MACHINE_CONFIG" | tr '[:upper:]' '[:lower:]')"
-          cached_kernel="dxb/build/xnu.obj/kernel.${kernel_config}.${machine_config}"
-          if [[ -f "$cached_kernel" ]]; then
-            echo "Removing stale cached final kernel product: $cached_kernel"
-            rm -f "$cached_kernel"
+          if [[ "$MACHINE_CONFIG" == "LAVENDER" ]]; then
+            # The Lavender machine flags now pin the compiler to generic ARMv8-A.
+            # Restored v2/previous objects may contain Apple-M1-only LSE instructions,
+            # so invalidate the entire XNU object tree before compiling with the new ISA.
+            echo "Removing compiler-target-sensitive XNU objects and stale exported-header marker"
+            rm -rf dxb/build/xnu.obj
+            rm -f dxb/fakeroot/.xnu_headers_installed
           else
-            echo "No completed cached kernel product at $cached_kernel"
+            cached_kernel="dxb/build/xnu.obj/kernel.${kernel_config}.${machine_config}"
+            if [[ -f "$cached_kernel" ]]; then
+              echo "Removing stale cached final kernel product: $cached_kernel"
+              rm -f "$cached_kernel"
+            else
+              echo "No completed cached kernel product at $cached_kernel"
+            fi
           fi
-          # Preserve object files and support libraries; patched start.s and sweet_early.c
-          # are touched after patch application so their cached objects rebuild.
 
       - name: Build XNU 8796
         id: xnu-build
@@ -194,12 +201,22 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch; do
+          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch; do
             if grep -q "Skipping patch .*${required_patch}" xnu-build.log; then
               echo "Required Lavender diagnostic patch ${required_patch} was skipped; refusing this build."
               exit 1
             fi
           done
+          python3 - <<'PY'
+          from pathlib import Path
+          makeinc = Path("dxb/xnu/makedefs/MakeInc.def").read_text()
+          machine_line = next(line for line in makeinc.splitlines()
+                              if line.startswith("MACHINE_FLAGS_ARM64_LAVENDER"))
+          if "-march=armv8-a -mcpu=generic" not in machine_line:
+              raise SystemExit(f"wrong Lavender compiler ISA target: {machine_line}")
+          print("PASS: Lavender machine flags pin generic ARMv8-A")
+          PY
+          grep -Fq -- "-march=armv8-a -mcpu=generic -arch arm64" xnu-build.log
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm64/start.s").read_text()
@@ -431,6 +448,26 @@ jobs:
           # independent review of the exact binary that will be packaged.
           otool -l "$kernel" > out/MACHO-LOAD-COMMANDS.txt
           otool -tvV "$kernel" > out/KERNEL-DISASSEMBLY.txt
+          if [[ "$MACHINE_CONFIG" == "LAVENDER" ]]; then
+            OBJDUMP="$(xcrun --find llvm-objdump)"
+            "$OBJDUMP" --macho --arch=arm64 --disassemble --section=__text --mattr=+lse "$kernel" > out/KERNEL-ARM64-ISA.txt
+            python3 - <<'PY'
+          import pathlib, re
+          lines = pathlib.Path("out/KERNEL-ARM64-ISA.txt").read_text(errors="replace").splitlines()
+          start = next((i for i, line in enumerate(lines)
+                        if line.strip() == "_lck_grp_reference:"), None)
+          if start is None:
+              raise SystemExit("could not locate linked _lck_grp_reference")
+          end = next((i for i in range(start + 1, len(lines))
+                      if re.match(r"^_?[A-Za-z0-9_.$]+:$", lines[i].strip())), len(lines))
+          body = "\\n".join(lines[start:end]).lower()
+          if re.search(r"\\b(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)\\b", body):
+              raise SystemExit("LSE atomic instruction remains in _lck_grp_reference")
+          if not re.search(r"\\bldxr\\b", body) or not re.search(r"\\bstxr\\b", body):
+              raise SystemExit("expected ARMv8-A exclusive-load/store atomic sequence is missing")
+          print("PASS: linked _lck_grp_reference uses ARMv8-A LDXR/STXR, not LSE")
+          PY
+          fi
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
 
       - name: Save XNU build cache after successful compilation
@@ -440,7 +477,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v2-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v3-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
