@@ -32,12 +32,16 @@ The bottom-row patch-0109 screenshots now expose HOOK idx=680 sub=3 rank=3. The 
 
 Read Chapter 03.
 
+## Comparative reference: iOS Topaz
+
+Use [`MakrSas/ios-topaz`](https://github.com/MakrSas/ios-topaz) as a comparative XNU/iOS 16.7.16 bring-up reference for its Kryo 260-class CPU topology, ARMv8.0 constraints, Gold-core handoff, GIC setup and boot-image-v4 shim. It targets Redmi Note 12 4G / SM6225 and is a Sweet fork, **not** a Lavender port or independent corroboration. Its patch analysis and porting limits are documented in Chapter 02 and summarized in PROJECT_HANDOFF.md. Never copy Topaz MMIO/DT/ADT constants or cherry-pick patches into Lavender without validating against SDM660 hardware evidence, exact source/configuration and linked disassembly. Treat its LSE/LDAPR/PAN and 16K-granule findings as comparison leads, not proof of the current mutex stall's cause.
+
 ## Chapter router
 - `docs/handoff/README.md` — chapter routing and one-line resume protocol.
-- `01-device-and-safety.md` — physical-device safety, hardware facts, memory/display.
-- `02-architecture-and-build.md` — architecture, patches, CI, packaging, comparative reference audit.
-- `03-current-debugging.md` — active failure frontier, current run, immediate next operation.
-- `04-evidence-and-history.md` — immutable run history, verified evidence and regressions.
+- `docs/handoff/01-device-and-safety.md` — physical-device safety, hardware facts, memory/display.
+- `docs/handoff/02-architecture-and-build.md` — architecture, patches, CI, packaging, **Topaz/Sweet comparative reference audit**.
+- `docs/handoff/03-current-debugging.md` — active failure frontier, current run, immediate next operation.
+- `docs/handoff/04-evidence-and-history.md` — immutable run history, verified evidence and regressions.
 
 ## Project identity
 Repository: https://github.com/NAANG360/hackios-lavender-xnu
