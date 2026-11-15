@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 10
     steps:
-      - name: Read exact mutex and group initialization implementation
+      - name: Inspect group reference and exact lock startup data
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -29,33 +29,43 @@ jobs:
           unzip -q buildtree.zip -d evidence/buildtree
           tar -xzf evidence/buildtree/buildtree.tgz -C evidence/source
           python3 - <<'PY'
-          import pathlib
+          import pathlib,re
           root=pathlib.Path("evidence/source/xnu")
-          selections={
-            "osfmk/kern/lock_group.c":[("lck_grp_init_flags(",55),("lck_grp_reference(",45),("lck_grp_startup_init(",40)],
-            "osfmk/kern/lock_mtx.c":[("lck_mtx_init(",28)],
-            "osfmk/kern/locks.c":[("lck_mod_init(",60)],
-            "osfmk/kern/lock_group.h":[("LCK_GRP_DECLARE",20),("lck_grp_reference(",30)],
-            "osfmk/kern/lock_mtx.h":[("LCK_MTX_DECLARE_ATTR",24),("extern void             lck_mtx_init",20)],
-          }
-          for rel,terms in selections.items():
-            p=root/rel
-            lines=p.read_text(errors="replace").splitlines()
-            print(f"\n===== {rel} =====")
-            printed=set()
-            for term,after in terms:
+          print("=== ALL DEFINITIONS/DECLARATIONS/CALLS OF lck_grp_reference ===")
+          for p in root.rglob("*"):
+              if not p.is_file() or p.suffix not in (".c",".h",".s",".S"): continue
+              try: lines=p.read_text(errors="ignore").splitlines()
+              except OSError: continue
               for i,line in enumerate(lines):
-                if term in line:
-                  lo=max(0,i-12); hi=min(len(lines),i+after)
-                  if (lo,hi) in printed: continue
-                  printed.add((lo,hi))
-                  print(f"--- {term} at {i+1} ---")
-                  print("\n".join(f"{j+1}: {lines[j]}" for j in range(lo,hi)))
+                  if re.search(r"\blck_grp_reference\s*\(",line):
+                      print(f"--- {p}:{i+1} ---")
+                      print("\n".join(f"{j+1}: {lines[j]}" for j in range(max(0,i-12),min(len(lines),i+30))))
+          print("=== LOCK GROUP INIT EARLY BOOTSTRAP ===")
+          p=root/"osfmk/kern/lock_group.c"; lines=p.read_text(errors="replace").splitlines()
+          print("\n".join(f"{j+1}: {lines[j]}" for j in range(1,min(len(lines),260))))
+          print("=== PROCESSOR GROUP DECLARATION CONTEXT ===")
+          p=root/"osfmk/kern/processor.c"; lines=p.read_text(errors="replace").splitlines()
+          for i,line in enumerate(lines):
+              if "processor_updown_grp" in line or "processor_updown_lock" in line:
+                  print("\n".join(f"{j+1}: {lines[j]}" for j in range(max(0,i-8),min(len(lines),i+12))))
+          print("=== LINKED LOCK SYMBOLS ===")
+          import subprocess
+          nm=subprocess.check_output(["xcrun","nm","-an","evidence/kernel/kernel.development.lavender"],text=True)
+          for line in nm.splitlines():
+              if any(x in line for x in ("lck_grp_reference","lck_grp_deallocate","lck_mtx_init","lck_grp_init_flags","processor_updown")):
+                  print(line)
           PY
-          echo "=== relevant build-target feature macros ==="
-          grep -n 'MACHINE_FLAGS_ARM64_LAVENDER' evidence/source/xnu/makedefs/MakeInc.def
-          echo "=== symbol-scoped otool disassembly ==="
-          for sym in _lck_mtx_init _lck_grp_reference _lck_grp_init_flags _lck_grp_startup_init; do
-            echo "--- $sym ---"
-            xcrun otool -arch arm64 -tvV -p "$sym" evidence/kernel/kernel.development.lavender 2>&1 | head -90 || true
-          done
+          echo "=== FULL ARM64 TEXT DISASSEMBLY ==="
+          xcrun otool -arch arm64 -tvV evidence/kernel/kernel.development.lavender > evidence/kernel/otool-text.txt
+          python3 - <<'PY'
+          import pathlib,re
+          lines=pathlib.Path("evidence/kernel/otool-text.txt").read_text(errors="replace").splitlines()
+          print("text lines:",len(lines))
+          for sym in ("_lck_grp_reference","_lck_mtx_init","_lck_grp_init_flags","_lck_grp_startup_init"):
+              hits=[i for i,x in enumerate(lines) if sym in x]
+              print(f"\n=== {sym}: {hits[:6]} ===")
+              for i in hits[:2]:
+                  print("\n".join(lines[max(0,i-2):min(len(lines),i+90)]))
+          PY
+          echo "=== startup table mapping and source identity ==="
+          shasum -a 256 evidence/kernel/kernel.development.lavender
