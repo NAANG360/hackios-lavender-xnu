@@ -321,7 +321,7 @@ jobs:
           helper = early.index("sweet_early_trace_startup(unsigned int event")
           if "case 5:" not in early[helper:] or "case 7:" not in early[helper:]:
               raise SystemExit("startup callback/subsystem console trace cases are missing")
-          trace_body = early[helper:early.index("static int\\nlavender_logo_ellipse", helper)]
+          trace_body = early[helper:early.index("lavender_logo_ellipse", helper)]
           if "early_guard_cell" in trace_body or "sweet_early_mark(" in trace_body:
               raise SystemExit("startup sub-trace must not modify the Guardian marker")
           print("PASS: Lavender startup trace covers table, qsort, subsystem logs and callbacks without touching Guardian state")
