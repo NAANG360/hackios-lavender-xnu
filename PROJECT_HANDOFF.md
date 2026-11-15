@@ -1,64 +1,87 @@
-# Lavender XNU — master handoff
+# Lavender XNU — seamless project handoff
 
-**Read this file only at session start.** Resolve the live branch HEAD and Actions state before changing anything. Load only the chapter needed for the task.
+**Resume command:** “Continue from latest operations.”
 
-- Repo: https://github.com/NAANG360/hackios-lavender-xnu
+A new session must read this file, inspect live GitHub branch/Actions state, then load only the chapter named below. Repository and live evidence outrank this snapshot if they differ.
+
+- Repository: https://github.com/NAANG360/hackios-lavender-xnu
 - Branch: `ci/lavender-machine-profile`
-- Device: Xiaomi Redmi Note 7/7S, `lavender`, Qualcomm SDM660, ARM64
-- Goal: physical XNU 8796 / iOS 16-generation kernel bring-up; later Darwin userspace.
+- Device: Xiaomi Redmi Note 7/7S, `lavender`, Qualcomm SDM660 / Kryo 260, ARM64
+- Mission: physical XNU 8796 (iOS 16 generation) bring-up; Darwin userspace is a later milestone.
 
-## Current physical frontier
+## Current task / chapter route
 
-The #233 `iosboot.img` was tested on the actual handset. The 73-second recording confirms:
-1. `arm_init entered (MMU on)`
-2. `PE_init_platform done`
-3. `dt_parse_cpu_topology done`
-4. `cpu_bootstrap done`
+**Active task:** test the newly instrumented Run #236 `iosboot.img` on the physical handset using the established RAM-only path, then identify the last completed post-`cpu_bootstrap()` marker. In parallel, audit Topaz's ARMv8.0 CPU compatibility changes against Lavender source/configuration; this is comparative research, not permission to transplant patches.
 
-Near the end, the A53 guardian reports `A53 LAST MARK=0x00000104` (C checkpoint 4). The marker does not advance beyond `cpu_bootstrap done`; the guardian's configured 60-second no-progress timeout then snapshots the value and resets. This is the current failure frontier, not the old Stage 9 assembly-to-C failure.
+**Read now:** [Chapter 03 — Current debugging](docs/handoff/03-current-debugging.md).
 
-## Screen-clear explanation
+**Read additionally only if needed:**
+- Build/patch/cache/packaging change → [Chapter 02](docs/handoff/02-architecture-and-build.md).
+- Before any device action or safety decision → [Chapter 01](docs/handoff/01-device-and-safety.md).
+- Historical comparison/regression investigation → [Chapter 04](docs/handoff/04-evidence-and-history.md).
 
-The split screen is intentional, not a partial clear that got stuck. In the Lavender early console:
-- framebuffer height = 2340 pixels;
-- `LAVENDER_CONSOLE_TOP = 600`;
-- `lavender_console_clear()` clears rows 600–2339 only.
+Do not read every chapter by default.
 
-That preserves the top 600 pixels (about 26%) containing the shim's red handoff diagnostics, while clearing the lower 1740 pixels (about 74%) for XNU's verbose text. The four C-stage lines are rendered in that lower panel.
+## Live state verified for this handoff
 
-## Latest accepted build
+- Branch HEAD: `17a68fb21294a99e8c11c3ee38f7b79df501033d`
+- Latest XNU workflow: **Run #236**, ID `43701501661`, conclusion **success**, source SHA matches HEAD.
+- Run #236 jobs: XNU build and “Package RAM-only Lavender fastboot image” both succeeded.
+- Run #236 artifacts (not expired at inspection):
+  - `lavender-fastboot-boot-test`, artifact ID `14156453574`
+  - `xnu-kernel`, artifact ID `14156363785`
+  - `xnu-kernel-candidate`, artifact ID `14156289042`
+  - `xnu-build-log`, artifact ID `14156538354`
+  - `xnu-buildtree`, artifact ID `14157101726`
+- Run #235 (ID `43700842842`) failed; Run #236 commit `17a68fb...` repaired the post-`cpu_bootstrap` diagnostic patch and completed both jobs.
+- Run #236 is a successful build/package result, **not a physical test**. Do not assume its marker output or claim a later boot stage until the handset is tested.
 
-- XNU source commit: `f2a4cfd4a65829352736783def33c6a5b61e4a68`
-- XNU Run #233: `43695509652` — build, kernel verification and package jobs passed.
-- Shim/ADT Run #47: `43695509648` — passed.
-- Fastboot artifact: `lavender-fastboot-boot-test`, artifact ID `14154570502`, exact image name `iosboot.img`.
-- Android memory audit supports the configured `0xA2000000` aligned aperture through `0xEA848000`, with panic reservation ending at `0xEA948000`, for the observed boot configuration.
+## Last confirmed physical frontier
 
-## Immediate next action
+The latest documented physical recording is still the Run #233 image, which displayed `A53 LAST MARK=0x00000104` after:
+1. `arm_init()` entry
+2. `PE_init_platform`
+3. CPU topology parsing
+4. `cpu_bootstrap()`
 
-1. Trace and split the operations immediately after `cpu_bootstrap()` in the exact XNU source.
-2. Patch `0108-lavender-post-cpubootstrap-trace.patch` adds distinct markers:
-   - 5 before / 6 after `rtclock_early_init()`;
-   - 7 before / 8 after `kernel_debug_string_early()`;
-   - 9 before / 10 after `kernel_startup_bootstrap()`;
-   - 11 after `timer_call_init()`;
-   - 12 after `cpu_init()`;
-   - 13 after `processor_bootstrap()`;
-   - 14 immediately before `arm_vm_init()`.
-3. CI must require patch 0108 and verify marker order. Cache invalidation must touch `arm_init.c` so the changed object is rebuilt.
-4. Build once, inspect verifier and package results, then test exact `iosboot.img` using RAM-only `fastboot boot`.
-5. Use the next guardian marker to pick the next focused source-level fix. Do not guess which call is failing until the new checkpoints identify it.
+That proves the earlier Stage-9 assembly-to-C transition was fixed and XNU reached C initialization. It does not establish that Run #236 has been tested. The guardian's 60-second no-progress timeout then snapshots the marker, displays it for 2.5 seconds and resets.
 
-**Safety:** recovery is built into the shim per user confirmation. Never flash, erase, repartition or write boot-critical partitions.
+## Run #236 diagnostic map
 
-## Selective chapter index
-- [01 — Device and safety](docs/handoff/01-device-and-safety.md)
-- [02 — Architecture and build](docs/handoff/02-architecture-and-build.md)
-- [03 — Current debugging](docs/handoff/03-current-debugging.md)
-- [04 — Evidence and history](docs/handoff/04-evidence-and-history.md)
+Patch `xnu/patches/0108-lavender-post-cpubootstrap-trace.patch` is now in the build chain. Its C marker namespace is `0x100 | stage`:
 
-## Session protocol
-- Read this file first; inspect live branch HEAD and newest relevant Actions run.
-- For current work, open Chapter 03 only. Read Chapter 02 before build/workflow changes; Chapter 01 before device tests; Chapter 04 only for historical comparisons.
-- Current source, Actions logs/artifacts and physical recordings outrank stale prose.
-- Keep observed facts separate from hypotheses. Never claim Apple logo or Darwin userspace until seen on device.
+| Marker | Meaning |
+|---:|---|
+| `0x105` | entering `rtclock_early_init()` |
+| `0x106` | `rtclock_early_init()` returned |
+| `0x107` | entering `kernel_debug_string_early()` |
+| `0x108` | early debug-string call returned |
+| `0x109` | entering `kernel_startup_bootstrap()` |
+| `0x10A` | kernel startup bootstrap returned |
+| `0x10B` | `timer_call_init()` returned |
+| `0x10C` | `cpu_init()` returned |
+| `0x10D` | `processor_bootstrap()` returned |
+| `0x10E` | entering `arm_vm_init()` |
+
+Stage 4 (`0x104`) remains the last confirmed phone marker until a newer recording proves otherwise. Stage 14 is an entry marker, not proof that VM initialization completed.
+
+## Comparative reference lead
+
+Topaz (`MakrSas/ios-topaz`) is a **fork of** `dipa-studio/ios-sweet`, not an independent codebase. Its verified public patches are useful:
+- `0080-topaz-cpu-topology-skip-sweet-hw.patch`: changes Sweet CPU matching to MPIDR Aff1 cluster / Aff0 core ranges `0x0–0x3` A53 and `0x100–0x103` A73; names CPU Kryo 260; gates inherited SM7150-specific keys/touch/USB probes behind `sweethw=1`.
+- `0081-topaz-armv8.0-no-lse-no-pan.patch`: selects `-mcpu=cortex-a53`, replaces LSE atomics in selected paths with LL/SC loops and adds user-mode LSE/LDAPR emulation; removes the PAN-available define.
+- `0082-topaz-boot-on-gold-cpu.patch`: requires boot logical CPU 0 to have physical MPIDR `0x100`, documenting that the shim boots XNU on the Gold core because the Silver cluster lacks 16K granule support.
+
+These are reference evidence, not drop-in Lavender patches. Topaz inherits Sweet; its boot/driver/ADT and SoC constants are not Lavender facts. Audit exact source, compiler flags, XNU build configuration and Lavender hardware observations before proposing any adaptation. Do not describe patch 0080 as merely a “topology skip” or assume it changes Lavender's topology correctly.
+
+## Safety and acceptance gates
+
+- Keep Android/recovery intact. Use RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write boot-critical partitions.
+- The device power button is broken. The shim recovery/reset path is the known route; do not assume a volume-key chord selects recovery without physical proof.
+- Exact output filename: `iosboot.img`.
+- Do not commit private/raw dumps, serials, calibration data or firmware blobs.
+- Separate build, verifier, package, physical kernel stages, Apple logo and Darwin userspace. No logo/userspace claims without direct evidence.
+
+## Session completion rule
+
+After the next physical test, record the exact artifact/run/source SHA tested, exact marker and timestamp/video evidence, what it proves, and the next narrow task. Update this file, AGENTS.md, Chapter 03 and Chapter 04. Then the next session can resume with only “Continue from latest operations.”

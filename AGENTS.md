@@ -1,35 +1,41 @@
-# Agent entrypoint — Lavender XNU
+# Lavender XNU — agent entrypoint
 
-1. Read `PROJECT_HANDOFF.md` only.
-2. Resolve the live branch HEAD and newest relevant Actions run.
-3. Follow **Immediate next action**; load only the linked chapter.
-4. Inspect current source, logs, artifacts and physical evidence. Validate narrowly before CI.
-5. Keep fixes targeted. Never weaken guards, overlap builds, or claim unobserved boot stages.
-6. Update the current pointer and affected handoff chapter after each milestone.
+**Start here.** Read `PROJECT_HANDOFF.md`, inspect live branch HEAD and latest Actions runs, then open only the chapter selected by its routing table. The user should be able to say: **“Continue from latest operations.”** That means resume autonomously from live repository/CI evidence; do not ask for already documented context.
 
 ## Mission
-Bring XNU 8796 (iOS 16 generation) up on physical Xiaomi Redmi Note 7/7S (`lavender`, SDM660, ARM64). Long-term target: Darwin userspace.
+Bring XNU 8796 (iOS 16 generation) up on Xiaomi Redmi Note 7/7S (`lavender`, SDM660, ARM64); later investigate Darwin userspace.
 
-## Hard constraints
-- Preserve Android/recovery. RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write boot-critical partitions.
-- Recovery is built into the shim (user-confirmed); do not treat it as a blocker.
-- Power button is broken; use the shim recovery path.
-- QEMU is not hardware proof.
-- Exact deliverable name: `iosboot.img`.
-- No raw dumps, serials, calibration/private data or firmware blobs in Git.
-- Keep compile, verified Mach-O, packaged image, physical boot, Apple logo and Darwin userspace as separate acceptance gates.
+## Mandatory session protocol
+1. Read `PROJECT_HANDOFF.md` only.
+2. Resolve `ci/lavender-machine-profile` HEAD and newest relevant Actions runs. Do not trust stale run numbers in prose.
+3. Follow the single **Current task / chapter route** in the handoff. Read only that chapter. Read another chapter only if the task crosses its domain.
+4. Inspect current source, exact CI logs/artifacts and physical evidence before changing anything.
+5. Continue the latest unfinished operation; don't restart completed investigations or create overlapping Actions builds.
+6. Make the smallest evidence-backed change. Validate locally/source-level before CI. Never weaken verifier or source guards to get green.
+7. After each meaningful milestone, update the current pointer, affected chapter, evidence/history and this entrypoint if routing changes.
 
-## Current pointer
-Run #233 (`43695509652`) built and packaged successfully. Its image reached XNU C initialization on the phone:
-`arm_init` → `PE_init_platform` → CPU topology parse → `cpu_bootstrap`.
-The 73-second recording ends with guardian snapshot `A53 LAST MARK=0x00000104`, so no later marker was observed. The guardian is configured to snapshot after 60 seconds without progress, then reset.
+## Non-negotiable safety and truth
+- Preserve Android and recovery. Only temporary RAM boot via `fastboot boot iosboot.img`; never flash, erase, repartition or write boot-critical partitions.
+- Device power button is broken. Use the shim's documented recovery/reset path; don't assume volume keys select recovery unless physically verified.
+- QEMU is not proof of Lavender hardware compatibility.
+- Deliverable filename must be exactly `iosboot.img`.
+- Never commit raw dumps, serials, private/calibration data or firmware blobs.
+- Keep these gates separate: compile → Mach-O verification → package verification → physical XNU stages → Apple logo → Darwin userspace.
+- Never claim physical boot, Apple logo or userspace without corresponding device evidence.
 
-The apparent 3/4-screen clear is intentional: `lavender_console_clear()` starts at y=600 on a 2340-pixel framebuffer, preserving the top 600-pixel red shim panel and clearing the lower 1740 pixels for XNU text.
+## Device facts
+Xiaomi Redmi Note 7/7S, codename `lavender`, Qualcomm SDM660 / Kryo 260, ARM64; observed A53 Silver cluster MPIDRs `0x0–0x3`, A73 Gold cluster `0x100–0x103`. The physical XNU boot path has used Gold MPIDR `0x100` because the A53 reports no 16 KiB granule while the A73 reports support. Verify against current source and handset evidence before changing.
 
-Next diagnostic patch: `0108-lavender-post-cpubootstrap-trace.patch`. It splits the next calls in `arm_init()` into markers 5–14, starting before `rtclock_early_init()`. Read [Chapter 03](docs/handoff/03-current-debugging.md).
+## Current task
+See `PROJECT_HANDOFF.md` → **Current task / chapter route**. At this handoff revision the active task is the first physical test of Run #236's newly instrumented image, then interpret marker 5–14. A parallel comparative audit of Topaz's ARMv8.0/A53-A73 changes is supporting research only; do not transplant unvalidated code.
 
-## Selective chapters
-- [01 Device and safety](docs/handoff/01-device-and-safety.md)
-- [02 Architecture and build](docs/handoff/02-architecture-and-build.md)
-- [03 Current debugging](docs/handoff/03-current-debugging.md)
-- [04 Evidence and history](docs/handoff/04-evidence-and-history.md)
+## Chapter router
+- `docs/handoff/README.md` — chapter routing and one-line resume protocol.
+- `01-device-and-safety.md` — physical-device safety, hardware facts, memory/display.
+- `02-architecture-and-build.md` — architecture, patches, CI, packaging, comparative reference audit.
+- `03-current-debugging.md` — active failure frontier, current run, immediate next operation.
+- `04-evidence-and-history.md` — immutable run history, verified evidence and regressions.
+
+## Project identity
+Repository: https://github.com/NAANG360/hackios-lavender-xnu
+Branch: `ci/lavender-machine-profile`
