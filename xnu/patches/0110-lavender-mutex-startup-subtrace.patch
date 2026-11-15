@@ -9,7 +9,7 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  #endif
  
  SECURITY_READ_ONLY_LATE(startup_subsystem_id_t) startup_phase = STARTUP_SUB_NONE;
-@@ -450,5 +450,13 @@
+@@ -450,4 +450,12 @@
  #endif
  		cur->func(cur->arg);
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
