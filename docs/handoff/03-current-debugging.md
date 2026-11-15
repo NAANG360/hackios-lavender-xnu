@@ -3,8 +3,9 @@
 **Branch:** `ci/lavender-machine-profile`
 **Latest patch correction:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` (corrected 0112 hunk counts)
 **Last completed XNU run:** #254, workflow `43736404806`, failed because 0112 was skipped as malformed.
+**Current XNU run:** #255, workflow `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`; in progress at `Build XNU 8796`.
 **Last successful packaged diagnostic image:** Run #240, artifact `14160128075`; it predates patches 0110–0112 and remains physically untested.
-**Current acceptance state:** no newly verified kernel or `iosboot.img`; the corrected patch commit should trigger the XNU workflow, but the resulting run ID/status has not yet been independently observed.
+**Current acceptance state:** no newly verified kernel or `iosboot.img`. #255 is testing the corrected patch; its build, verification and package outcomes are not yet known.
 **Current routed chapter:** this chapter for the active build blocker; Chapter 02 only for patch/build mechanics. Chapter 01 remains mandatory before any handset action.
 
 ## Live correction — patch 0112 was skipped in XNU #254
@@ -26,6 +27,9 @@ Because patch 0112 was skipped, the original `CASA` instructions remained. The a
 **Corrective commit:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` updates only the two hunk headers:
 - `@@ -272,11 +272,16 @@ _pfz_trylock_and_enqueue:`
 - `@@ -322,9 +327,14 @@ _pfz_trylock_and_dequeue:`
+**Run #255 — live status:** workflow `43743932922`, job `132902961436`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`. Runner setup, checkout, Xcode selection, pinned tooling, machine-profile validation, cache handling and dependency installation passed. `Build XNU 8796` is still in progress. No conclusion on patch application, successful compilation, linked verification or packaging is available yet.
+**Guard hardening prepared:** `tools/verify-lavender-commpage-llsc.py` checks both patched source functions and can validate linked instruction mnemonics. Workflow integration is prepared on branch `fix/lavender-commpage-prebuild-guard`: unified-diff syntax preflight, source verification immediately after patch application and before compilation, and a linked-binary check of `__TEXT_EXEC,__commpage_text`. It is not merged into the active branch while #255 is compiling, to avoid overlapping builds.
+**Next gate:** do not start another XNU build until #255 completes. Then verify patch 0112 was applied (no skip warning), both source guards pass, the linked helpers contain `LDAXR/STXR` and no LSE atomics, and the RAM-only package job uploads `iosboot.img`. Only then is a new candidate acceptable. Never use #254's raw kernel candidate.
 
 The ARMv8.0 `LDAXR/STXR` retry loops, lock-busy return behavior and existing release-store unlock are unchanged. This patch commit matches the `.github/workflows/xnu.yml` push path filter. The next Actions run has not yet been independently observed; do not invent a run ID or status.
 
@@ -41,7 +45,7 @@ Both fail with `instruction requires: lse`. These are handwritten assembly instr
 
 Patch `0112-lavender-commpage-armv8a-llsc.patch`, corrected in source commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`, replaces both acquire-CASA operations with `LDAXR/STXR` retry loops. It retains the existing failed-lock return path and release-store unlock. The workflow now requires patch 0112 and checks both helper bodies for ARMv8.0 LL/SC sequences and absence of CASA.
 
-**Current attempt:** XNU #254 (`43736404806`) uses the corrected source. Its runner setup, Xcode selection, pinned tools, machine-profile validation, cache handling and dependency steps passed. The latest observed job state has `Build XNU 8796` in progress; the latest log tail was still ordinary compile/header work. Do not assume the commpage assembler step has passed until the build completes or logs show it. Subsequent source guards, linked-kernel ISA verification, artifact collection and packaging must all pass before accepting `iosboot.img`.
+**Current attempt:** XNU #254 (`43736404806`) failed because malformed patch 0112 was skipped; it did not test the LL/SC source. XNU #255 (`43743932922`) is the first build against corrected hunk counts and is currently in progress at `Build XNU 8796`. Do not infer patch application or assembler success until its completed log is inspected. Subsequent source guards, linked-kernel verification, artifact collection and RAM-only packaging must all pass before accepting `iosboot.img`.
 
 The generic CPU target remains necessary but is not sufficient: audit any additional *explicit* LSE assembly instructions individually. Do not enable LSE globally, weaken the verifier, or use #252's raw candidate. Keep the Run #240 mutex callback lead separate; the present CI failure occurs earlier, during commpage assembly.
 
@@ -221,19 +225,18 @@ Run #252 uploaded raw diagnostic artifacts: kernel candidate ID `14169598249`, b
 
 **Follow-up runs — live status checked 15 Nov 2026 22:19 IST:**
 - XNU #253 (`43736362523`, source `3fd3bf03db75f80f64c15c3d7dc610116b437b89`) is **cancelled**; it used the initial 0112 patch before hunk/source-guard correction.
-- XNU #254 (`43736404806`, exact source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **in progress**. Job `132879850377`: runner setup, checkout, Xcode selection, pinned tooling, profile validation, cache restore, runner-capacity detection, dependency installation and legacy-cache invalidation all passed. Step 10, **Build XNU 8796**, is still running. The cache-aware build guard, Lavender entry guard, build-log upload, buildtree packaging, kernel collection, linked-kernel verification, cache save and fastboot-image package job are pending. The latest log tail contains ordinary compile/header work but does not yet prove the commpage assembly objects completed; do not infer success from the earlier setup steps.
+- XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **failed** because patch 0112 was skipped as malformed; its package job was skipped.
 
-#254 is the first validation run against corrected patch 0112. Keep the exact failure distinction: #252 failed on handwritten CASA, #253 was cancelled, #254 is running the LL/SC correction.
+#255 is the first build attempt against the corrected 0112 hunk counts. Keep the distinction: #252 failed on handwritten CASA, #253 was cancelled, #254 failed because 0112 was malformed/skipped, and #255 is testing the corrected patch.
 
 Do not assume this is the last unsupported instruction. If the corrected build exposes further handwritten LSE sites, fix each individually while preserving ARMv8-A.
 
 ## Immediate next operation
-
-1. Inspect the XNU Actions run triggered by patch-fix commit `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`; do not start a duplicate build.
-2. Confirm the build log shows patch 0112 applied and does not contain `Skipping patch 0112`.
-3. Confirm the post-patch source guards find both ARMv8.0 `LDAXR/STXR` sequences and no commpage `CASA`.
-4. Require successful XNU compilation, linked Mach-O ARMv8-A verification, and the RAM-only package job producing exact `iosboot.img`. Record run ID, artifact IDs and SHA-256 only after they are observed.
-5. If the patch still fails, inspect the first exact patch/application error; do not enable LSE globally or weaken checks. Never use #254's raw kernel candidate.
+1. Let XNU #255 (`43743932922`) finish; do not start an overlapping build.
+2. Inspect its log for an applied 0112 patch and no `Skipping patch 0112` warning.
+3. Require successful XNU compilation and all source/linked-kernel verification steps; then confirm the RAM-only package job produces exact `iosboot.img`.
+4. Integrate the prepared pre-build syntax/source guard and linked `__commpage_text` disassembly check only after #255 completes, then validate them in the next non-overlapping run.
+5. Record artifact IDs and SHA-256 only when observed. Never use #254's raw candidate or re-enable LSE globally.
 
 ## Device safety
 
