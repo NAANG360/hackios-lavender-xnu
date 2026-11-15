@@ -28,9 +28,9 @@ Xiaomi Redmi Note 7/7S, codename `lavender`, Qualcomm SDM660 / Kryo 260, ARM64; 
 
 ## Current task
 
-The 15 November video batch (`1000317701.mp4`, `1000317713.mp4`, `1000317714.mp4`, `1000317717.mp4`) was reviewed. It corroborates the checkpoint-based image reaching `[09] entering kernel_startup_bootstrap`, but none shows patch-0109's `TABLE/QSORT/INIT/HOOK` trace. Build provenance of the three newer clips is unknown; do not assign them to Run #240. Run #240 remains untested.
+The bottom-row patch-0109 screenshots now expose HOOK idx=680 sub=3 rank=3. The reported Run #240 kernel/table/symbol analysis resolves this entry to _lck_mtx_startup_init with argument ___startup_lck_mtx_spec_processor_updown_lock (LOCKS subsystem). This is the concrete source lead; it is not proof that the callback itself hangs because the trace is emitted before the call and has no post-call event. Inspect this exact callback/specification and ARM64 lock-init path in the Run #240 buildtree before proposing any change. Do not guess, skip, reorder or gate the initializer. Preserve uncertainty about screenshot-to-image provenance unless independently artifact-bound. Maintain the power-button-independent recovery/reset safety gate before another handset test.
 
-Read Chapter 03. Do not infer a specific callback or change code based on these clips. The next evidence target is the Run #240 bottom-row trace, only after the power-button-independent recovery/reset safety gate is established. No extra build before that evidence.
+Read Chapter 03.
 
 ## Chapter router
 - `docs/handoff/README.md` — chapter routing and one-line resume protocol.
