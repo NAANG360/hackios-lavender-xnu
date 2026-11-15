@@ -1,0 +1,226 @@
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -212,6 +212,13 @@
+ 
+ static struct startup_entry *__startup_data startup_entry_cur = startup_entries;
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++/* Console-only tracing for the physical Lavender startup-bootstrap stall. */
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++static bool __startup_data lavender_startup_trace_enabled;
++#endif
++
+ SECURITY_READ_ONLY_LATE(startup_subsystem_id_t) startup_phase = STARTUP_SUB_NONE;
+ 
+ extern int serverperfmode;
+@@ -264,6 +271,12 @@
+ 	 * Sort the various STARTUP() entries by subsystem/rank.
+ 	 */
+ 	size_t n = startup_entries_end - startup_entries;
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	uintptr_t table_bytes = (uintptr_t)startup_entries_end - (uintptr_t)startup_entries;
++	lavender_startup_trace_enabled = true;
++	sweet_early_trace_startup(1, n, table_bytes,
++	    (uintptr_t)startup_entries, (uintptr_t)startup_entries_end, 0);
++#endif
+ 
+ 	if (n == 0) {
+ 		panic("Section %s,%s missing",
+@@ -275,12 +288,23 @@
+ 		    STARTUP_HOOK_SEGMENT, STARTUP_HOOK_SECTION);
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(2, n, 0, 0, 0, 0);
++#endif
+ 	qsort(startup_entries, n, sizeof(struct startup_entry), startup_entry_cmp);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(3, n, 0, 0, 0, 0);
++	sweet_early_trace_startup(4, STARTUP_SUB_LOCKS, n, 0, 0, 0);
++#endif
+ 
+ 	/*
+ 	 * Then initialize all tunables, timeouts, and locks
+ 	 */
+ 	kernel_startup_initialize_upto(STARTUP_SUB_LOCKS);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(6, STARTUP_SUB_LOCKS, n, 0, 0, 0);
++	lavender_startup_trace_enabled = false;
++#endif
+ }
+ 
+ __startup_func
+@@ -376,7 +400,17 @@
+ 	}
+ 
+ 	if (subsystem < sizeof(names) / sizeof(names[0]) && names[subsystem]) {
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++		if (lavender_startup_trace_enabled) {
++			sweet_early_trace_startup(7, subsystem, 0, 0, 0, 0);
++		}
++#endif
+ 		kernel_bootstrap_log(names[subsystem]);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++		if (lavender_startup_trace_enabled) {
++			sweet_early_trace_startup(8, subsystem, 0, 0, 0, 0);
++		}
++#endif
+ 	}
+ 	logged = subsystem;
+ }
+@@ -407,6 +441,13 @@
+ 		}
+ 		startup_phase = cur->subsystem - 1;
+ 		kernel_startup_log(cur->subsystem);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++		if (lavender_startup_trace_enabled) {
++			size_t index = ((uintptr_t)cur - (uintptr_t)startup_entries) / sizeof(*cur);
++			sweet_early_trace_startup(5, index, cur->subsystem, cur->rank,
++			    (uintptr_t)cur->func, (uintptr_t)cur->arg);
++		}
++#endif
+ 		cur->func(cur->arg);
+ 		startup_entry_cur = ++cur;
+ 	}
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -223,6 +223,138 @@
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+ 
++/* Append compact numbers without depending on printf during early startup. */
++static void
++lavender_trace_append_char(char *buffer, unsigned int *length, char c)
++{
++	if (*length < 127u) {
++		buffer[(*length)++] = c;
++	}
++}
++
++static void
++lavender_trace_append_text(char *buffer, unsigned int *length, const char *text)
++{
++	while (*text) {
++		lavender_trace_append_char(buffer, length, *text++);
++	}
++}
++
++static void
++lavender_trace_append_decimal(char *buffer, unsigned int *length, uint64_t value)
++{
++	char digits[20];
++	unsigned int count = 0;
++	do {
++		digits[count++] = (char)('0' + (value % 10u));
++		value /= 10u;
++	} while (value && count < sizeof(digits));
++	while (count) {
++		lavender_trace_append_char(buffer, length, digits[--count]);
++	}
++}
++
++static void
++lavender_trace_append_hex(char *buffer, unsigned int *length, uint64_t value)
++{
++	static const char hex[] = "0123456789ABCDEF";
++	lavender_trace_append_text(buffer, length, "0x");
++	for (int shift = 60; shift >= 0; shift -= 4) {
++		lavender_trace_append_char(buffer, length, hex[(value >> shift) & 0xfu]);
++	}
++}
++
++/*
++ * Keep a single rolling status line below the ordinary checkpoint history.
++ * Do not publish these sub-events to the Guardian cell: they must not extend
++ * its 60-second no-progress deadline or collide with the stage-20 high bit.
++ */
++void
++sweet_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
++    uintptr_t c, uintptr_t d, uintptr_t e)
++{
++	char text[128];
++	unsigned int length = 0;
++	switch (event) {
++	case 1:
++		lavender_trace_append_text(text, &length, "TABLE n=");
++		lavender_trace_append_decimal(text, &length, a);
++		lavender_trace_append_text(text, &length, " bytes=");
++		lavender_trace_append_decimal(text, &length, b);
++		lavender_trace_append_text(text, &length, " start=");
++		lavender_trace_append_hex(text, &length, c);
++		lavender_trace_append_text(text, &length, " end=");
++		lavender_trace_append_hex(text, &length, d);
++		break;
++	case 2:
++		lavender_trace_append_text(text, &length, "QSORT BEGIN n=");
++		lavender_trace_append_decimal(text, &length, a);
++		break;
++	case 3:
++		lavender_trace_append_text(text, &length, "QSORT DONE n=");
++		lavender_trace_append_decimal(text, &length, a);
++		break;
++	case 4:
++		lavender_trace_append_text(text, &length, "INIT BEGIN upto=");
++		lavender_trace_append_decimal(text, &length, a);
++		lavender_trace_append_text(text, &length, " table_n=");
++		lavender_trace_append_decimal(text, &length, b);
++		break;
++	case 5:
++		lavender_trace_append_text(text, &length, "HOOK idx=");
++		lavender_trace_append_decimal(text, &length, a);
++		lavender_trace_append_text(text, &length, " sub=");
++		lavender_trace_append_decimal(text, &length, b);
++		lavender_trace_append_text(text, &length, " rank=");
++		lavender_trace_append_hex(text, &length, c);
++		lavender_trace_append_text(text, &length, " fn=");
++		lavender_trace_append_hex(text, &length, d);
++		lavender_trace_append_text(text, &length, " arg=");
++		lavender_trace_append_hex(text, &length, e);
++		break;
++	case 6:
++		lavender_trace_append_text(text, &length, "INIT DONE upto=");
++		lavender_trace_append_decimal(text, &length, a);
++		lavender_trace_append_text(text, &length, " table_n=");
++		lavender_trace_append_decimal(text, &length, b);
++		break;
++	case 7:
++		lavender_trace_append_text(text, &length, "SUBSYS LOG BEGIN id=");
++		lavender_trace_append_decimal(text, &length, a);
++		break;
++	case 8:
++		lavender_trace_append_text(text, &length, "SUBSYS LOG DONE id=");
++		lavender_trace_append_decimal(text, &length, a);
++		break;
++	default:
++		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
++		break;
++	}
++	text[length] = '\0';
++
++	/* 1080x2340 display: the final complete 8x16 text row begins at y=2312. */
++	const unsigned int x0 = 24u;
++	const unsigned int y0 = LAVENDER_FB_HEIGHT - LAVENDER_CONSOLE_CHAR_H - 12u;
++	const unsigned int width = LAVENDER_FB_WIDTH - 2u * x0;
++	for (unsigned int gy = 0; gy < LAVENDER_CONSOLE_CHAR_H; gy++) {
++		volatile uint32_t *line = early_fb + (y0 + gy) * LAVENDER_FB_STRIDE + x0;
++		for (unsigned int x = 0; x < width; x++) {
++			line[x] = 0xff000000u;
++		}
++	}
++	for (unsigned int index = 0; index < length; index++) {
++		const unsigned char ch = (unsigned char)text[index];
++		const unsigned char *glyph = iso_font + ch * 16u;
++		for (unsigned int gy = 0; gy < LAVENDER_CONSOLE_CHAR_H; gy++) {
++			volatile uint32_t *line = early_fb + (y0 + gy) * LAVENDER_FB_STRIDE + x0 + index * LAVENDER_CONSOLE_CHAR_W;
++			for (unsigned int gx = 0; gx < LAVENDER_CONSOLE_CHAR_W; gx++) {
++				line[gx] = (glyph[gy] & (1u << gx)) ? 0xffffffffu : 0xff000000u;
++			}
++		}
++	}
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
+ static int
+ lavender_logo_ellipse(int x, int y, int cx, int cy, int rx, int ry)
+ {
