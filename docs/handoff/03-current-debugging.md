@@ -2,14 +2,15 @@
 
 **Branch:** `ci/lavender-machine-profile`
 **Last failed code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252 / inspection #25)
+**Current corrective source:** `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`
 **Corrective patch:** `0112-lavender-commpage-armv8a-llsc.patch` (added in the handoff fix commit)
 **Last successful build/package:** Run #242, workflow ID `43729225770`, source SHA `6876fd9030add877b5cb8b02ff82e14ed6b9bc3f`; this predates the current mutex-subtrace and generic-CPU changes.
 **Run #240 diagnostic baseline:** workflow ID `43709690089`, source SHA `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`, success
-**Diagnostic patches:** `0109-lavender-startup-hook-trace.patch`, `0110-lavender-mutex-startup-subtrace.patch`, `0111-lavender-armv8a-generic-cpu.patch`
+**Diagnostic patches:** `0109-lavender-startup-hook-trace.patch`, `0110-lavender-mutex-startup-subtrace.patch`, `0111-lavender-armv8a-generic-cpu.patch`, `0112-lavender-commpage-armv8a-llsc.patch`
 **Run #240 image:** artifact `lavender-fastboot-boot-test`, ID `14160128075`; exact filename `iosboot.img`
 **Run #240 image size / SHA-256:** 16,531,456 bytes / `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`
 **Run #240 kernel size / SHA-256:** 16,587,456 bytes / `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`
-**Current CI:** inspection #25 (`43733584201`) passed. XNU build #252 (`43733584216`) failed during assembly; see the Run #252 failure section below. No new verified boot image.
+**Current CI:** inspection #25 (`43733584201`) passed. XNU build #252 (`43733584216`) failed during assembly. Corrective build `43736404806` (source `58bda409...`) is the active validation run; initial commit run `43736362523` is superseded by the hunk-count/guard correction. No new verified boot image yet.
 **Latest reviewed physical batch:** `1000317701.mp4` (87.785 s), `1000317713.mp4` (27.531 s), `1000317714.mp4` (27.744 s), `1000317717.mp4` (54.303 s); Run #240 still untested
 
 ## Latest physical result — marker 0x109
