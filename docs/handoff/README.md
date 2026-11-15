@@ -11,7 +11,7 @@ Read `PROJECT_HANDOFF.md` first. Resolve the live branch HEAD and newest Actions
 
 Do not read all chapters at session start. Do not read historical material unless it changes the current decision.
 
-The 15 November checkpoint-video batch and later close-up hook screenshots are indexed in Chapter 03 and Chapter 04. The close-ups report HOOK idx=680 sub=3 rank=3, resolved against Run #240's kernel/table/symbol data to _lck_mtx_startup_init(___startup_lck_mtx_spec_processor_updown_lock). This identifies the callback entry, not conclusively a hang inside its body; screenshot-to-image provenance remains unverified. Latest XNU build #252 failed on two handwritten LSE CASA instructions in commpage assembly; Chapter 03 records the exact error and ARMv8.0 LL/SC correction.
+The 15 November checkpoint-video batch and later close-up hook screenshots are indexed in Chapter 03 and Chapter 04. The close-ups report HOOK idx=680 sub=3 rank=3, resolved against Run #240's kernel/table/symbol data to _lck_mtx_startup_init(___startup_lck_mtx_spec_processor_updown_lock). This identifies callback entry, not conclusively a hang inside its body; screenshot-to-image provenance remains unverified. XNU #252 failed on handwritten LSE CASA instructions in commpage assembly. Patch 0112 replaces them with ARMv8.0 LDAXR/STXR loops; corrected XNU #254 is currently building. Chapter 03 has the live status and next gate.
 
 ## Resume prompt
 
