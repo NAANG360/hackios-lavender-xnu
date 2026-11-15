@@ -26,20 +26,13 @@ Lavender, Qualcomm SDM660 / Kryo 260, ARM64. Observed Silver MPIDRs 0x0–0x3, G
 
 ## Current task — clear handwritten LSE from ARMv8-A commpage
 
-XNU #252 (`43733584216`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) **failed** during `Build XNU 8796`. Exact assembler errors in `osfmk/arm/commpage/commpage_asm.s`:
-```
-:276:2: error: instruction requires: lse
-casa w10, w11, [x3]
-:326:2: error: instruction requires: lse
-casa w10, w11, [x2]
-```
-These are handwritten instructions in `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue`; generic compiler flags cannot rewrite them. The kernel verification step was skipped and the RAM-only package job was skipped. Raw kernel/buildtree/log artifacts exist, but the kernel candidate is **not approved** and no #252 `iosboot.img` exists.
+**Failed run / root cause:** XNU #252 (`43733584216`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) failed in `Build XNU 8796`. The assembler rejected two handwritten LSE `CASA` instructions in `osfmk/arm/commpage/commpage_asm.s`: line 276 (`[x3]`) in `_pfz_trylock_and_enqueue`, and line 326 (`[x2]`) in `_pfz_trylock_and_dequeue`, both with `instruction requires: lse`. `-mcpu=generic -march=armv8-a` cannot rewrite explicit assembly. Verification and the RAM-only package job were skipped. The raw candidate is unapproved; #252 produced no `iosboot.img`.
 
-Patch `0112-lavender-commpage-armv8a-llsc.patch` replaces both acquire-CASA operations with `LDAXR/STXR` retry loops, retaining the busy-lock failure path and existing release-store unlock. The first patch attempt had invalid hunk/source-guard details; commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba` corrected them. The current XNU workflow requires patch 0112 and checks that the source contains the ARMv8.0 LL/SC sequences and no CASA in these helpers.
+**Corrective change:** `0112-lavender-commpage-armv8a-llsc.patch` replaces both acquire-CASA operations with ARMv8.0 `LDAXR/STXR` retry loops. It retains the failed-lock return path and existing release-store unlock. The corrected patch/source guards are in commit `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`. The XNU workflow requires 0112 and checks that these helpers contain the expected LL/SC sequence and no CASA.
 
-**Current validation:** XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **in progress**. Runner setup, Xcode selection, pinned tooling, machine-profile validation, cache restore/invalidation and dependencies passed. The `Build XNU 8796` step is still running; build-path guards, kernel verification, output collection and packaging have not yet run. #253 (`43736362523`) was cancelled as superseded. #252 remains a failed build, not a successful artifact.
+**Current validation:** XNU #254 (`43736404806`, source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) is **in progress**. Runner setup, Xcode selection, pinned tooling, machine-profile validation, cache restore/invalidation and dependencies passed. `Build XNU 8796` remains the active step. Build-path guards, linked-kernel verification, artifact collection and RAM-image packaging are pending. The latest log tail is still ordinary compile/header work; it does not yet establish that commpage assembly passed. #253 (`43736362523`) is cancelled as superseded; #252 remains failed.
 
-Next: monitor #254; inspect any further ARMv8-A assembly failures narrowly. Require source guards, linked-kernel ISA verification and the package job before calling an image ready. Keep `-mcpu=generic -march=armv8-a`; do not re-enable LSE. Never use #252's raw kernel candidate as a boot image. No handset test until the power-button-independent recovery/reset safety gate is physically verified; RAM boot only, never flash.
+**Next:** monitor #254 through completion. If another explicit LSE assembly instruction fails, inspect that exact source site and replace it with a semantics-preserving ARMv8.0 sequence; do not globally re-enable LSE or weaken checks. Require source guards, linked-kernel ISA verification and the package job before calling an image ready. Never boot #252's raw candidate. No handset retest until the power-button-independent recovery/reset safety gate is physically verified; RAM boot only, never flash.
 
 The Run #240 callback mapping remains the physical debugging lead after a newly verified image exists. Do not bypass or reorder the mutex initializer.
  
