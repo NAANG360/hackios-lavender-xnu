@@ -1,4 +1,4 @@
-name: Inspect Run 240 startup hook
+name: Verify Run 240 mutex subtrace patch
 
 on:
   push:
