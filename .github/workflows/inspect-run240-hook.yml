@@ -17,6 +17,35 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Select the same Xcode used by the XNU build
+        run: |
+          set -euo pipefail
+          XC=/Applications/Xcode_16.0.app
+          test -d "$XC"
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+      - name: Compare ARMv8-A atomic code generation with the XNU build flags
+        run: |
+          set -euo pipefail
+          cat > atomic_probe.c <<'EOF'
+          void lavender_atomic_probe(unsigned int *counter) {
+              __atomic_fetch_add(counter, 1u, __ATOMIC_RELAXED);
+          }
+          EOF
+          xcrun clang -march=armv8-a -arch arm64 -O2 -S atomic_probe.c -o apple-default.s
+          xcrun clang -march=armv8-a -mcpu=generic -arch arm64 -O2 -S atomic_probe.c -o generic-armv8a.s
+          echo "=== Current XNU machine flags (default compiler CPU) ==="
+          xcrun clang -march=armv8-a -arch arm64 -### -c atomic_probe.c 2>&1 | grep -E 'target-cpu|target-feature'
+          grep -E '\\b(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)' apple-default.s || true
+          echo "=== Explicit generic ARMv8-A flags ==="
+          xcrun clang -march=armv8-a -mcpu=generic -arch arm64 -### -c atomic_probe.c 2>&1 | grep -E 'target-cpu|target-feature'
+          if grep -Eq '\\b(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)' generic-armv8a.s; then
+            echo "ERROR: generic ARMv8-A atomic probe still contains an LSE instruction"
+            cat generic-armv8a.s
+            exit 1
+          fi
+          grep -E '\\b(ldaxr|stlxr)' generic-armv8a.s
       - name: Inspect group reference and exact lock startup data
         env:
           GH_TOKEN: ${{ github.token }}
