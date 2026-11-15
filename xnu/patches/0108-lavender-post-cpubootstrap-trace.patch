@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -463,21 +463,29 @@
+@@ -463,23 +463,30 @@
  	cpu_bootstrap();
  	sweet_early_mark(4, "cpu_bootstrap done");
  
