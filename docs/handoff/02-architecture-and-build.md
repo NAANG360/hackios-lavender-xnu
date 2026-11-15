@@ -32,12 +32,12 @@ A green CI build or packaged image does not prove physical boot.
 
 The pinned macOS 13.5 release resolves to XNU tag `xnu-8796.141.3`. In that exact source, `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue` are in `__TEXT_EXEC,__commpage_text`, not the ordinary `__text` section. The helpers document that they use only caller-saved registers x9–x15, so w12 is within the documented scratch-register set for the STXR status result.
 
-Patch `0112-lavender-commpage-armv8a-llsc.patch` changes the two acquire-CASA operations to `LDAXR/STXR` retry loops while preserving the busy-lock return and the existing `STLR` unlock. Keep LSE disabled globally; explicit assembly sites must be corrected individually.
+Patch `0112-lavender-commpage-armv8a-llsc.patch` changes the two acquire-CASA operations to `LDAXR/STXR` retry loops while preserving the busy-lock return and the existing `STLR` unlock. The busy-lock branch now also executes `CLREX` before returning -1. This is defensive exclusive-monitor cleanup; it is not required for remote-CPU correctness, but is a sensible cold-path hygiene measure. Keep LSE disabled globally; explicit assembly sites must be corrected individually.
 
 The new `tools/verify-lavender-commpage-llsc.py` guard checks the post-patch source and can independently inspect linked ARM64 disassembly. Workflow hardening is prepared to:
 - parse the 0112 unified diff with `git apply --numstat` before the expensive build;
 - execute the source guard immediately after the pinned build script's patch stage and before compilation;
-- disassemble `__commpage_text` separately from `__text`, then require both linked helper symbols to contain `LDAXR/STXR` and no LSE atomic mnemonic.
+- disassemble `__commpage_text` separately from `__text`, then require both linked helper symbols to contain `LDAXR/STXR`, `CLREX` and no LSE atomic mnemonic.
 
 These are build/source/binary acceptance checks only; they do not prove handset execution.
 
