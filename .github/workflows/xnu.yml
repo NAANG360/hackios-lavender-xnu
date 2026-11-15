@@ -119,9 +119,9 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v3-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
           restore-keys: |
-            xnu8796-v3-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
+            xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
       - name: Detect runner capacity
         shell: bash
@@ -201,7 +201,7 @@ jobs:
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
         run: |
           set -euo pipefail
-          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch; do
+          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0112-lavender-commpage-armv8a-llsc.patch; do
             if grep -q "Skipping patch .*${required_patch}" xnu-build.log; then
               echo "Required Lavender diagnostic patch ${required_patch} was skipped; refusing this build."
               exit 1
@@ -215,6 +215,20 @@ jobs:
           if "-march=armv8-a -mcpu=generic" not in machine_line:
               raise SystemExit(f"wrong Lavender compiler ISA target: {machine_line}")
           print("PASS: Lavender machine flags pin generic ARMv8-A")
+          PY
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path("dxb/xnu/osfmk/arm/commpage/commpage_asm.s").read_text()
+          if re.search(r"\\bcasa\\b", source, re.IGNORECASE):
+              raise SystemExit("unsupported LSE CASA remains in commpage assembly")
+          for name, next_name in (("_pfz_trylock_and_enqueue:", "_pfz_trylock_and_dequeue:"), ("_pfz_trylock_and_dequeue:", None)):
+              start = source.index(name)
+              end = source.find(next_name, start + len(name)) if next_name else len(source)
+              body = source[start:end]
+              if "ldaxr" not in body or "stxr" not in body:
+                  raise SystemExit(name + " is missing its ARMv8.0 LL/SC sequence")
+          print("PASS: commpage queue locks use ARMv8.0 LDAXR/STXR; no CASA remains")
           PY
           grep -Fq -- "-march=armv8-a -mcpu=generic -arch arm64" xnu-build.log
           python3 - <<'PY'
@@ -485,7 +499,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v3-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()

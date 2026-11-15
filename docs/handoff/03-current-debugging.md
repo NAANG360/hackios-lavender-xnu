@@ -1,14 +1,15 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252 / inspection #25)
+**Last failed code under test:** `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24` (XNU Run #252 / inspection #25)
+**Corrective patch:** `0112-lavender-commpage-armv8a-llsc.patch` (added in the handoff fix commit)
 **Last successful build/package:** Run #242, workflow ID `43729225770`, source SHA `6876fd9030add877b5cb8b02ff82e14ed6b9bc3f`; this predates the current mutex-subtrace and generic-CPU changes.
 **Run #240 diagnostic baseline:** workflow ID `43709690089`, source SHA `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`, success
 **Diagnostic patches:** `0109-lavender-startup-hook-trace.patch`, `0110-lavender-mutex-startup-subtrace.patch`, `0111-lavender-armv8a-generic-cpu.patch`
 **Run #240 image:** artifact `lavender-fastboot-boot-test`, ID `14160128075`; exact filename `iosboot.img`
 **Run #240 image size / SHA-256:** 16,531,456 bytes / `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`
 **Run #240 kernel size / SHA-256:** 16,587,456 bytes / `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`
-**Current CI:** mutex inspection #25 (`43733584201`) and XNU build #252 (`43733584216`) are queued on the current HEAD; neither is accepted yet.
+**Current CI:** inspection #25 (`43733584201`) passed. XNU build #252 (`43733584216`) failed during assembly; see the Run #252 failure section below. No new verified boot image.
 **Latest reviewed physical batch:** `1000317701.mp4` (87.785 s), `1000317713.mp4` (27.531 s), `1000317714.mp4` (27.744 s), `1000317717.mp4` (54.303 s); Run #240 still untested
 
 ## Latest physical result — marker 0x109
@@ -166,12 +167,32 @@ Inspection #17 confirmed the Apple-M1 compiler default and decoded the Run #240 
 
 Patch `0110` adds events 9–15 around mutex assignment and group-reference handling, plus event 16 after the startup callback returns. It is intended to distinguish mutex-field initialization, the atomic counter update, optional group refcount retention, and callback return. Do not interpret a pre-callback `HOOK` as proof that the callback itself is the failing instruction.
 
+## Run #252 failure — handwritten commpage LSE instructions
+
+**Run:** XNU #252, workflow `43733584216`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`; failed at 16:30:14 UTC. The job completed runner setup, Xcode 16.0 selection, profile validation, cache handling and dependencies, then stopped in ARM64 commpage assembly:
+
+```text
+osfmk/arm/commpage/commpage_asm.s:276:2: error: instruction requires: lse
+ casa w10, w11, [x3]
+osfmk/arm/commpage/commpage_asm.s:326:2: error: instruction requires: lse
+ casa w10, w11, [x2]
+```
+
+The instructions are handwritten in `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue`. `-mcpu=generic -march=armv8-a` controls compiler-generated code but cannot rewrite explicit CASA mnemonics. This is a separate remaining LSE source from the earlier C atomic in `_lck_grp_reference`. Do not re-enable LSE or change the target CPU.
+
+Run #252 uploaded raw diagnostic artifacts: kernel candidate ID `14169598249`, buildtree ID `14170183341`, build-log ID `14170312913`. The kernel candidate was not verifier-approved, the package job was skipped, and no `iosboot.img` exists for #252.
+
+**Narrow correction:** patch `0112-lavender-commpage-armv8a-llsc.patch` replaces each acquire CASA with `LDAXR` followed by `STXR` retry logic. A nonzero lock value follows the existing busy-lock failure return; the existing release-store unlock remains unchanged. Workflow acceptance requires patch 0112 and checks both helpers for LL/SC and absence of CASA.
+
+Do not assume this is the last unsupported instruction. Rebuild and fix any further handwritten LSE sites individually while preserving ARMv8-A.
+
 ## Immediate next operation
 
-1. Review mutex inspection #25 (`43733584201`): confirm the 0110 and 0111 patches apply to the exact Run #240 build-tree and the Xcode 16.0 generic-CPU atomic probe passes.
-2. Review XNU Run #252 (`43733584216`): require a successful fresh build, the generic-CPU compile flag in the build log, and the linked `_lck_grp_reference` LDXR/STXR disassembly check. Reject any artifact with LSE remaining in that function or stale Apple-M1 objects.
-3. If build and package checks pass, record the new `iosboot.img` artifact ID, source SHA, image SHA-256 and kernel SHA-256. This is a new diagnostic candidate, not a confirmed physical test.
-4. Do not boot it until a power-button-independent reboot/recovery route has been physically verified. Then RAM-boot only; never flash it.
+1. Verify patch 0112 applies cleanly to pinned XNU 8796.141.3 and the workflow source guard passes.
+2. Run a fresh XNU build. Confirm both commpage routines assemble, generic-CPU C flags remain present, and linked `_lck_grp_reference` still uses `LDXR/STXR` without LSE.
+3. Continue through Mach-O verification and RAM-only package checks. Record new kernel/image artifact IDs and SHA-256 values only after those gates pass.
+4. Do not use Run #252's raw kernel candidate as a boot image. Do not boot any new image until a power-button-independent recovery/reset route has been physically verified; RAM boot only, never flash.
+
 
 ## Device safety
 

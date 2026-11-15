@@ -115,10 +115,11 @@ The device power button is broken. Do not request another physical boot until a 
 
 ## Latest CI state — 15 November 2026
 
-- **Mutex inspection #25** — run `43733584201`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`: **passed**. All inspection job steps completed successfully, including the Xcode 16.0 ARMv8-A atomic-codegen comparison and inspection of the exact Run #240 group-reference/startup data.
-- **XNU build #252** — run `43733584216`, same source SHA: **in progress**. Runner setup, toolchain selection, machine-profile validation, cache handling and dependency installation completed; **Build XNU 8796 is still running**. The build-path guard, kernel verification, output collection and artifact packaging have not yet run.
-- No new `iosboot.img` is available from #252 yet. Do not treat the successful inspection #25 as a kernel build or package result.
-
+- **Mutex inspection #25** — run `43733584201`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`: **passed**. It validated the Xcode 16.0 ARMv8-A atomic-codegen comparison and inspected the Run #240 group-reference/startup data.
+- **XNU build #252** — run `43733584216`, same source SHA: **failed** at 16:30:14 UTC in `Build XNU 8796`. The build reached commpage assembly; `osfmk/arm/commpage/commpage_asm.s:276` and `:326` rejected `casa` with `instruction requires: lse`. The generic ARMv8-A C flags were present, but do not rewrite handwritten LSE assembly. Package job was skipped.
+- Run #252 diagnostic artifacts: raw kernel candidate ID `14169598249` (not verifier-approved), buildtree ID `14170183341`, build-log ID `14170312913`. No `iosboot.img` was produced.
+- **Corrective change:** patch `0112-lavender-commpage-armv8a-llsc.patch` replaces both commpage queue-lock CASA operations with ARMv8.0 `LDAXR/STXR` retry loops. Workflow acceptance requires patch 0112 and source-checks both helpers for LL/SC and absence of CASA.
+- Inspection #25 remains successful but does not validate patch 0112. No physical test until the independent recovery/reset safety gate is met.
 ## Comparative reference: iOS Topaz
 
 Primary reference: [`MakrSas/ios-topaz`](https://github.com/MakrSas/ios-topaz), branch `topaz`, especially its [README](https://github.com/MakrSas/ios-topaz/blob/topaz/README.md), `xnu/patches/`, `shim/`, and `tools/`. This is a working iOS 16.7.16 + XNU 8796 port for Xiaomi Redmi Note 12 4G (`topaz/tapas`, Qualcomm SM6225 / Snapdragon 685). It is a fork/continuation of [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet), not an independent implementation; its README credits earlier HackiOS work too.
