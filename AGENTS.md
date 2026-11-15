@@ -1,30 +1,32 @@
 # Agent entrypoint — Lavender XNU
 
 1. Read `PROJECT_HANDOFF.md` only.
-2. Query live branch HEAD and newest relevant GitHub Actions run before acting.
-3. Follow **Immediate next action**. Read only the linked chapter needed; never bulk-read all chapters.
-4. Inspect current source, actual logs and artifacts. Validate narrowly before spending a full CI build.
-5. Keep changes narrow. Do not weaken guards, invent success, or overlap Actions builds.
-6. After each milestone, update this short pointer and the affected chapter.
+2. Resolve the live branch HEAD and newest relevant Actions run.
+3. Follow **Immediate next action**; load only the linked chapter.
+4. Inspect current source, logs, artifacts and physical evidence. Validate narrowly before CI.
+5. Keep fixes targeted. Never weaken guards, overlap builds, or claim unobserved boot stages.
+6. Update the current pointer and affected handoff chapter after each milestone.
 
 ## Mission
-Bring XNU 8796 (iOS 16 generation) up on physical Xiaomi Redmi Note 7/7S (`lavender`, SDM660, ARM64). Long-term goal: Darwin userspace. Physical device evidence, not emulator proof.
+Bring XNU 8796 (iOS 16 generation) up on physical Xiaomi Redmi Note 7/7S (`lavender`, SDM660, ARM64). Long-term target: Darwin userspace.
 
 ## Hard constraints
-- Preserve Android/recovery. No flashing, erasing, repartitioning or boot-critical writes. RAM-only `fastboot boot iosboot.img` only; permanent writes require explicit approval.
-- Recovery is built into the shim (user-confirmed); do not treat recovery as an outstanding blocker.
-- User's power button is broken; use the shim's recovery path.
-- QEMU is for isolated tests only, never compatibility proof.
-- Exact deliverable filename: `iosboot.img` (no suffix).
+- Preserve Android/recovery. RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write boot-critical partitions.
+- Recovery is built into the shim (user-confirmed); do not treat it as a blocker.
+- Power button is broken; use the shim recovery path.
+- QEMU is not hardware proof.
+- Exact deliverable name: `iosboot.img`.
 - No raw dumps, serials, calibration/private data or firmware blobs in Git.
-- Never conflate compile, verified kernel, packaged image, physical XNU progress, Apple logo and Darwin userspace.
+- Keep compile, verified Mach-O, packaged image, physical boot, Apple logo and Darwin userspace as separate acceptance gates.
 
 ## Current pointer
-Run #233 (ID `43695509652`) succeeded: XNU 8796 build, kernel verification, Lavender ADT/payload generation, RAM-only fastboot image packaging and package identity checks all passed. Artifact `lavender-fastboot-boot-test` contains `iosboot.img`.
+Run #233 (`43695509652`) built and packaged successfully. Its image reached XNU C initialization on the phone:
+`arm_init` → `PE_init_platform` → CPU topology parse → `cpu_bootstrap`.
+The 73-second recording ends with guardian snapshot `A53 LAST MARK=0x00000104`, so no later marker was observed. The guardian is configured to snapshot after 60 seconds without progress, then reset.
 
-Physical test of that image crossed the previous Stage 9 assembly-to-C boundary. The new recording shows `arm_init entered (MMU on)`, `PE_init_platform done`, `dt_parse_cpu_topology done`, and `cpu_bootstrap done`. The current observed frontier is immediately after `cpu_bootstrap`; later platform initialization is not yet confirmed. Start with [Chapter 03](docs/handoff/03-current-debugging.md).
+The apparent 3/4-screen clear is intentional: `lavender_console_clear()` starts at y=600 on a 2340-pixel framebuffer, preserving the top 600-pixel red shim panel and clearing the lower 1740 pixels for XNU text.
 
-Latest branch HEAD at this update: `c6964327ef60c0bb3370da2630fab12332fbad8e`. Resolve live HEAD before editing.
+Next diagnostic patch: `0108-lavender-post-cpubootstrap-trace.patch`. It splits the next calls in `arm_init()` into markers 5–14, starting before `rtclock_early_init()`. Read [Chapter 03](docs/handoff/03-current-debugging.md).
 
 ## Selective chapters
 - [01 Device and safety](docs/handoff/01-device-and-safety.md)

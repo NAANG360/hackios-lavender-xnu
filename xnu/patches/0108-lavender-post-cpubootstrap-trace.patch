@@ -1,0 +1,43 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -463,21 +463,29 @@
+ 	cpu_bootstrap();
+ 	sweet_early_mark(4, "cpu_bootstrap done");
+ 
++	sweet_early_mark(5, "entering rtclock_early_init");
+ 	rtclock_early_init();
++	sweet_early_mark(6, "rtclock_early_init returned");
+ 
++	sweet_early_mark(7, "entering kernel_debug_string_early");
+ 	kernel_debug_string_early("kernel_startup_bootstrap");
++	sweet_early_mark(8, "kernel_debug_string_early returned");
++
++	sweet_early_mark(9, "entering kernel_startup_bootstrap");
+ 	kernel_startup_bootstrap();
+-	sweet_early_mark(5, "kernel_startup_bootstrap done");
++	sweet_early_mark(10, "kernel_startup_bootstrap returned");
+ 
+ 	/*
+ 	 * Initialize the timer callout world
+ 	 */
+ 	timer_call_init();
++	sweet_early_mark(11, "timer_call_init done");
+ 
+ 	cpu_init();
++	sweet_early_mark(12, "cpu_init done");
+ 
+-	sweet_early_mark(6, "cpu_init done");
+ 	processor_bootstrap();
++	sweet_early_mark(13, "processor_bootstrap done");
+ 
+ 	if (PE_parse_boot_argn("maxmem", &maxmem, sizeof(maxmem))) {
+ 		xmaxmem = (uint64_t) maxmem * (1024 * 1024);
+@@ -524,7 +532,7 @@
+ 	__builtin_arm_wsr("pan", 1);
+ #endif  /* __ARM_PAN_AVAILABLE__ */
+ 
+-	sweet_early_mark(7, "entering arm_vm_init");
++	sweet_early_mark(14, "entering arm_vm_init");
+ 	arm_vm_init(xmaxmem, args);
+ 	sweet_early_mark(15, "arm_vm_init returned");
