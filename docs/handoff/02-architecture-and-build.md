@@ -16,13 +16,14 @@ A green CI build or packaged image does not prove physical boot.
 - `0106-lavender-verbose-boot-final.patch`: early framebuffer/boot diagnostics.
 - `0107-lavender-post-assembly-entry-trace.patch`: assembly stages 8/9, C marker namespace and cache-clean publication.
 - `0108-lavender-post-cpubootstrap-trace.patch`: markers around clock, early startup hooks, timer, CPU initialization and VM-init entry.
+- `0109-lavender-startup-hook-trace.patch`: console-only rolling trace for startup table validation, qsort, subsystem logging and each callback through `STARTUP_SUB_LOCKS`; does not update Guardian state or change callback behavior.
 - C marker encoding: `0x100 | stage`; publish before framebuffer output; `dc cvac` then `dsb sy`.
 - Apple mark is deferred until VM initialization and permanent framebuffer alias setup.
 
 ## Current CI / packaging facts
 - `.github/workflows/xnu.yml`: patch application, source guards, XNU build, Mach-O/instruction verification, artifacts and cache.
 - `.github/workflows/package-lavender.yml`: manual package workflow; requires a successful XNU run, binds the kernel artifact to source SHA, extracts stock SDM660 boot/DTB, generates Lavender ADT/payload and makes a non-flashing image.
-- Run #236 (ID `43701501661`, source `17a68fb...`) build and package jobs passed. Artifact IDs and physical status are in Chapter 03.
+- Run #240 (ID `43709690089`, source `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`) build and package jobs passed with patch 0109. Artifact IDs and physical status are in Chapter 03. Runs #238/#239 were temporary source-guard failures before Run #240 corrected the assertions.
 - Packaging is not automatic in general. Verify the exact run/source SHA, artifact, `iosboot.img` filename, manifest, checksums, DTB/ADT, payload identity, load ranges and structure.
 - Cache restore may reuse objects; source files changed by patches must be invalidated/touched. Verify logs show the expected actual build path. Never weaken checks or assume a cache hit is valid.
 - Do not overlap Actions builds.
@@ -55,6 +56,12 @@ GitHub metadata confirms Topaz is a fork whose parent is Sweet. It is therefore 
 - Compare source diff, compiler flags, disassembly, feature detection and boot CPU selection before proposing a patch.
 - Topaz and Sweet are related; do not count them as independent corroboration.
 - The Topaz patches are comparative evidence, not yet applied to Lavender.
+
+## Startup bootstrap diagnostic — Run #240
+
+The exact linked kernel contains the trace helper and startup functions. Its `__BOOTDATA,__init_entry_set` section has 4,076 entries (97,824 bytes; 24 bytes/entry). The table was extracted from the Run #240 Mach-O and simulated with the XNU 8796 `bsd/kern/qsort.c` algorithm using the same `startup_entry_cmp`: 10,790 comparisons, max recursion depth 7. The sorted first phases contain 242 TUNABLES, 18 TIMEOUTS and 614 LOCKS callbacks (874 total before the cutoff).
+
+All callback function pointers resolved inside executable kernel segments; all non-null arguments were within mapped kernel segments; the simulated sort output had no subsystem/rank-order violations. These are static/host-side checks, not a physical execution result. The trace's last line must identify whether the handset stalls in table validation, qsort, subsystem logging or a specific callback before any behavior change is justified.
 
 ## Key paths
 - `tools/verify-lavender-kernel.py`
