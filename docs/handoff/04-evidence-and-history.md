@@ -1,5 +1,13 @@
 # Chapter 4 — Evidence, provenance and historical traps
 
+## New physical evidence — Run #236
+
+- Video `1000317701.mp4` (87.8 seconds) shows the Lavender XNU console progressing through marker `0x109`, “entering kernel_startup_bootstrap”.
+- Checkpoints 1–8 are visibly completed, including returns from `rtclock_early_init()` and `kernel_debug_string_early()`.
+- No marker `0x10A` (“kernel_startup_bootstrap returned”) appears. The physical frontier is now `0x109`, superseding Run #233's `0x104`.
+- Video labels match Run #236 instrumentation. No device-side checksum was recorded, so the video is consistent with the Run #236 `iosboot.img`, but exact byte identity was not independently verified.
+- A later black screen/charging indication is visible; cause is unknown and must not be labelled a kernel panic.
+
 ## Latest CI candidate at this handoff
 - Run #236 ID `43701501661`, source `17a68fb21294a99e8c11c3ee38f7b79df501033d`, success.
 - Both XNU build and RAM-only package jobs passed.
@@ -37,3 +45,8 @@ The earlier image stalled at assembly marker 9 before `arm_init()`. Under 16 KiB
 
 ## Truth statement
 CI Run #236 compiled, verified and packaged a RAM-only image. The latest confirmed physical image remains Run #233 at marker `0x104`. There is no verified Apple logo or Darwin userspace yet.
+
+
+## Current source-level stopping point
+
+The exact Run #236 buildtree's XNU 8796 `osfmk/kern/startup.c` shows that `kernel_startup_bootstrap()` validates the startup-entry table, sorts it with `qsort`, then runs initializers through `STARTUP_SUB_LOCKS`. The callback loop advances `startup_entry_cur` only after each callback returns. The next diagnostic should print table validation/sort boundaries and per-callback begin/end events to the early Lavender console, without changing the Guardian's shared progress marker. This is instrumentation, not a confirmed failure diagnosis.
