@@ -70,3 +70,33 @@ Be direct and precise. The user expects the image, not another generic progress 
 - Runs #225 (43622736668, commit b5c16d33...) and #226 (43622763975, commit 67182b69...) failed before XNU build because the injected Python string in the workflow was malformed. No compilation was attempted in either run. The quote was corrected in commit ae26598100060260224837dfe76e4d296c3c451f; the exact-cache log-label match was corrected in commit 560a6fde4b3fe670c247532fffca2a5c818df599.
 - At the time of this update, runs #227 (43622824076, commit ae265981...) and #228 (43622868931, commit 560a6fde...) are in progress. #227 uses the corrected Python injection but predates the exact-cache log-label correction; its non-exact restore path should be used. #228 contains both corrections. Do not start a third build. Inspect cache restore outcome, build log, binary-stage verification, and package result before asking for another device test.
 - Next acceptance criteria: on non-exact/legacy restore, confirm cached final kernel is removed, cached intermediate objects remain, and make install really executes; confirm the resulting Mach-O contains both stage-8 and stage-9 sequences; confirm the package embeds that exact verified kernel. Only then issue a new iosboot.img with the exact requested filename.
+
+
+## 2026-11-15 update — Runs #227/#228: build/cache repair passed; Mach-O section locator failed
+
+### Verified run outcomes
+- Run #227: ID 43622824076, workflow source ae26598100060260224837dfe76e4d296c3c451f. Run #228: ID 43622868931, workflow source 560a6fde4b3fe670c247532fffca2a5c818df599. Both are completed with conclusion FAILURE.
+- In both runs, these steps succeeded: runner/toolchain setup, Lavender profile validation, cache restore, runner-capacity detection, dependency installation, legacy cached-kernel invalidation, Build XNU 8796, cache-aware build-path validation, Lavender source entry-guard validation, and kernel output collection.
+- The build logs contain the line Building XNU kernel TARGET_CONFIGS="DEVELOPMENT ARM64 LAVENDER" and do not contain XNU kernel.development.lavender already built. This is positive evidence the legacy completed-kernel cache bypass was addressed and the real XNU build path ran.
+- Both runs failed only at Verify Lavender kernel artifact. Exact terminal error: could not locate __TEXT_EXEC,__text for binary stage verification. The log first identifies out/kernel.development.lavender as Mach-O 64-bit executable arm64; the verifier then exits 1 while searching for one hard-coded segment/section name pair.
+- The RAM-only package job was skipped. The XNU cache-save step was also skipped because binary verification did not pass. Neither #227 nor #228 produced a new iosboot.img.
+- Do NOT report that stages 8/9 are absent from the #227/#228 kernels. The verifier failed before reading a text section or testing the stage instruction patterns. Their presence/absence remains unknown until the Mach-O section locator is corrected and run against the collected kernel.
+- Run #224's stale-kernel diagnosis remains valid for that artifact only. #227/#228 appear to have fixed the cache bypass; their failure is a new, separate Mach-O parser assumption.
+
+### Immediate engineering action
+1. Inspect the actual #228 kernel output and enumerate every LC_SEGMENT_64 command, segment name, section name, section size and file offset. Do not assume __TEXT_EXEC,__text; the actual kernel layout used by this build is authoritative.
+2. Fix the verifier to safely locate executable ARM64 text sections from the Mach-O load commands. Validate command bounds, section bounds, nonzero size, file offsets, and executable segment/section flags. Prefer scanning all executable text sections, rather than hard-coding one segment name. Print the discovered segment/section inventory into the verification log for diagnosis.
+3. Decode the marker instructions robustly. First compare the expected ARM64 instruction encodings against disassembly of the actual rebuilt start.s object/final kernel. Do not rely on a guessed byte pattern if compiler/assembler output differs. Verify stage 8 and stage 9 independently and report their exact offsets/instructions.
+4. Once binary verification passes, ensure the exact verified kernel file is the one inserted into the RAM-only package. Package job must consume the verified artifact, not rebuild or select another path.
+5. Confirm cache-save behavior after a successful verified build, then extract the final image and independently verify payload identity, size and SHA-256. Deliver only as iosboot.img.
+6. No further physical test until a newly built image has passed all binary and package checks. Use RAM-only fastboot boot; no partition flashing or erasure.
+
+### Reporting state
+- XNU build path: PASSED in #227 and #228.
+- Legacy stale-kernel invalidation: PASSED in #227 and #228.
+- Source entry-guard validation: PASSED in #227 and #228.
+- Mach-O ARM64 header identification: PASSED.
+- Mach-O executable-text discovery: FAILED (hard-coded section lookup).
+- Compiled stage-8/stage-9 presence: NOT YET DETERMINED for #227/#228.
+- RAM-only image packaging: SKIPPED.
+- New verified iosboot.img: NOT PRODUCED.
