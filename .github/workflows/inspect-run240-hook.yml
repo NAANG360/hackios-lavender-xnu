@@ -7,6 +7,7 @@ on:
       - ".github/workflows/inspect-run240-hook.yml"
       - "xnu/patches/0110-lavender-mutex-startup-subtrace.patch"
       - "xnu/patches/0111-lavender-armv8a-generic-cpu.patch"
+      - "xnu/patches/0111-lavender-armv8a-generic-cpu.patch"
 
 permissions:
   actions: read
@@ -38,10 +39,10 @@ jobs:
           xcrun clang -march=armv8-a -mcpu=generic -arch arm64 -O2 -S atomic_probe.c -o generic-armv8a.s
           echo "=== Current XNU machine flags (default compiler CPU) ==="
           xcrun clang -march=armv8-a -arch arm64 -### -c atomic_probe.c 2>&1 | grep -E 'target-cpu|target-feature'
-          grep -E '\\b(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)' apple-default.s || true
+          grep -E '^[[:space:]]+(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)[[:space:]]' apple-default.s || true
           echo "=== Explicit generic ARMv8-A flags ==="
           xcrun clang -march=armv8-a -mcpu=generic -arch arm64 -### -c atomic_probe.c 2>&1 | grep -E 'target-cpu|target-feature'
-          if grep -Eq '\\b(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)' generic-armv8a.s; then
+          if grep -Eq '^[[:space:]]+(ldadd|stadd|cas|casp|swp|ldclr|ldeor|ldset)[[:space:]]' generic-armv8a.s; then
             echo "ERROR: generic ARMv8-A atomic probe still contains an LSE instruction"
             cat generic-armv8a.s
             exit 1
