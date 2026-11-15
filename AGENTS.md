@@ -26,7 +26,7 @@ When a difficult XNU/ARM issue benefits from independent review, the user may br
 ## Device facts
 Lavender, Qualcomm SDM660 / Kryo 260, ARM64. Observed Silver MPIDRs 0x0–0x3, Gold MPIDRs 0x100–0x103; boot path uses Gold 0x100 due the A53 16K-granule limitation observed so far. Revalidate before changing.
 
-## Current task — repair malformed ARMv8-A commpage patch and validate fresh build
+## Current task — validate corrected commpage LL/SC patch in Run #255 and harden build guards
 
 **#252 root cause:** XNU #252 (`43733584216`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) failed because handwritten LSE `CASA` instructions at `commpage_asm.s:276` and `:326` were not supported by the ARMv8-A target.
 
