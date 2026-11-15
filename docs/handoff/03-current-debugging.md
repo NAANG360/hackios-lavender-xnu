@@ -1,37 +1,40 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Handoff snapshot HEAD:** `17a68fb21294a99e8c11c3ee38f7b79df501033d`
-**Latest CI candidate:** Run #236, ID `43701501661`, success
-**Latest physical evidence:** Run #233 image; marker `0x104`
+**Test candidate:** Run #236, ID `43701501661`, source SHA `17a68fb21294a99e8c11c3ee38f7b79df501033d`
+**Test image:** artifact `lavender-fastboot-boot-test`, ID `14156453574`; exact filename `iosboot.img`
+**Image SHA-256:** `726a0708d2c47b21e26ddb2b7331b303013fc6b0bf3f0517f9a0cfd1d02758f8`
+**Physical evidence:** video `1000317701.mp4`, 87.8 seconds
 
-## Current state — do not conflate CI with phone evidence
+## Latest physical result — marker 0x109
 
-Run #236 built XNU and packaged the RAM-only image successfully. Both Actions jobs passed. Artifacts are available:
-- `lavender-fastboot-boot-test` — ID `14156453574`
-- `xnu-kernel` — ID `14156363785`
-- `xnu-kernel-candidate` — ID `14156289042`
-- `xnu-build-log` — ID `14156538354`
-- `xnu-buildtree` — ID `14157101726`
+The new recording shows the custom Lavender XNU diagnostic console on the physical handset. The visible checkpoint list advances through:
 
-Run #235 failed; Run #236 source commit `17a68fb...` repaired the patch and succeeded. The Run #236 image has **not** been confirmed physically tested in the evidence available at this handoff. Do not infer its marker from Run #233.
+1. `arm_init entered (MMU on)`
+2. `PE_init_platform done`
+3. `ml_parse_cpu_topology done` (topology parsing complete)
+4. `cpu_bootstrap done`
+5. `entering rtclock_early_init`
+6. `rtclock_early_init returned`
+7. `entering kernel_debug_string_early`
+8. `kernel_debug_string_early returned`
+9. `entering kernel_startup_bootstrap`
 
-## Last physical evidence
+The last visible marker is `0x00000109`. Marker `0x10A`, which is written only after `kernel_startup_bootstrap()` returns, is absent. The trace labels uniquely match the Run #236 patch chain; however, no device-side checksum was captured, so provenance is “consistent with the delivered Run #236 image,” not byte-for-byte proven.
 
-The Run #233 image showed:
-- `arm_init entered (MMU on)`
-- `PE_init_platform done`
-- `dt_parse_cpu_topology done`
-- `cpu_bootstrap done`
-- Guardian snapshot: `A53 LAST MARK=0x00000104`
+The clip goes dark near its end and shows a battery/charging indication. The reason is not established. It is compatible with the Guardian timeout/reset behavior, but does not prove a kernel panic or identify the failure site.
 
-This proves C entry, platform init, topology parsing and completion of `cpu_bootstrap()`. It does not prove clock setup, timer init, later CPU init, VM init, scheduler, interrupts, Apple logo or Darwin userspace.
+## What this proves — and what it does not
 
-The guardian polls the shared marker. After 60 seconds without a changed value it displays the last marker for 2.5 seconds and resets. Therefore a frozen marker and later black screen match the designed timeout/reset sequence; the black screen itself is not evidence of a kernel panic.
+Confirmed on the handset: entry to `arm_init()`; platform initialization; CPU-topology parsing; return from `cpu_bootstrap()`; return from `rtclock_early_init()`; return from `kernel_debug_string_early()`; entry to `kernel_startup_bootstrap()`.
+
+Not confirmed: return from startup bootstrap, timer-call initialization, `cpu_init()`, `processor_bootstrap()`, `arm_vm_init()`, scheduler/interrupt stability, Apple logo or Darwin userspace.
+
+The previous physical frontier was Run #233 marker `0x104`. Run #236's test has moved that frontier to `0x109`.
 
 ## Run #236 marker interpretation
 
-Patch `0108-lavender-post-cpubootstrap-trace.patch` splits the calls after stage 4 in `arm_init()`. Marker values use `0x100 | stage`:
+Patch `xnu/patches/0108-lavender-post-cpubootstrap-trace.patch` adds:
 
 | Value | Meaning |
 |---|---|
@@ -45,53 +48,53 @@ Patch `0108-lavender-post-cpubootstrap-trace.patch` splits the calls after stage
 | `0x10C` | after `cpu_init()` |
 | `0x10D` | after `processor_bootstrap()` |
 | `0x10E` | entering `arm_vm_init()` |
+| `0x10F` | after `arm_vm_init()` |
 
-If a test reports 0x105, the call was entered but did not reach its return marker. If 0x106, it returned and the next call is under investigation. Stage 14/0x10E only proves VM-init entry.
+## Narrow next target: XNU startup bootstrap
 
-## Immediate next operation
+The exact Run #236 buildtree artifact (`xnu-buildtree`, ID `14157101726`) was inspected. In `xnu/osfmk/kern/startup.c`, `kernel_startup_bootstrap()`:
 
-1. Confirm the current live branch and latest run again before any action.
-2. Retrieve `lavender-fastboot-boot-test` from Run #236 and verify exact filename `iosboot.img`, artifact provenance and manifest/checksums. Do not rename it with a date suffix.
-3. Test only through the established RAM-only boot path; preserve Android/recovery.
-4. Record the exact final `A53 LAST MARK` value and video/time evidence.
-5. Map that value using the table above and inspect only the corresponding source call.
-6. Do not trigger a new build until the evidence identifies a necessary source change.
+1. Computes the number of `startup_entries`.
+2. Checks for an empty table and verifies that its byte length is an exact multiple of `sizeof(struct startup_entry)`.
+3. Sorts the table using `qsort(startup_entries, n, sizeof(struct startup_entry), startup_entry_cmp)`.
+4. Calls `kernel_startup_initialize_upto(STARTUP_SUB_LOCKS)`.
 
-## Supporting comparative investigation — Topaz
+The initializer asserts `startup_phase < upto`, then walks entries while `cur->subsystem <= upto`. For each entry it calls `cur->func(cur->arg)`; `startup_entry_cur` advances only after the callback returns. Thus the current `0x109` marker cannot tell whether the stall occurs during table validation, sorting, or one particular initializer callback.
 
-Topaz (`MakrSas/ios-topaz`) is a fork of `dipa-studio/ios-sweet`. Its patches provide a strong comparative lead because the SM6225 target uses A53/A73 CPU classes and a Gold-core XNU boot:
-- `0080-topaz-cpu-topology-skip-sweet-hw.patch`: MPIDR ranges A53 `0x0–0x3`, A73 `0x100–0x103`; CPU identity Kryo 260; gates inherited SM7150-specific input-driver probes behind `sweethw=1`.
-- `0081-topaz-armv8.0-no-lse-no-pan.patch`: Cortex-A53 compiler target, selected LSE instruction substitutions/emulation, no PAN feature define.
-- `0082-topaz-boot-on-gold-cpu.patch`: expects boot CPU MPIDR `0x100` and documents Silver's missing 16K granule.
+### Diagnostic patch design
 
-**Caution:** these are not independently proven fixes for Lavender. Topaz is based on Sweet and shares code. The immediate physical test of Run #236 should not be delayed or modified by speculative transplantation. Audit Lavender's actual compiler flags, generated instructions, feature registers and source before adapting any patch. Do not import SM6225/SM7150 peripheral addresses or device-tree values.
+Add console-only trace events (no behavior changes) around:
+- startup table count/byte-size validation;
+- immediately before and after `qsort`;
+- immediately before and after `kernel_startup_initialize_upto(STARTUP_SUB_LOCKS)`;
+- each eligible callback, logging begin/end with index, subsystem, rank and function address.
 
-## Screen-clear explanation
+The current early console has 108 text rows. The Run #236 source-tree scan found a modest number of ARM64-relevant `STARTUP(TUNABLES/TIMEOUTS/LOCKS,...)` registrations, so per-callback begin/end output should remain bounded. Verify the final linked hook-table order rather than assuming source grep order.
 
-The split is intentional:
-- framebuffer height: 2340;
-- `LAVENDER_CONSOLE_TOP = 600`;
-- clear begins at y=600 and continues to y=2339.
+**Do not update the Guardian shared marker cell for these sub-events.** The Guardian treats any changed cell value as progress, so sub-markers there could postpone its 60-second timeout or trigger the special stage-20 high-bit behavior. Add a separate console-only helper in the Lavender early-console path. Do not reuse stages 16, 17 or 20; those are already reserved by later logo/guard flow. Preserve `0x109` as the Guardian marker during this investigation.
 
-The shim's top 600-pixel red diagnostics remain visible; the lower 1740 pixels (~74.4%) are the XNU text area. It is not a partial clear that froze.
+Do not alter callback order, skip hooks, weaken assertions, or add speculative hardware workarounds. Inspect the generated patch and source-level invariants before triggering one new CI build.
 
-## Previous memory-alignment correction
+## Device safety
 
-The old Stage-9 stall was traced to a 4 MiB physical/virtual offset mismatch with 32 MiB L2 blocks under 16 KiB translation. The payload base was aligned to `0xA2000000`, matching the virtual base's 32 MiB alignment. The Run #233 physical test then passed the old assembly-to-C barrier and reached stage 4. Treat memory ranges as specific to the audited boot configuration; revalidate against current FDT/DTB before changing them.
+- Preserve Android and recovery. No flashing, erasing, repartitioning or writes to boot-critical partitions.
+- Only temporary RAM boot is allowed.
+- The device power button is broken. Do not ask for another handset test until a recovery/reboot path independent of that button is physically established.
+- Volume Up + Volume Down is not a verified recovery selector; the documented chord requests reset only.
+- Do not commit the recording or raw device dumps.
 
 ## Acceptance ladder
 
-- [x] Enter `arm_init()` (Run #233 physical evidence)
+- [x] Enter `arm_init()`
 - [x] Complete `PE_init_platform`
 - [x] Parse CPU topology
 - [x] Return from `cpu_bootstrap()`
-- [ ] Complete `rtclock_early_init()` (Run #236 image not yet physically tested)
-- [ ] Complete early startup hooks
+- [x] Return from `rtclock_early_init()`
+- [x] Return from `kernel_debug_string_early()`
+- [x] Enter `kernel_startup_bootstrap()`
+- [ ] Return from `kernel_startup_bootstrap()`
 - [ ] Complete timer and CPU initialization
-- [ ] Complete `arm_vm_init()`
-- [ ] Stable scheduler / interrupt / secondary CPU startup
-- [ ] Stable kernel console
+- [ ] Enter and return from `arm_vm_init()`
+- [ ] Stable scheduler / interrupts / secondary CPU startup
 - [ ] Apple logo
 - [ ] Darwin userspace
-
-Never mark a stage complete from source inspection or CI alone.
