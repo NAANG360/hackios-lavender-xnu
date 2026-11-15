@@ -5,6 +5,7 @@ on:
     branches: [ci/lavender-machine-profile]
     paths:
       - ".github/workflows/inspect-run240-hook.yml"
+      - "xnu/patches/0110-lavender-mutex-startup-subtrace.patch"
 
 permissions:
   actions: read
