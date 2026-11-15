@@ -308,16 +308,17 @@ jobs:
           disabled = startup.index("lavender_startup_trace_enabled = false", init_done)
           if not (enabled < table < validate < sort_begin < sort_call < sort_done < init_begin < init_call < init_done < disabled):
               raise SystemExit("Lavender startup trace boundaries are out of order")
+          log_function = startup.index("kernel_startup_log(startup_subsystem_id_t subsystem)")
+          log_begin = startup.index("sweet_early_trace_startup(7", log_function)
+          log_call = startup.index("kernel_bootstrap_log(names[subsystem]);", log_begin)
+          log_done = startup.index("sweet_early_trace_startup(8", log_call)
+          if not (log_function < log_begin < log_call < log_done):
+              raise SystemExit("startup subsystem logging trace boundaries are invalid")
           loop = startup.index("kernel_startup_initialize_upto(startup_subsystem_id_t upto)")
           hook = startup.index("sweet_early_trace_startup(5", loop)
           callback = startup.index("cur->func(cur->arg);", hook)
           if hook >= callback:
               raise SystemExit("per-hook trace must run before invoking the startup callback")
-          log_begin = startup.index("sweet_early_trace_startup(7", loop)
-          log_call = startup.index("kernel_bootstrap_log(names[subsystem]);", log_begin)
-          log_done = startup.index("sweet_early_trace_startup(8", log_call)
-          if not (log_begin < log_call < log_done):
-              raise SystemExit("startup subsystem logging trace boundaries are invalid")
           helper = early.index("sweet_early_trace_startup(unsigned int event")
           if "case 5:" not in early[helper:] or "case 7:" not in early[helper:]:
               raise SystemExit("startup callback/subsystem console trace cases are missing")
