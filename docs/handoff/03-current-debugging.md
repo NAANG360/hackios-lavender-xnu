@@ -31,9 +31,6 @@ Because patch 0112 was skipped, the original `CASA` instructions remained. The a
 **Guard hardening prepared:** `tools/verify-lavender-commpage-llsc.py` checks both patched source functions and can validate linked instruction mnemonics. Workflow integration is prepared on branch `fix/lavender-commpage-prebuild-guard`: unified-diff syntax preflight, source verification immediately after patch application and before compilation, and a linked-binary check of `__TEXT_EXEC,__commpage_text`. It is not merged into the active branch while #255 is compiling, to avoid overlapping builds.
 **Next gate:** do not start another XNU build until #255 completes. Then verify patch 0112 was applied (no skip warning), both source guards pass, the linked helpers contain `LDAXR/STXR` and no LSE atomics, and the RAM-only package job uploads `iosboot.img`. Only then is a new candidate acceptable. Never use #254's raw kernel candidate.
 
-The ARMv8.0 `LDAXR/STXR` retry loops, lock-busy return behavior and existing release-store unlock are unchanged. This patch commit matches the `.github/workflows/xnu.yml` push path filter. The next Actions run has not yet been independently observed; do not invent a run ID or status.
-
-**Next gate:** verify the new run first reports patch 0112 applied (no skip warning), then both source guards pass, the linked kernel passes the ARMv8-A Mach-O/instruction verifier, and the RAM-only package job uploads `iosboot.img`. Only then is a new candidate acceptable. Never use #254's raw kernel candidate.
 
 ## Failed build diagnosis and active correction — 15 November 2026
 
