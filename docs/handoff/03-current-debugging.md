@@ -69,6 +69,20 @@ The accepted kernel's `__BOOTDATA,__init_entry_set` is file offset `0xb1cd58`, s
 
 This rules out an empty/malformed table and makes a pathological sort workload less likely. It does not prove that the phone's physical sort returns or identify a callback failure. The rolling Run #240 trace is the decisive next evidence.
 
+### Device-tree startup tunable audit
+
+All six `kernel_startup_tunable_dt_init` specifications in the exact Run #240 startup table were decoded and checked against the packaged `lavender.adt`:
+
+- `/defaults:kern.swap_min_capacity`: `/defaults` exists, property absent.
+- `/machine-timeouts:interrupt-masked-debug-mode`, `sched-preemption-disable-mode`, and `nonspec-tb`: the requested machine-timeouts nodes/properties are absent, including the optional `/chosen/machine-timeouts` override.
+- `/arm-io/cpu-debug-interface:panic-trace-mode`: target node absent.
+- `/chosen:research-enabled`: `/chosen` exists, property absent.
+
+These are optional device-tree tunables: `kernel_startup_tunable_dt_init()` skips missing nodes/properties and then checks the corresponding boot argument. They are not a property-size mismatch in this ADT.
+
+The CSR tunable callback also checks `/chosen/asmb`. That node exists; `lp-sip0` is 8 bytes and `lp-sip1` is 4 bytes, matching `_csr_get_dt_uint64()` and `_csr_get_dt_bool()` in XNU 8796. This specific CSR/ADT size path is not a strong stall candidate.
+
+
 ## Immediate next operation
 
 1. Do not trigger another XNU build yet.
