@@ -126,3 +126,16 @@ Be direct and precise. The user expects the image, not another generic progress 
 - The refactor commit `abff246...` currently preserves the raw candidate kernel before verification. It replaced the prior post-verification diagnostics upload with that raw-only artifact; restore/retain the richer load-command/disassembly diagnostics after the already-running runs complete, without starting overlapping builds.
 - Latest workflow-code commit after these changes: `abff246071db828dab395bfa2d98587bf86b2474` (subsequent commits update documentation only). No new verified `iosboot.img` has been produced. Do not request physical testing.
 - Python source must use `split(b"\0", 1)` to split on the actual NUL byte. The literal source form `split(b"\\0", 1)` searches for backslash + zero and is incorrect.
+
+
+## Latest verified CI state — 2026-11-15, Run #230
+
+- Run #229 (43677604405, source 2a64ff651e0f98a0a09a9ea3a35b0a50c564c6b5) and Run #230 (43677616958, source 235d71e71dc834a6bda7289aa33b764d278a093e) both completed successfully, including RAM-only package jobs.
+- Canonical evidence is Run #230: build job 132701098575; package job 132704144253; kernel artifact 14147131789; diagnostics artifact 14147571158; boot-image artifact 14147915512.
+- Run #230 restored a compatible legacy cache of about 228 MB, removed the cached completed kernel, entered the real XNU build path, passed required 0106/0107 patch checks, verified the ARM64 Mach-O, and saved the v2 cache. Build elapsed from 04:39:39Z to 04:51:17Z, about 11m38s.
+- Compiled kernel: 16,587,304 bytes; SHA-256 a979c798d2b206b8023ca7a798f325e2424a5a4f0786f64a815c2f30c9eef333. Stage 8 at file offset 0x47a8c0 and stage 9 at 0x47a94c were independently confirmed by LLVM disassembly of __TEXT_EXEC,__text.
+- Run #230 produced iosboot.img: 16,531,456 bytes; SHA-256 aed49f435687ec05d970f8f350ee0e3bd83d2a362d9166e5e505e5298a770f06. Structurally verified RAM-only fastboot image; not proof of physical boot, Apple logo, or Darwin userspace.
+- Diagnostic defect: Run #230 KERNEL-DISASSEMBLY.txt is only 57 bytes because plain otool -tvV selected empty __TEXT,__text rather than executable __TEXT_EXEC,__text. Fix section selection and retain the full disassembly.
+- Current workflow-code commit is abff246071db828dab395bfa2d98587bf86b2474. It adds tools/verify-lavender-kernel.py and a raw pre-verification kernel artifact. Run #230 predates this refactor; the standalone verifier still needs a real-kernel CI run. Resolve the push-triggered run for abff246 before starting another build.
+- The refactor replaced the richer diagnostics artifact with raw-only candidate retention. Restore a rich artifact containing section inventory, load commands, full executable-section disassembly, verifier output, and SHA-256.
+- Do not request physical testing until a recovery route independent of the broken power button is established. Use RAM-only fastboot boot; never flash or erase boot-critical partitions.
