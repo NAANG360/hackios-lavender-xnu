@@ -56,6 +56,26 @@ Interpretation:
 - Last line `HOOK idx=N ...`: inspect that exact callback and its argument; it is the next operation that did not visibly advance.
 - `INIT DONE`: this phase completed; next existing marker should advance to `0x10A`.
 
+## Run #240 compiled-instruction audit
+
+The exact accepted `kernel.development.lavender` was disassembled from artifact `14159918757`; this confirms patch 0109's trace placement in the linked ARM64 binary, not merely in source:
+
+- `_kernel_startup_bootstrap`: `0xfffffe0007a32ff4`
+- `_startup_entry_cmp`: `0xfffffe0007a32fbc`
+- `_qsort`: `0xfffffe0007810690`
+- `_kernel_startup_initialize_upto`: `0xfffffe0007a33164`
+- `_sweet_early_trace_startup`: `0xfffffe0007475c1c`
+- The trace event 5 call is at `0xfffffe0007a3323c`; the immediately following `blr x8` invokes `cur->func(cur->arg)` at `0xfffffe0007a33244`. Only after the callback returns does the kernel increment the entry pointer and store `startup_entry_cur` at `0xfffffe0007a33248–0xfffffe0007a3324c`.
+
+Therefore a frozen `HOOK idx=N` identifies the callback being entered, but because patch 0109 has no explicit post-callback event, it cannot fully distinguish a callback that has not returned from a fault in the immediately following pointer-advance/store path. Do not change callback behavior based on the line alone.
+
+The accepted table's 874 pre-lockdown callbacks comprise:
+- TUNABLES (242): 158 `_kernel_startup_tunable_init`, 49 `_scalable_counter_static_boot_mangle`, 16 `_sfi_class_register`, 6 `_kernel_startup_tunable_dt_init`, plus 13 single/small-count initializers.
+- TIMEOUTS (18): 15 `_machine_timeout_init`, and one each of `_hw_lock_test_to_init`, `_ml_io_init_timeouts`, and `_ml_init_lock_timeout`.
+- LOCKS (614): 280 `_lck_grp_startup_init`, 184 `_lck_mtx_startup_init`, 58 `_lck_attr_startup_init`, 43 `_lck_rw_startup_init`, 28 `_lck_spin_startup_init`, 13 `_usimple_lock_startup_init`, and eight remaining callbacks.
+
+Static table and linked-code checks show no malformed table, unexpected callback pointer, invalid non-null argument mapping, or simulated comparator-order defect. This is not evidence that the phone ran those callbacks successfully. The Run #240 physical trace remains necessary before modifying or gating any initializer.
+
 ## Exact Run #240 startup-table audit
 
 The accepted kernel's `__BOOTDATA,__init_entry_set` is file offset `0xb1cd58`, size `0x17e20` (97,824 bytes), exactly 4,076 entries × 24 bytes. Its exact entries were extracted from the Run #240 Mach-O and sorted using the XNU 8796 `bsd/kern/qsort.c` algorithm and the actual startup comparator.
