@@ -3495,7 +3495,7 @@ Documentation update: `AGENTS.md` was refreshed after run #154. Workflow path-fi
 
 ### Exact root cause
 - The live branch HEAD before this fix was `af097580a5f46be2a5f0d4540c874cf9a18e546d`.
-- Re-read the Run #228 build-job log (job `132532193569`) and the exact workflow source. The verifier's fixed-width Mach-O name parsing used `split(b"\\\\0", 1)`. In Python this is a search for the literal two-byte sequence backslash + zero, not the NUL terminator used to pad Mach-O's 16-byte segment/section name fields.
+- Re-read the Run #228 build-job log (job `132532193569`) and the exact workflow source. The verifier's fixed-width Mach-O name parsing used `split(b"\\0", 1)`. In Python this is a search for the literal two-byte sequence backslash + zero, not the NUL terminator used to pad Mach-O's 16-byte segment/section name fields.
 - Therefore valid segment and section names retained their NUL padding and failed comparisons against `"__TEXT_EXEC"` and `"__text"`. This explains the exact failure `could not locate __TEXT_EXEC,__text for binary stage verification`; it was a parser defect, not evidence that the compiled kernel lacked executable text.
 
 ### Workflow correction
