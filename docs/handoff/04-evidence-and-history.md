@@ -1,5 +1,26 @@
 # Chapter 4 — Evidence, provenance and historical traps
 
+## Run #240 — startup-trace diagnostic candidate
+
+- Run #240 (ID `43709690089`, source `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`) completed successfully. Both the XNU build and RAM-only image package jobs passed, including the required patch guard, Mach-O verifier and package structure checks.
+- Patch `0109-lavender-startup-hook-trace.patch` compiled and is present in the packaged kernel.
+- Fastboot artifact ID `14160128075`; exact `iosboot.img`, 16,531,456 bytes, SHA-256 `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`.
+- Kernel artifact ID `14159918757`; 16,587,456 bytes, SHA-256 `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`.
+- Buildtree artifact ID `14160182439`; build log artifact ID `14160376884`.
+- Runs #238 and #239 failed the evolving source-guard assertions only; Run #240 is the corrected passing candidate.
+- Run #240 has **not** been physically tested. The latest phone evidence remains Run #236-consistent marker `0x109`.
+
+## Run #240 linked-table audit
+
+From the exact Run #240 kernel:
+- `__BOOTDATA,__init_entry_set`: file offset `0xb1cd58`, size `0x17e20`, 97,824 bytes = 4,076 × 24-byte entries.
+- Actual table extracted and fed through the XNU 8796 `bsd/kern/qsort.c` algorithm and `startup_entry_cmp`: 10,790 comparisons, recursion depth 7.
+- Simulated sorted phases: TUNABLES 242, TIMEOUTS 18, LOCKS 614; 874 entries before the `STARTUP_SUB_LOCKS` cutoff.
+- All 4,076 function pointers land in mapped executable segments; all non-null args land in mapped kernel segments; no sort ordering violations.
+- Trace helper and startup/qsort functions are present in the linked symbol table.
+
+This rules out a malformed/empty table and makes host-side qsort complexity unlikely. It is not a handset execution result and does not identify the stalled callback. Wait for the last visible trace line before making a functional change.
+
 ## New physical evidence — Run #236
 
 - Video `1000317701.mp4` (87.8 seconds) shows the Lavender XNU console progressing through marker `0x109`, “entering kernel_startup_bootstrap”.
