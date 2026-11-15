@@ -136,6 +136,15 @@ The device power button is broken. Do not request another physical boot until a 
 - Run #252 diagnostic artifacts: raw kernel candidate ID `14169598249` (not verifier-approved), buildtree ID `14170183341`, build-log ID `14170312913`. No `iosboot.img` was produced.
 - **Corrective change:** patch `0112-lavender-commpage-armv8a-llsc.patch` replaces both commpage queue-lock CASA operations with ARMv8.0 `LDAXR/STXR` retry loops. Workflow acceptance requires patch 0112 and source-checks both helpers for LL/SC and absence of CASA.
 - Inspection #25 remains successful but does not validate patch 0112. No physical test until the independent recovery/reset safety gate is met.
+## Latest CI failure — XNU #255 (15 November 2026)
+
+- Run `#255` / workflow `43743932922` / source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`: **failed** in `Build XNU 8796`.
+- Patch `0112-lavender-commpage-armv8a-llsc.patch` is confirmed applied; the log has no skip warning for 0112. The earlier malformed-hunk/CASA blocker is cleared at patch application.
+- New blocker: repeated `instruction requires: sha2` errors in `osfmk/arm64/corecrypto/sha256_compress_arm64.s` (`sha256su0`, `sha256h`, `sha256su1`, `sha256h2`). Lavender compiler target is `-march=armv8-a -mcpu=generic`, which correctly avoids optional instructions by default.
+- Raw candidate artifact `14174241207` is unverified and not for device use. Verification and packaging were skipped; no new `iosboot.img` exists.
+- Do **not** enable `+crypto` globally until SHA2 support is proven on every CPU that can run the kernel's accelerated path. Inspect exact XNU corecrypto selection (`CCSHA2_VNG_ARM`), portable fallback availability, and per-core `ID_AA64ISAR0_EL1.SHA2` first. If support is absent/nonuniform, exclude the optimized SHA2 assembly for Lavender and select a portable implementation.
+- Chapter 03 is the active route. Keep device safety unchanged: no physical test with this candidate, no flashing, RAM-only boot after the broken-power-button recovery gate is satisfied.
+
 ## Comparative reference: iOS Topaz
 
 Primary reference: [`MakrSas/ios-topaz`](https://github.com/MakrSas/ios-topaz), branch `topaz`, especially its [README](https://github.com/MakrSas/ios-topaz/blob/topaz/README.md), `xnu/patches/`, `shim/`, and `tools/`. This is a working iOS 16.7.16 + XNU 8796 port for Xiaomi Redmi Note 12 4G (`topaz/tapas`, Qualcomm SM6225 / Snapdragon 685). It is a fork/continuation of [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet), not an independent implementation; its README credits earlier HackiOS work too.
