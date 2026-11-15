@@ -45,7 +45,7 @@ Four physical recordings are now reviewed together. Keep them separate from Run 
 
 ### Critical next step
 
-The Run #240 image remains untested in the evidence available here. Do not treat these clips as its output. The next useful diagnostic evidence is a recording of the bottom-row patch-0109 trace from the exact Run #240 `iosboot.img`, but only after the independent recovery/reset safety gate is satisfied. No code change or additional build is justified by these videos alone.
+The four checkpoint-video clips remain unassigned to Run #240. Later close-up screenshots do show a patch-0109 HOOK record, and the accompanying Run #240 table/symbol analysis resolves it to `_lck_mtx_startup_init` with `___startup_lck_mtx_spec_processor_updown_lock`. Treat this as the active source lead, while preserving uncertainty about screenshot-to-image provenance. The next operation is source inspection of that exact callback/specification, not another physical boot or speculative patch.
 
 ## Run #240 CI result and artifact provenance
 
