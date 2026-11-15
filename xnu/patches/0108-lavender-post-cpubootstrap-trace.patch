@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -463,23 +463,30 @@
+@@ -463,21 +463,29 @@
  	cpu_bootstrap();
  	sweet_early_mark(4, "cpu_bootstrap done");
  
@@ -33,7 +33,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  	if (PE_parse_boot_argn("maxmem", &maxmem, sizeof(maxmem))) {
  		xmaxmem = (uint64_t) maxmem * (1024 * 1024);
-@@ -524,7 +532,7 @@
+@@ -524,6 +532,6 @@
  	__builtin_arm_wsr("pan", 1);
  #endif  /* __ARM_PAN_AVAILABLE__ */
  
