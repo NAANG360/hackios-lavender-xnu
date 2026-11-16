@@ -35,6 +35,18 @@ Next:
 
 The Run #261 package uses `cpus=1`. Keep secondary-core/SMP operation unclaimed until independently proven.
 
+### Exact next kernel boundary from the #268 patched XNU source
+
+In `osfmk/arm/arm_init.c`, the logo-completed marker (stage 17) is followed by:
+1. optional `patch_low_glo()` and classic S2R setup;
+2. `PE_consistent_debug_inherit()`;
+3. `serial_init()`;
+4. `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)`;
+5. `kprintf("kprintf initialized\\n")`, then stage 20.
+
+The user video shows the logo but not stage 20. Therefore the next kernel milestone is not assumed to be BSD/root yet. Add bounded diagnostic markers around steps 2–4 so the next safe test can distinguish a post-logo stall from kprintf startup completion. After stage 20, continue through `PE_create_console()`, `PE_init_printf()`, `PE_init_platform()`, `machine_startup()` and the BSD bootstrap/root selection path. Keep each boundary independently verifiable.
+
+
 ## 3. Root filesystem and storage — removable SDHC2 is confirmed in the exact Build 4 FDT
 
 The inherited Sweet root flow is not portable:
@@ -85,6 +97,12 @@ The power IRQ is not merely a notification. Its handler:
 Therefore, do not just map the host and issue SD commands. First determine controller/clock/power state at XNU entry. The bootloader's use of eMMC does not prove it initialized SDHC2 or enabled the removable-card rails.
 
 Research source: [Xiaomi SDM660 downstream SDHCI MSM driver, branch 11-EAS](https://github.com/xiaomi-sdm660/android_kernel_xiaomi_sdm660/blob/11-EAS/drivers/mmc/host/sdhci-msm.c). Treat Linux as a hardware-behavior reference, not code to copy wholesale into XNU.
+
+### XNU root-device integration audit
+
+The exact XNU 8796 buildtree contains no Lavender SDHCI driver. The existing `bsd/dev/sweet_ufs.c` is registered in `bsd/conf/files` and lazily initializes from the Sweet-specific `IOFindBSDRoot()` branch when `rd=ufsroot0` is requested. It demonstrates the BSD-facing pattern (`bdevsw_add`, `cdevsw_add_with_bdev`, `devfs_make_node`, strategy/ioctl/psize), but its UFSHCI/SCSI transport, DMA descriptors, cache handling and partition discovery are not reusable for SDHC2.
+
+The Lavender path should be a separate `bsd/dev/lavender_sdhci.c` implementation and a distinct `rd=sdroot0` selection in `IOKitBSDInit.cpp`. First milestone is only a no-write probe, not a disk driver: parse the exact `/arm-io/sdhc@c084000` FDT node, map the validated 0x1000 register window with XNU's `ml_io_map()`, and read only documented, non-destructive standard SDHCI identity/capability/present-state and Qualcomm V5 status/version registers after their offsets are verified against the matching SDM660 driver. Do not write controller, clock, TLMM, PMIC, interrupt-clear or power-control registers during this probe.
 
 ### Non-destructive driver plan
 
