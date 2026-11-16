@@ -2,13 +2,13 @@
 # Fetch the exact AppleLogo resource from iPhone X iOS 16.7.16 and generate a
 # temporary C header in the XNU build tree. No firmware blob is committed to Git.
 set -euo pipefail
-OUT_HEADER="\${1:?usage: prepare-lavender-applelogo.sh <xnu-header-output-path>}"
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
-TMP="$(mktemp -d "\${TMPDIR:-/tmp}/lavender-applelogo.XXXXXX")"
+OUT_HEADER="${1:?usage: prepare-lavender-applelogo.sh <xnu-header-output-path>}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/lavender-applelogo.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 VERSION="3.1.748"
-TOOL_ASSET="ipsw_\${VERSION}_macOS_x86_64.tar.gz"
-TOOL_BASE="https://github.com/blacktop/ipsw/releases/download/v\${VERSION}"
+TOOL_ASSET="ipsw_${VERSION}_macOS_x86_64.tar.gz"
+TOOL_BASE="https://github.com/blacktop/ipsw/releases/download/v${VERSION}"
 IPSW_URL="https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
 EXPECTED_IM4P_SHA="93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8"
 mkdir -p "$TMP/bin" "$TMP/source" "$TMP/decoded"
