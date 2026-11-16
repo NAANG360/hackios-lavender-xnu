@@ -196,7 +196,7 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
 index 7abf1c1..3e19537 100644
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -475,12 +475,18 @@ kernel_bootstrap(void)
+@@ -475,13 +475,19 @@ kernel_bootstrap(void)
  	thread_t        thread;
  	char            namep[16];
  
