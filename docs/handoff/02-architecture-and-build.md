@@ -83,3 +83,8 @@ All callback function pointers resolved inside executable kernel segments; all n
 - `xnu/patches/0107-lavender-post-assembly-entry-trace.patch`
 - `xnu/patches/0108-lavender-post-cpubootstrap-trace.patch`
 - `shim/build.sh`
+
+
+## Run 257 — scope of the commpage atomic guard
+
+The first CLREX-enabled build reached the source-validation gate but failed because the workflow searched the entire `osfmk/arm/commpage/commpage_asm.s` file for executable `CASA`. That file contains other commpage routines outside patch 0112's scope. The guard is now scoped to `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue`; within each function it requires no executable CASA, the expected LDAXR/STXR loop, and CLREX after the busy-lock label. Do not impose a file-wide CASA ban on unrelated routines.
