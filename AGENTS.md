@@ -89,3 +89,11 @@ Branch: `ci/lavender-machine-profile`
 - Root cause was four comment-context lines with an extra tab in `xnu/patches/0115-lavender-post-logo-darwin-trace.patch`. Reproduced against Run #289's buildtree artifact: original hunk failed; normalized context passed `patch -p1 --dry-run`.
 - Fix commit: `e2beb8e297c498def1c09fd2a32a5b0241c86102`; only patch context changed, not XNU behavior.
 - Run #290 ([43829764065](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43829764065)) validates the correction. Do not accept raw candidates; require patch guards, linked Mach-O verification and RAM-only package success.
+
+
+## Post-KPRINTF trace CI hardening — 16 November 2026
+
+- Run #297 remains the latest accepted image: artifact `14219764264`, `iosboot.img` SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`. The physical clip `1000317779.mp4` strongly correlates with simple stages 17–20, but is not checksum-bound to this image; do not claim BSD/root/userspace.
+- Added workflow source guards for the distinct `sweet_early_trace_startup` event namespace 17–29: ordered scheduler, IOKit, early-boot, interrupt, BSD-init, VFS, root-mount and utask-bootstrap boundaries; plus the transparent `[DARWIN]` console renderer and post-logo header ordering.
+- Change commit: `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`. The guard was executed locally against the exact patched XNU source extracted from Run #297's `xnu-buildtree` artifact and passed. A fresh Actions run is the next acceptance gate; no new image is accepted until XNU build, linked Mach-O verification and RAM-only package all pass.
+- Physical retest remains blocked until the independent power-button-free recovery/reset route is physically verified. Never flash; RAM-only fastboot boot only.
