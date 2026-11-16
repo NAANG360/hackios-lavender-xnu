@@ -128,6 +128,8 @@ Branch: `ci/lavender-machine-profile`
 
 - Run #302 is green through XNU build, linked verification and RAM-only package. Artifact `14245608682`: `iosboot.img`, 16,601,088 bytes, SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`.
 - Patch 0120 adds post-stage-20 `arm_init()` events 34–39, true `kernel_bootstrap()` events 41–46, Lavender early panic text, and first kernel synchronous-exception ESR/FAR/ELR/SPSR output. Local exact-buildtree apply and source-order checks passed.
-- Workflow commit `dc0603b6e6a64e117b04b447f82de37ecc36ed3f` adds required-patch and source guards. Run #303 has the patch; preferred guarded run #304 is queued.
+- Workflow commit `dc0603b6e6a64e117b04b447f82de37ecc36ed3f` adds required-patch and source guards. Run #303/#304 were started before the 0120 hunk correction; preferred guarded run #305 includes the corrected patch.
 - Recovery path is confirmed working by the user; physical testing is no longer blocked by that gate. Use only accepted images with RAM-only `fastboot boot iosboot.img`; never flash.
 - The final FASTBOOT frame in the latest recording is a video glitch. The handset restarts normally; reset cause is unknown.
+
+- **Patch-format correction:** commit `b457583a2e8b6d42406bf44d692c612225d0c88d` fixes 0120's `kernel_bootstrap()` hunk count. All 16 hunk counts now validate, and 0119+0120 apply cleanly to the exact Run #300 buildtree. Run #305 (`43910208977`) is the preferred acceptance run.
