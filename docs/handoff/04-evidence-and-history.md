@@ -1,14 +1,15 @@
 # Latest evidence update — 16 November 2026
 
-- Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed build, linked verification and RAM-only packaging. Artifact `14193115710` contains `iosboot.img` (16,551,936 bytes; SHA-256 `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`).
-- The 20.317-second user recording `1000317742.mp4` shows the handset changing from the red diagnostic screen to the white custom diagnostic mark on black. User attributes it to Run #261; not image-checksum-bound. It does not prove Darwin userspace.
-- Runs #262–#264 were guard failures: #262 had the unbounded second symbol scan; #263/#264 passed the corrected source checks but tripped an exact-cache-hit compiler-log grep.
-- Commit `f3526da7461c804188f7395ad964cda9c80542da` fixed the cache-aware guard.
-- Run #265 (`43801366044`) passed both the build and package jobs. Artifact `14196716179` contains `iosboot.img` (16,551,936 bytes; SHA-256 `c1dfc841fab6545e0c4892c7f01dba4ecd7c52f972e9ff7c00ca6230f6a8537d`). Its kernel binary hash matches #261; the ADT random seed makes the overall image hash different.
-- Public mainline Lavender DTS enables `sdhc_2` with GPIO54 card detect and separate VMMC/VQMMC supplies; SoC DTS defines its host at `0x0c084000` with IRQs 125/221 and a 4-bit bus. Exact Build4 embedded FDT confirmation remains open.
-- `mkiosroot.sh` defaults to a 16 GiB logical HFS+ image. Lavender's current safe contiguous ADT aperture has roughly 1.10 GiB available after the XNU kernel, so that image cannot be appended as a RAMDisk.
+- Run #261 passed build/verify/package and the user video shows the handset at the diagnostic mark. Patch 0094's mark is a custom approximation, not Apple's original artwork; the video is not checksum-bound to the image.
+- Run #266 (`43802934997`) is the latest accepted old-logo package: artifact `14197706518`, `iosboot.img` 16,551,936 bytes, SHA-256 `86518b66b094d25fe0124d091dd32f6a64841273d87c597bbed97a45e7280cf1`. It was not separately physically tested.
+- Extracted the actual AppleLogo IM4P from iPhone X iOS 16.7.16 (20H392): archive member `applelogo@3x~iphone.im4p`, IM4P SHA `93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8`, decoded RGBA PNG 194×238 SHA `9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb`.
+- Patch 0114 and build-time extraction/header generation replace only the logo rendering body; the post-`arm_vm_init()` call placement is preserved.
+- Run #267 failed because `prepare-lavender-applelogo.sh` passed a literal escaped `${TMPDIR:-/tmp}` to mktemp. Commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` removes erroneous backslashes; Run #268 validates this fix.
+- Exact Build 4 FDT audit confirms SDHC2 removable host at `0x0c084000`, 4-bit, GPIO54 card-detect, IRQ125/221, PM660L L5/L2 rails and SDCC2 AHB/APPS clocks 93/94. SDHC1 at `0x0c0c4000` is internal eMMC and must remain untouched.
+- Xiaomi SDM660 downstream Linux driver shows V5 power IRQ must sequence VMMC, VQMMC and pinctrl transitions for BUS_ON/OFF and IO_LOW/HIGH requests. This is a real part of the initial XNU host driver, not optional logging.
+- The 16 GiB logical HFS+ root image cannot fit in the ~1.10 GiB remaining ADT RAMDisk tail; the payload builder now rejects oversized RAMDisks before reading.
 
-This update supersedes earlier notes that #265 was in progress or that #261 was the latest packaged run.
+This update supersedes the earlier unconfirmed public-DTS-only SDHC2 lead and Run #265/#266-in-progress notes.
 
 ---
 

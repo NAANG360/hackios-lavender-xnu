@@ -14,7 +14,7 @@ Do not read all chapters at session start. Do not read historical material unles
 
 ## Current state
 
-As of 16 November 2026, Run #261 is the latest successful packaged candidate and the user-supplied `1000317742.mp4` shows the diagnostic logo screen on physical Lavender. The image's visible mark is the procedural approximation in patch 0094, not Apple's official boot-logo asset. Run #262 compiled but failed the scoped source guard; the corrected validator is being exercised by Run #263. The main post-logo gap is now the Lavender eMMC/SDHCI root-device path: the inherited Sweet UFS root instructions are not compatible with Lavender and the destructive userdata-flash flow is forbidden.
+As of 16 November 2026, Run #266 is the latest fully accepted old-logo package; Run #261 is the user-attributed physical diagnostic-logo result. Apple's real iPhone X 20H392 AppleLogo has been extracted and patch 0114 integrates it at the same post-VM stage. Run #267 exposed a shell-escaping bug in that preparation script; commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` fixes it and Run #268 validates. The exact Build 4 FDT confirms removable SDHC2 at `0x0c084000` and its power IRQ/rails; Chapter 05 details the required V5 power handshake and read-only PIO driver plan. Internal Android eMMC remains off-limits.
 
 ## Resume prompt
 

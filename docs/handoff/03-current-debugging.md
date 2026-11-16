@@ -1,81 +1,58 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current CI operation:** XNU #263 / workflow `43800607832`
-**Source commit:** `b6879a835d61a3382740737254a5c54b2eeeb2ee`
-**Current physical frontier:** Run #261 image reaches the diagnostic logo screen on the handset, per user-supplied video.
+**Current validation:** Run #268 / workflow `43805363291`
+**Source:** `477a77fa43ad2bcb99c80550c96cccf9b33b3f31`
 
-## Latest accepted build — Run #261
+## Physical baseline — Run #261
 
-Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed:
-- XNU 8796 build;
-- Lavender source/entry guards;
-- ARM64 Mach-O kernel verification;
-- RAM-only fastboot package job;
-- boot-image structure and payload identity checks.
+Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed XNU build, source guards, linked Mach-O verification and RAM-only packaging. The user-supplied video `1000317742.mp4` shows the phone displaying the diagnostic Apple-shaped mark. That is patch 0094's hand-drawn approximation, not the genuine Apple logo; video provenance is user-attributed, not checksum-bound.
 
-Artifact:
-- Name: `lavender-fastboot-boot-test`
-- ID: `14193115710`
-- Exact image: `iosboot.img`
-- Size: 16,551,936 bytes
-- SHA-256: `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`
-- The package also contains `shim/out/shim-boot.img`; the two image files are byte-identical.
+## Latest accepted package — Run #266
 
-This image is the accepted physical-test candidate. Run #262 produced no package and must not replace it.
+Run #266 (`43802934997`, source `aa07e58663cdbb7c4cc63084c55b6b7798b71cc5`) passed XNU build, kernel verification and RAM-only package:
+- artifact ID `14197706518`, `lavender-fastboot-boot-test`;
+- `iosboot.img` size 16,551,936 bytes;
+- SHA-256 `86518b66b094d25fe0124d091dd32f6a64841273d87c597bbed97a45e7280cf1`.
+This is an old diagnostic-logo baseline and has not been separately physically tested.
 
-## New physical evidence — `1000317742.mp4`
+## Genuine AppleLogo integration
 
-- Duration: 20.317 seconds; 1920×1080, H.264.
-- At the beginning, the phone shows the red Lavender/XNU diagnostic screen.
-- The recording then shows the phone display go black and a white bitten-apple-shaped mark illuminate in the center; this screen state remains visible in multiple sampled frames through the clip.
-- The user identifies the tested image as Run #261.
-- The video itself does not show a device-side checksum or a build identifier; preserve the Run #261 association as user-attributed, not byte-for-byte proven.
+The exact iPhone X iOS 16.7.16 (20H392) firmware AppleLogo was extracted and hash-pinned:
+- IM4P SHA `93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8`;
+- PNG 194×238 RGBA SHA `9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb`.
+Patch 0114 replaces only the procedural logo pixels; it leaves framebuffer timing/call placement intact. Build-time helper generates the C header; the proprietary firmware image is not committed.
 
-**Physical milestone:** XNU's framebuffer logo stage is now reported reached on the real Lavender handset. This supersedes the earlier #240/#236 statements that the Apple-logo stage had not been reached.
+## Run #267 — exact script failure and correction
 
-**Not proven by this clip:** stage-20/kprintf startup completion, stable scheduler/interrupt operation, root filesystem mount, launchd, system daemons, backboardd, SpringBoard, touch input or a usable iOS interface.
+Run #267 (`43804842131`, source `6bbc44f3769adf8a3458137907abee75f236403d`) failed during `prepare-lavender-applelogo.sh` before verification/packaging. Exact error:
 
-## Logo discrepancy — exact source found
+```text
+mktemp: mkdtemp failed on ${TMPDIR:-/tmp}/lavender-applelogo.Kp439t: No such file or directory
+```
 
-Patch `xnu/patches/0094-lavender-logo-and-stage-markers.patch` implements `sweet_early_logo()` by drawing a white shape procedurally:
-- three overlapping ellipse regions for the body;
-- a circular bite subtraction;
-- a calculated leaf ellipse;
-- a rectangular stem;
-- a framebuffer clear and white pixel writes.
+Cause: shell variable expansions had unnecessary backslashes, so `mktemp` received a literal `${TMPDIR:-/tmp}`. Commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` removes the backslashes. Current script check confirms no escaped `${...` remains.
 
-The source comment calls this a **diagnostic Apple mark**. It is an approximation, not Apple's original boot image. The clip visibly shows this custom-rendered shape.
+**Run #268** (`43805363291`) is validating the fix and patch 0114. A green compile alone is not acceptance: require generated AppleLogo header/source guard, linked Mach-O verification and RAM-only package job.
 
-The requested correction is to use the actual AppleLogo image resource from the iPhone X iOS 16.7.16 (20H392) IPSW, not another hand-authored path. The AppleLogo is an iBoot image packed in an IMG4/IM4P resource in the IPSW's `Firmware/all_flash` tree (path varies by release). The `ipsw fw ibootim` tool can inspect/dump iBoot images; verify exact dimensions, pixel format and alpha channel before converting to the Lavender framebuffer format. Keep the logo call after `arm_vm_init()` and the permanent framebuffer alias; do not move it earlier to make the artwork easier to draw.
+## Storage frontier — exact Build 4 embedded FDT
 
-## Run #262 failure and fix
+The Build 4 boot image's own appended FDT has been extracted and confirms:
+- removable SDHC2 at `0x0c084000/0x1000`, compatible `qcom,sdhci-msm-v5`, enabled, 4-bit;
+- card-detect GPIO54, host IRQ125, power IRQ221;
+- `iface_clk`/`core_clk` use GCC SDCC2 AHB/APPS clock IDs 93/94;
+- PM660L L5 and L2 are the VMMC/VQMMC supplies;
+- SDHC1 at `0x0c0c4000` is internal 8-bit non-removable eMMC with CQE/ICE and must not be used for iOS root.
 
-Run #262 (`43795080764`, source `71bb3a0dc0a45a7d5482fe45de869af6281bca41`):
-- XNU 8796 compilation succeeded.
-- The cache-aware build-path check succeeded.
-- `Require Lavender XNU entry-guard patch` failed.
-- Kernel verification was skipped.
-- RAM-only image packaging was skipped.
-- Only raw diagnostic artifacts were preserved; they are not a boot candidate.
+The matching Xiaomi SDM660 downstream driver defines V5 power-control offsets 0x240/0x244/0x248/0x24c and services BUS_ON/OFF and IO_LOW/HIGH with PMIC rails and active/sleep pinctrl transitions before acknowledging IRQ221. The removable host is not ready for command I/O until this state is handled.
 
-Source inspection found the scope bug in the inline verifier: enqueue used the dequeue label as its end boundary, but dequeue passed `None`, so its scan extended to end-of-file. The second check could therefore be contaminated by unrelated later commpage functions. The small build-log artifact does not preserve the validator's full stderr, so do not invent a more specific unmatched instruction.
+## Next operations
 
-**Correction committed:**
-- `276fb31395998538afcbb620d25c647ad9f5f47e`: the reusable verifier now requires CLREX inside the isolated busy-lock return path.
-- `b6879a835d61a3382740737254a5c54b2eeeb2ee`: workflow guard now calls the reusable symbol-bounded source validator for the two target helpers, rather than scanning the second function to EOF.
-
-**Run #263** started from the corrected workflow commit. It was in progress at handoff update time. Inspect this run rather than creating another one. A successful result must include both build and package jobs and a fresh exact `iosboot.img`; compilation alone is not acceptance.
-
-## Next immediate operations
-
-1. Inspect Run #263 completion and its artifacts. Confirm source guard, XNU build, kernel verifier and package all pass. Do not use #262's raw candidate.
-2. Prepare the genuine AppleLogo asset from the matching iPhone X 20H392 IPSW and validate the binary format before changing `sweet_early_logo()`.
-3. Instrument/observe the next existing XNU milestone after the logo and through stage 20 (`kprintf` startup complete). Do not infer this stage from the logo alone.
-4. Move the main bring-up to the post-logo/root-device path in [Chapter 05](05-post-logo-userspace.md).
+1. Inspect Run #268's full XNU build, official-logo generated-header guard, linked verifier and RAM-only package result. Do not use #267 raw candidate.
+2. If #268 passes, preserve the artifact and do not physically retest until the independent recovery/reset gate is satisfied.
+3. Start with a no-write SDHC2 register/GPIO/power-state probe, then implement the V5 power IRQ/regulator/pinctrl handshake, then low-speed PIO SD-card reads. No DMA/CQE/ICE/write path.
+4. Expose a bounded read-only BSD block device and `rd=sdroot0`; validate GPT and HFS+ before launching Darwin userspace.
 
 ## Device safety
 
-The power button is broken. The volume-up + volume-down chord is a reset request only; it is not a verified recovery selector. The watchdog-first reset path remains source-grounded but physically unvalidated. No new handset retest until an independent recovery/reset route is physically verified.
-
-Preserve Android/recovery. Use RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write boot-critical partitions.
+The power button is broken. Volume-up + volume-down is a reset request only, not a verified recovery selector. No handset test until an independent recovery/reset route is physically verified. RAM-only `fastboot boot iosboot.img` only. Never flash, erase, repartition or write internal Android eMMC/userdata.
