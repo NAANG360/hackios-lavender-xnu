@@ -1,0 +1,50 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -397,6 +397,10 @@
+ 	case 27: lavender_trace_append_text(text, &length, "BSD ROOT MOUNT DONE"); break;
+ 	case 28: lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP BEGIN"); break;
+ 	case 29: lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP RETURN"); break;
++	case 30: lavender_trace_append_text(text, &length, "KBOOT THREAD ENTER"); break;
++	case 31: lavender_trace_append_text(text, &length, "IDLE THREAD CREATE BEGIN"); break;
++	case 32: lavender_trace_append_text(text, &length, "IDLE THREAD CREATE DONE"); break;
++	case 33: lavender_trace_append_text(text, &length, "KBOOT LOAD_CONTEXT ENTER"); break;
+ 	default:
+ 		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
+ 		break;
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -624,6 +624,9 @@
+ 	thread_deallocate(thread);
+ 
+ 	kernel_bootstrap_log("load_context - done");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(33, 0, 0, 0, 0, 0);
++#endif
+ 	load_context(thread);
+ 	/*NOTREACHED*/
+ }
+@@ -641,6 +644,9 @@
+ static void
+ kernel_bootstrap_thread(void)
+ {
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(30, 0, 0, 0, 0, 0);
++#endif
+ 	processor_t processor = current_processor();
+ 
+ #if (DEVELOPMENT || DEBUG)
+@@ -651,7 +657,13 @@
+ 	/*
+ 	 * Create the idle processor thread.
+ 	 */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(31, 0, 0, 0, 0, 0);
++#endif
+ 	idle_thread_create(processor);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(32, 0, 0, 0, 0, 0);
++#endif
+ 
+ 	/*
+ 	 * N.B. Do not stick anything else
