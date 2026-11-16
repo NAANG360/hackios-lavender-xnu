@@ -1,3 +1,15 @@
+# Latest evidence update — 16 November 2026
+
+- Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed XNU build/verification and RAM-only packaging. Fastboot artifact `14193115710` contains `iosboot.img` (16,551,936 bytes; SHA-256 `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`).
+- The 20.317-second user recording `1000317742.mp4` shows the physical handset transition from the red diagnostics to the white diagnostic Apple-shaped mark. The user identifies it as Run #261; the clip is not checksum-bound to the image. It supersedes the earlier “logo not reached” statement, but it does not prove Darwin userspace.
+- The visible mark is custom-rendered by patch 0094; the source uses ellipse equations, a bite cut-out, leaf and stem. The user wants Apple's genuine boot-logo artwork instead.
+- Run #262 (`43795080764`) compiled XNU but failed the source entry guard; kernel verification/package were skipped. Source inspection found the second helper scan extended to EOF because its next-symbol boundary was `None`.
+- The corrected verifier is in commits `276fb31395998538afcbb620d25c647ad9f5f47e` and `b6879a835d61a3382740737254a5c54b2eeeb2ee`; Run #263 (`43800607832`) was in progress at the time this history update was made.
+
+This update supersedes older Chapter 4 statements that Run #240 was the latest candidate or that the phone had not reached the logo. Older evidence below remains historical and should not be used as the current frontier.
+
+---
+
 ## New video batch — 15 November 2026
 
 Four physical recordings are now reviewed together. Keep them separate from Run #240: none shows the patch-0109 rolling trace labels (`TABLE`, `QSORT BEGIN/DONE`, `INIT BEGIN/DONE`, `HOOK idx=...`).
