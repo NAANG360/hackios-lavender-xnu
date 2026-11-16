@@ -4,16 +4,17 @@ This is the active roadmap after the user-observed Run #261 physical framebuffer
 
 ## Latest operations — 16 November 2026
 
-- **Run #274** ([43814890363](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814890363), source `5493d479039821941e0608a5e6191539eb11d52c`) **passed**: XNU build, entry-guard checks, linked Mach-O/kernel verification and RAM-only fastboot image packaging.
-- **Run #275** ([43814903820](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814903820), source `5b0d4121240d9573a10c3771afbef9f08e4a5729`) compiled XNU but failed at step 12, **Require Lavender XNU entry-guard patch**. The package job was consequently skipped.
-- **Root cause:** the newly added source assertion used basic-regex `grep -q` for a literal C string containing parentheses. In basic regular expressions, the unescaped parentheses are grouping operators, so the pattern did not match the literal source. This is a false-negative CI guard, not an XNU compile or patch-application failure.
-- **Correction:** use fixed-string matching: `grep -Fq 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c`. Keep the assertion; do not remove the guard.
-- **Acceptance:** #274 remains a valid green baseline. #275 is not a packaged-image acceptance. A fresh run after this correction must pass all guards, linked Mach-O verification and RAM-only packaging before its `iosboot.img` is accepted.
-- **Visual caveat:** patch 0116 appends post-logo `[DARWIN]` trace messages through the verbose console without clearing the logo. Earlier pre-logo console lines are currently painted before the logo's full-panel clear and are not replayed over it. Do not claim the full early log is overlaid until that is implemented and checked. The overlay has CI evidence, not yet a separate physical handset confirmation.
+- **Run #274** ([43814890363](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814890363)) passed kernel verification and RAM-only packaging, but its build log shows patches 0115 and 0116 were skipped as corrupt unified diffs. It is an older AppleLogo/verbose-boot baseline, not proof of the post-logo overlay.
+- **Run #275** ([43814903820](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814903820)) failed an independent source-guard regex check.
+- **Run #276** ([43817621737](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43817621737)) exposed the actual blocker: unified diff 0115 was corrupt at line 66 and 0116 at line 46. Its XNU build was an exact-cache hit.
+- **Fix committed:** `2b327992dcef9223ddd8a4640bebc75fdd50c983` corrects the old/new hunk counts throughout both patch files.
+- **Run #277** ([43818798098](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43818798098)) is queued. The overlay must not be called integrated until the corrected patches apply, the build guards pass, and the resulting kernel is packaged and tested.
+- **Physical status:** genuine AppleLogo was previously observed on the handset; the 0115/0116 overlay has not yet been successfully built or physically confirmed.
+
 
 ## Verbose AppleLogo overlay
 
-Patch 0115 supplies checkpoints 17–29 across scheduler, IOKit, early boot, interrupt enable, BSD init, VFS, root-mount attempt and BSD utask bootstrap. Patch 0116 appends these as `[DARWIN]` lines through the existing verbose console, giving each glyph cell a dark backing while leaving the surrounding genuine AppleLogo visible. The initial pre-logo messages are not yet replayed after the full-panel logo draw; this is a known completeness gap, not to be described as solved.
+Patch 0115 is intended to add checkpoints 17–29 across scheduler, IOKit, early boot, interrupt enable, BSD init, VFS, root-mount attempt and BSD utask bootstrap. Patch 0116 is intended to append these as `[DARWIN]` lines through the existing verbose console, giving each glyph cell a dark backing while leaving the surrounding genuine AppleLogo visible. Both patch files previously had malformed unified-diff hunk counts and were skipped by Runs #274 and #276. Their syntax was corrected in commit `2b327992dcef9223ddd8a4640bebc75fdd50c983`; Run #277 must prove successful patch application before this overlay is considered integrated. The initial pre-logo messages are not yet replayed after the full-panel logo draw; this remains a separate completeness gap.
 
 ## 1. Genuine AppleLogo asset — extracted and integrated in source; full CI acceptance pending
 

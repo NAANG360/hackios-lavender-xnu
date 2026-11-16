@@ -1,17 +1,17 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current validation:** Corrected follow-up to Runs #274/#275 (see latest operations below)
-**Branch:** `ci/lavender-machine-profile`
+**Current validation:** Run #277, validating corrected 0115/0116 patch syntax
 
 ## Latest operations — 16 November 2026
 
-- **Run #274** ([43814890363](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814890363), source `5493d479039821941e0608a5e6191539eb11d52c`) **passed**: XNU build, entry-guard checks, linked Mach-O/kernel verification and RAM-only fastboot image packaging.
-- **Run #275** ([43814903820](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814903820), source `5b0d4121240d9573a10c3771afbef9f08e4a5729`) compiled XNU but failed at step 12, **Require Lavender XNU entry-guard patch**. The package job was consequently skipped.
-- **Root cause:** the newly added source assertion used basic-regex `grep -q` for a literal C string containing parentheses. In basic regular expressions, the unescaped parentheses are grouping operators, so the pattern did not match the literal source. This is a false-negative CI guard, not an XNU compile or patch-application failure.
-- **Correction:** use fixed-string matching: `grep -Fq 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c`. Keep the assertion; do not remove the guard.
-- **Acceptance:** #274 remains a valid green baseline. #275 is not a packaged-image acceptance. A fresh run after this correction must pass all guards, linked Mach-O verification and RAM-only packaging before its `iosboot.img` is accepted.
-- **Visual caveat:** patch 0116 appends post-logo `[DARWIN]` trace messages through the verbose console without clearing the logo. Earlier pre-logo console lines are currently painted before the logo's full-panel clear and are not replayed over it. Do not claim the full early log is overlaid until that is implemented and checked. The overlay has CI evidence, not yet a separate physical handset confirmation.
+- **Run #274** ([43814890363](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814890363)) passed kernel verification and RAM-only packaging, but the build log shows patches 0115 and 0116 were skipped as corrupt unified diffs. It remains an older AppleLogo/verbose-boot baseline without the post-logo Darwin trace overlay.
+- **Run #275** ([43814903820](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814903820)) failed a source guard because a literal C string was checked with basic-regex matching.
+- **Run #276** ([43817621737](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43817621737)) failed the required-patch guard: 0115 was rejected as corrupt at line 66 and 0116 at line 46. The build was an exact-cache hit, not a fresh kernel compile.
+- **Fix committed:** `2b327992dcef9223ddd8a4640bebc75fdd50c983` corrects every malformed old/new hunk count in 0115 and 0116.
+- **Run #277** ([43818798098](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43818798098)) is queued. Next acceptance requires clean patch application, the required source guards, linked Mach-O verification and RAM-only packaging.
+- **Important distinction:** the genuine AppleLogo was physically observed on-device in an earlier test. The 0115/0116 Darwin overlay is not yet built into an accepted artifact or physically verified.
+
 
 ## Physical baseline — Run #261
 
