@@ -43,3 +43,4 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 +	lavender_console_putc('\n');
  	__asm__ volatile("dsb sy" ::: "memory");
  }
+ 
