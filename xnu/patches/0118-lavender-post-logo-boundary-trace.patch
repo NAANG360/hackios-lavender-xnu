@@ -6,7 +6,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	sweet_early_mark(18, "PE_consistent_debug_inherit returned");
 +#endif
-@@ -564,1 +567,4 @@
+@@ -565,1 +568,4 @@
  	const unsigned int serial_exists = serial_init();
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	sweet_early_mark(19, "serial_init returned");
