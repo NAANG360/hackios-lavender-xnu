@@ -28,14 +28,14 @@ The user explicitly rejects the custom approximation and requires the actual App
 ## Current engineering direction
 
 1. Accept #268 only after the AppleLogo prep guard, XNU compile, linked Mach-O verification and RAM-only package all pass.
-2. Move to a read-only Lavender SDHC2 removable-card root. Exact Build 4 FDT confirms `sdhc@c084000`, 4-bit SD, GPIO54 card detect, host IRQ125, power IRQ221, PM660L L5/L2 rails and SDCC2 clocks 93/94.
-3. Implement a strictly read-only register/state probe first. Then correctly service SDHCI MSM V5 power IRQ requests and PMIC/pinctrl transitions; only then add low-speed PIO SD-card reads and GPT/HFS+ block exposure.
-4. Preserve internal SDHC1 eMMC at `0x0c0c4000` and all Android storage.
-5. Mount the 20H392 HFS+ root and cryptex/dyld paths, then bring up launchd and essential daemons. IOMobileFramebuffer, input and SpringBoard are later.
-6. Do not append the 16 GiB root image to RAM: current ADT has only roughly 1.10 GiB left after the kernel. The payload builder now rejects oversized RAMDisks before reading them.
+2. Use Lavender's **internal eMMC on SDHC1** as the iOS root target, stored in the existing `userdata` partition. Do not use removable SDHC2 as the root plan. The Build 4 FDT identifies SDHC1 at `0x0c0c4000` as an 8-bit, non-removable host with CQE/ICE resources; target-specific register, clock, rail and interrupt details still require exact audit.
+3. Borrow Topaz's proven deployment architecture: an HFS+ iOS 20H392 root on `userdata`, XNU booted from RAM, and the root selected through a BSD block-device/root hook. Topaz uses UFS 3.0; Lavender needs its own SDHCI/eMMC transport and must not inherit Topaz UFS registers, descriptors or protocol.
+4. Start with a non-destructive SDHC1 probe and read-only PIO discovery, then GPT and HFS+ reads. Add controlled writes only for the explicitly designated `userdata` root image after the read path and recovery procedure are validated. Never write other eMMC partitions.
+5. Keep Android's boot/system/vendor/recovery/modem/persist partitions intact. The iOS `userdata` image will replace Android user data; returning to Android means using recovery to wipe/format `userdata`, not restoring an SD card or reflashing Android boot partitions. This is expected to erase personal data in `userdata`.
+6. Mount the 20H392 HFS+ root and cryptex/dyld paths, then bring up launchd and essential daemons. IOMobileFramebuffer, input and SpringBoard are later. Do not append the 16 GiB root image to RAM: current ADT has only roughly 1.10 GiB left after the kernel.
 
-**Read now:** Chapter 03 for the live build; Chapter 05 for genuine logo, post-logo kernel, SDHC2 and Darwin userspace.
+**Read now:** Chapter 03 for the live build; Chapter 05 for genuine logo, post-logo kernel, SDHC1/eMMC `userdata` root and Darwin userspace.
 
 ## Safety
 
-Power button is broken. Volume-up + volume-down is a reset request, not a verified recovery selector. Do not request another handset test until a power-button-independent recovery/reset route is physically verified. Preserve Android and recovery. RAM-only `fastboot boot iosboot.img` only; never flash, erase, repartition, or write boot-critical/internal-storage partitions.
+The user confirms the volume-key reset/recovery route works despite the broken power button. Preserve that route and verify the exact recovery behavior in the device procedure before any destructive `userdata` operation. RAM-only `fastboot boot iosboot.img` remains the kernel bring-up path. A later explicit `userdata` image write is in scope; no boot-critical, recovery, modem, persist or non-userdata partition writes are authorized. Wiping/formatting `userdata` is the planned Android-return path and destroys Android user data.
