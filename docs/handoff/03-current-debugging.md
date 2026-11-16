@@ -1,7 +1,7 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Latest accepted diagnostic build:** Run #300 (`43891112657`, commit `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`) completed XNU compilation, linked kernel verification and RAM-only packaging successfully. Artifact `14236569374` (`lavender-fastboot-boot-test`) contains `iosboot.img` (16,601,088 bytes); SHA-256 `772acd07ebfccd6c58c0370cf38c85bb66b27fe4f0f9ccf9183bbea2c5815cef`. The manifest confirms the genuine 20H392 AppleLogo and fastboot-boot-only packaging. No physical retest of this exact checksum is recorded.
+**Latest accepted diagnostic build:** Run #302 (`43903857144`, commit `34a85dd88d13cc4b30e6ccf45a92aae9f685cce8`) completed XNU compilation, linked kernel verification and RAM-only packaging successfully. Artifact `14245608682` (`lavender-fastboot-boot-test`) contains `iosboot.img` (16,601,088 bytes); SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`. It includes the 0119 bootstrap-thread boundary instrumentation and genuine 20H392 AppleLogo. This is an accepted diagnostic kernel image, not proof of a complete Darwin userspace boot.
 **Diagnostic purpose:** stage 18 follows `PE_consistent_debug_inherit()`; stage 19 follows `serial_init()`; stage 20 remains the kprintf startup completion marker.
 
 ## Latest operations — 16 November 2026
@@ -55,7 +55,7 @@ It then failed in the startup-trace verifier with `ValueError: substring not fou
 1. The next physical test must use the exact Run #297 image (SHA above) to make marker observations attributable.
 2. Record the last visible bottom-edge marker: 17 = logo completed; 18 = PE consistency returned; 19 = serial initialization returned; 20 = KPRINTF startup completed.
 3. Do not infer BSD/root/userspace from marker 20. Continue only after the observed boundary is recorded.
-4. Preserve RAM-only `fastboot boot iosboot.img`; no flashing. Do not request a handset test until the power-button-independent recovery/reset path is physically verified.
+4. Preserve RAM-only `fastboot boot iosboot.img`; no flashing. The user confirms the power-button-independent volume-key recovery/reset route works; the recovery gate is cleared. Use RAM-only `fastboot boot iosboot.img` only.
 
 ## Storage frontier — exact Build 4 embedded FDT
 
@@ -71,13 +71,13 @@ The matching Xiaomi SDM660 downstream driver defines V5 power-control offsets 0x
 ## Next operations
 
 1. Inspect Run #268's full XNU build, official-logo generated-header guard, linked verifier and RAM-only package result. Do not use #267 raw candidate.
-2. If #268 passes, preserve the artifact and do not physically retest until the independent recovery/reset gate is satisfied.
+2. If #268 passes, preserve the artifact and the independent volume-key recovery/reset route is now confirmed working, so that gate is cleared.
 3. Start with a no-write SDHC2 register/GPIO/power-state probe, then implement the V5 power IRQ/regulator/pinctrl handshake, then low-speed PIO SD-card reads. No DMA/CQE/ICE/write path.
 4. Expose a bounded read-only BSD block device and `rd=sdroot0`; validate GPT and HFS+ before launching Darwin userspace.
 
 ## Device safety
 
-The power button is broken. Volume-up + volume-down is a reset request only, not a verified recovery selector. No handset test until an independent recovery/reset route is physically verified. RAM-only `fastboot boot iosboot.img` only. Never flash, erase, repartition or write internal Android eMMC/userdata.
+The power button is broken. Volume-up + volume-down is a reset request only, not a verified recovery selector. The user confirms the volume-key recovery/reset route works; the recovery gate is cleared. RAM-only `fastboot boot iosboot.img` only. Never flash, erase, repartition or write internal Android eMMC/userdata.
 
 
 ## Latest CI correction — Run #286 (16 November 2026)
@@ -144,7 +144,7 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - The visible bars strongly match stages 17–20: stage 17 follows `sweet_early_logo()`; stage 18 follows `PE_consistent_debug_inherit()`; stage 19 follows `serial_init()`; stage 20 follows `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)` and the `kprintf initialized` call. Thus the clip strongly suggests that XNU reached KPRINTF startup completion, beyond the earlier shim-entry-only evidence.
 - **Attribution limit:** the phone recording contains no device-side image digest. It is not checksum-bound to Run #297 artifact `14219764264` / `iosboot.img` SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`; treat stage 20 as a strong source-correlated inference, not exact-image proof.
 - No readable `[DARWIN]` event trace is visible after the four bars. Do not infer scheduler completion, IOKit, BSD init, root mount, launchd, SpringBoard or Darwin userspace from stage 20. The separate `sweet_early_trace_startup` event IDs 17–29 in patch 0115 are a different trace namespace from the simple stage markers 17–20.
-- **Next:** preserve Run #297 as the accepted diagnostic image. Focus on post-KPRINTF startup and make the patch-0115 events 17–29 observable; do not change the AppleLogo or early handoff without new evidence. Any further physical boot remains RAM-only and gated on the power-button-independent reset/recovery procedure being verified. Never flash.
+- **Next:** preserve Run #297 as the accepted diagnostic image. Focus on post-KPRINTF startup and make the patch-0115 events 17–29 observable; do not change the AppleLogo or early handoff without new evidence. The recovery gate is cleared by the user's confirmation; physical testing remains RAM-only and must use an accepted `iosboot.img`. Never flash.
 
 
 
@@ -154,7 +154,7 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - Run #297 remains the latest accepted image: artifact `14219764264`, `iosboot.img` SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`. The physical clip `1000317779.mp4` strongly correlates with simple stages 17–20, but is not checksum-bound to this image; do not claim BSD/root/userspace.
 - Added workflow source guards for the distinct `sweet_early_trace_startup` event namespace 17–29: ordered scheduler, IOKit, early-boot, interrupt, BSD-init, VFS, root-mount and utask-bootstrap boundaries; plus the transparent `[DARWIN]` console renderer and post-logo header ordering.
 - Change commit: `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`. The guard was executed locally against the exact patched XNU source extracted from Run #297's `xnu-buildtree` artifact and passed. A fresh Actions run is the next acceptance gate; no new image is accepted until XNU build, linked Mach-O verification and RAM-only package all pass.
-- Physical retest remains blocked until the independent power-button-free recovery/reset route is physically verified. Never flash; RAM-only fastboot boot only.
+- The independent volume-key recovery/reset route is confirmed working; physical testing is no longer blocked by that gate. Never flash; RAM-only fastboot boot only.
 
 
 ## Run #300 source/artifact forensic check — 16 November 2026
@@ -163,12 +163,12 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - Downloaded the matching Run #300 `xnu-buildtree` artifact `14238555047` and inspected its patched XNU sources. The compiled tree contains the Lavender `sweet_early_trace_startup()` renderer and event calls 17–29: scheduler begin/done (17–18), IOKit begin/done (19–20), early-boot/interrupts (21–22), BSD init (23–24), VFS (25), root mount (26–27), and BSD utask bootstrap (28–29). The [DARWIN] renderer appends to the existing lower-panel console and does not intentionally clear the logo after it has been drawn.
 - This confirms that the trace instrumentation is present in the Run #300 buildtree; it does **not** establish that the handset executed any of these events. Stage 20 is still only the earlier kprintf-startup boundary. The first post-KPRINTF observable event is 17, emitted when `kernel_bootstrap_thread()` begins scheduler startup.
 - **Next diagnostic split:** look for `[DARWIN] KBOOT SCHED BEGIN` (17), then `KBOOT SCHED DONE` (18). If 17 is absent, investigate entry into `kernel_bootstrap_thread()` after KPRINTF; if 17 appears without 18, isolate `sched_startup()`. Only then proceed to IOKit (19–20), early boot/interrupt enable (21–22), BSD init (23–24), VFS/root (25–27), and utask bootstrap (28–29).
-- Do not request a new handset test until the independent power-button-free recovery/reset procedure is physically verified as required by Chapter 01. The user's clip is not checksum-bound to Run #300. Do not claim BSD/root/launchd/SpringBoard from the current video.
+- The user confirms the independent volume-key recovery/reset procedure works; that gate is cleared. Test only accepted images with RAM-only fastboot boot. The user's clip is not checksum-bound to Run #300. Do not claim BSD/root/launchd/SpringBoard from the current video.
 
 ## Run #300 physical result and bootstrap-entry trace correction — 16 November 2026
 
 - User recording 1000317806.mp4 shows the red shim handoff diagnostics before the genuine AppleLogo. Those red-screen lines are shim/loader handoff output, not the post-logo XNU/Darwin verbose transcript.
-- After the logo appears, four green lower-edge markers remain visible and the small LAVENDER XNU VERBOSE BOOT header is visible. No readable [DARWIN] event lines or scrolling XNU log are visible after the logo. The recording ends on a FASTBOOT screen; the clip alone does not establish whether the transition was automatic, watchdog-triggered, or manually requested.
+- After the logo appears, four green lower-edge markers remain visible and the small LAVENDER XNU VERBOSE BOOT header is visible. No readable [DARWIN] event lines or scrolling XNU log are visible after the logo. The apparent FASTBOOT screen at the end is a recording glitch; the phone actually restarts normally. The video does not identify the reset cause.
 - The four green markers are consistent with the existing stage 17–20 sequence and strongly suggest the simple early marker path reached KPRINTF startup completion. This remains provisional because the video has no device-side checksum and is not bound to Run #300's image. It does not prove BSD, root mount, launchd or SpringBoard.
 - Correction to the Run #300 source interpretation: in the exact compiled startup.c, event 17 (KBOOT SCHED BEGIN) is emitted only after idle_thread_create(processor) returns. It is not at the beginning of kernel_bootstrap_thread(). Therefore absence of visible [DARWIN] lines cannot yet isolate sched_startup(); the bootstrap thread may not have been entered, or may stall in current_processor() / idle_thread_create(), or the trace output may not be visible.
 - Added patch 0119-lavender-bootstrap-thread-entry-trace.patch (commit 56c427f8a506cdc6ba250c536810df95dfb01ae4) with four non-Guardian trace events:
@@ -178,4 +178,19 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
   - existing 17/18 remain the before/after sched_startup() boundaries.
 - Patch 0119 was dry-run validated against the exact Run #300 compiled buildtree, and the resulting source-order check passed. Workflow guard update commit 34a85dd88d13cc4b30e6ccf45a92aae9f685cce8 requires patch 0119 and validates the new ordering.
 - Runs #301 and #302 were created by the patch and guard commits; #302 includes both changes and is the preferred acceptance run. They were queued at the time of this update. Require the complete XNU build, required-patch/source guards, linked Mach-O verification and RAM-only package job to pass before accepting any new image.
-- Do not ask for another handset test until Chapter 01's independent power-button-free recovery/reset route is physically verified. No flashing. The next accepted test must remain RAM-only fastboot boot iosboot.img.
+- The user confirms Chapter 01's power-button-independent volume-key recovery/reset route works; the recovery gate is cleared. No flashing. The next accepted test must remain RAM-only fastboot boot iosboot.img.
+
+
+## Gemini audit cross-check, Run #302 acceptance and next diagnostics — 16 November 2026
+
+- **Run #302 is green end-to-end:** build and separate RAM-only package jobs both succeeded. Artifact `14245608682` contains `iosboot.img` (16,601,088 bytes), SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`. This accepts patch 0119 and its source-order guard.
+- Run #301 was cancelled after being superseded. Do not treat it as a source/build failure.
+- Exact Run #300 buildtree cross-check corrects Gemini's call-graph description: after stage 20, `arm_init()` calls `PE_create_console()`, `PE_init_printf(FALSE)`, `cpu_machine_idle_init(TRUE)`, and then `PE_init_platform(TRUE, &BootCpuData)`, before `machine_startup(args)`. The event-34–39 diagnostics bracket these actual boundaries.
+- `kernel_bootstrap()` does **not** contain `STARTUP_SUB_VM_KERNEL` or the second `PE_init_platform()` call. Its real instrumented sequence uses `vm_mem_bootstrap()`, `STARTUP_SUB_OSLOG`, `sched_init()`, `STARTUP_SUB_MACH_IPC`, and kernel-thread creation (events 41–46). Do not copy Gemini's incorrect subsystem ordering into future analyses.
+- Patch `0120-lavender-panic-and-bootstrap-trace.patch` (commit `c6e812c7cdc712f8d88384a72e32e11bf7871a6e`) adds: early panic text on the post-logo console; first kernel synchronous-exception ESR/FAR/ELR/SPSR reporting; event 34–39 checkpoints across the post-stage-20 `arm_init()` path; and event 41–46 checkpoints through the real `kernel_bootstrap()` path.
+- The patch applies cleanly after 0119 against the exact Run #300 buildtree; all 16 unified-diff hunk counts and the event-order checks passed locally. This is source validation only; compilation and package acceptance remain pending.
+- Workflow guard commit `dc0603b6e6a64e117b04b447f82de37ecc36ed3f` requires 0120 and checks its event ordering, panic wiring, and exception reporter. Run #303 (`43909137046`) and preferred guarded Run #304 (`43909349821`) were queued at last check; #304 is the acceptance run.
+- The SWEET GIC Group-1/virtual-timer configuration is **not** presumed correct for Lavender. The Lavender platform profile explicitly rejects inheriting SWEET's GIC security-routing and timer assumptions. The `#if defined(SWEET)` gaps in patches 0017/0004/0065/0078 require a separate hardware-evidence audit, not a blind conditional broadening.
+- **Physical-video correction:** the apparent final FASTBOOT frame is a recording glitch. The handset restarts normally; the cause remains unknown. The four green bottom bars correspond to simple stages 17–20, not Darwin trace events 17–20.
+- **Recovery gate:** the user confirms the power-button-independent volume-key recovery/reset route works. This clears the handset-test recovery gate. Continue to use RAM-only `fastboot boot iosboot.img`; never flash or write non-`userdata` partitions.
+- Run #302's manifest predates the recovery confirmation and contains obsolete recovery-pending wording. The workflow manifest text has since been corrected; do not use that older manifest line as current device status.
