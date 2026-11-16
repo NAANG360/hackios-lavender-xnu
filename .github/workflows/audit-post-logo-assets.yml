@@ -37,20 +37,32 @@ jobs:
           "$HOME/bin/ipsw" version | tee artifacts/applelogo/logs/ipsw-version.txt
           "$HOME/bin/ipsw" fw ibootim --help > artifacts/applelogo/logs/ibootim-help.txt
 
-      - name: Decode the AppleLogo resource from the exact 20H392 IPSW
+      - name: Range-extract and decode only Apple's AppleLogo IM4P
         shell: bash
         run: |
           set -euo pipefail
           IPSW_URL="https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
           EXPECTED_SHA256="ece1194f7e233e9109c5790a8d23a4564a10a254e15ec5b09978a343265568fb"
-          printf 'Device: iPhone10,3 / iPhone X Global\nBuild: iOS 16.7.16 (20H392)\nIPSW URL: %s\nExpected whole IPSW SHA-256: %s\n' "$IPSW_URL" "$EXPECTED_SHA256" > artifacts/applelogo/source/firmware-source.txt
-          # ipsw's remote IPSW reader retrieves only firmware components it needs;
-          # do not download the 5.7 GiB full restore archive to the runner.
-          ipsw fw ibootim --remote "$IPSW_URL" --info --output artifacts/applelogo/decoded 2>&1 | tee artifacts/applelogo/logs/ibootim-remote.log
+          printf 'Device: iPhone10,3 / iPhone X Global\nBuild: iOS 16.7.16 (20H392)\nIPSW URL: %s\nExpected full IPSW SHA-256: %s\n' "$IPSW_URL" "$EXPECTED_SHA256" > artifacts/applelogo/source/firmware-source.txt
+
+          # Read only the central directory, then download the exact AppleLogo
+          # IM4P member using HTTP ranges. The helper validates ZIP CRC-32.
+          python3 tools/remotezip.py "$IPSW_URL" > artifacts/applelogo/source/ipsw-members.txt
+          grep -i 'applelogo.*\.im4p' artifacts/applelogo/source/ipsw-members.txt > artifacts/applelogo/source/applelogo-members.txt
+          test -s artifacts/applelogo/source/applelogo-members.txt
+          python3 tools/remotezip.py "$IPSW_URL" applelogo artifacts/applelogo/source
+
+          ASSET="$(find artifacts/applelogo/source -type f -iname 'applelogo*.im4p' -print -quit)"
+          test -n "$ASSET"
+          file "$ASSET" | tee artifacts/applelogo/source/applelogo-file-type.txt
+          shasum -a 256 "$ASSET" > artifacts/applelogo/source/applelogo-member-sha256.txt
+          ipsw fw ibootim "$ASSET" --output artifacts/applelogo/decoded 2>&1 | tee artifacts/applelogo/logs/ibootim-extract.log
+
           find artifacts/applelogo/decoded -type f -print | sort > artifacts/applelogo/file-index.txt
+          test -s artifacts/applelogo/file-index.txt
           find artifacts/applelogo/decoded -type f -exec file {} \; > artifacts/applelogo/decoded/file-types.txt
           find artifacts/applelogo/decoded -type f -exec shasum -a 256 {} \; > artifacts/applelogo/decoded/member-sha256.txt
-          test -s artifacts/applelogo/file-index.txt
+          printf 'AppleLogo source member CRC verified by remotezip; source-member SHA-256 recorded separately.\n' >> artifacts/applelogo/source/firmware-source.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
