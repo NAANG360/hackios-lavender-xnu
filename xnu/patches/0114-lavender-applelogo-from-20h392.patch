@@ -1,0 +1,81 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -143,6 +143,7 @@
+ #elif defined(ARM64_BOARD_CONFIG_LAVENDER)
+ /* LAVENDER_XNU_GUARD_2026: first-entry stage markers and A53 watchdog cell. */
+ #include <stdint.h>
++#include "lavender_applelogo.h"
+ 
+ #define LAVENDER_FB_BASE 0x9d400000ULL
+ #define LAVENDER_FB_WIDTH 1080u
+@@ -407,56 +408,35 @@
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+ 
+-static int
+-lavender_logo_ellipse(int x, int y, int cx, int cy, int rx, int ry)
+-{
+-	int64_t dx = x - cx;
+-	int64_t dy = y - cy;
+-	int64_t rx2 = (int64_t)rx * rx;
+-	int64_t ry2 = (int64_t)ry * ry;
+-	return dx * dx * ry2 + dy * dy * rx2 <= rx2 * ry2;
+-}
+-
+-/* Draw a diagnostic Apple mark after arm_init has a live framebuffer mapping. */
++/* Draw the original iBoot AppleLogo from the iPhone X 20H392 firmware asset.
++ * The generated mask contains premultiplied white intensity, so writing each
++ * value to all RGB channels composites it directly over the black panel.
++ * Keep this call after arm_vm_init() installs the permanent framebuffer alias. */
+ void
+ sweet_early_logo(void)
+ {
+-	const int cx = (int)LAVENDER_FB_WIDTH / 2;
+-	const int cy = (int)LAVENDER_FB_HEIGHT / 2;
+-	const uint32_t black = 0xff000000u;
+-	const uint32_t white = 0xffffffffu;
++	const unsigned int x0 = (LAVENDER_FB_WIDTH - LAVENDER_APPLELOGO_WIDTH) / 2u;
++	const unsigned int y0 = (LAVENDER_FB_HEIGHT - LAVENDER_APPLELOGO_HEIGHT) / 2u;
++	const uint32_t opaque = 0xff000000u;
+ 
+ 	/* Clear the entire panel; never leave the shim's colored screen as a box. */
+ 	for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++) {
+ 		volatile uint32_t *line = early_fb + y * LAVENDER_FB_STRIDE;
+ 		for (unsigned int x = 0; x < LAVENDER_FB_WIDTH; x++) {
+-			line[x] = black;
++			line[x] = opaque;
+ 		}
+ 	}
+ 
+-	for (int y = -205; y <= 185; y++) {
+-		volatile uint32_t *line = early_fb + (cy + y) * LAVENDER_FB_STRIDE;
+-		for (int x = -165; x <= 165; x++) {
+-			int body =
+-				lavender_logo_ellipse(x, y, -55, -52, 82, 96) ||
+-				lavender_logo_ellipse(x, y,  55, -52, 82, 96) ||
+-				lavender_logo_ellipse(x, y,   0,  34, 130, 132);
+-			int bite = lavender_logo_ellipse(x, y, 132, -8, 46, 55);
+-			int dx = x - 37;
+-			int dy = y + 164;
+-			int u = dx + dy / 2;
+-			int v = dy - dx / 2;
+-			int leaf = u * u * 256 + v * v * 1444 <= 1444 * 256;
+-			int stem = (x >= -2 && x <= 5 && y >= -145 && y <= -117);
+-			if ((body && !bite) || leaf || stem) {
+-				line[cx + x] = white;
+-			}
++	for (unsigned int y = 0; y < LAVENDER_APPLELOGO_HEIGHT; y++) {
++		volatile uint32_t *line = early_fb + (y0 + y) * LAVENDER_FB_STRIDE + x0;
++		for (unsigned int x = 0; x < LAVENDER_APPLELOGO_WIDTH; x++) {
++			const uint32_t value = lavender_applelogo_luma[y * LAVENDER_APPLELOGO_WIDTH + x];
++			line[x] = opaque | (value << 16) | (value << 8) | value;
+ 		}
+ 	}
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+ 
+-
+ void
+ sweet_early_guard_init(uintptr_t boot_args_kva)
+ {

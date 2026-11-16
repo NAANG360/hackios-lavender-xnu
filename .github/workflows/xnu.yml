@@ -33,6 +33,8 @@ on:
       - ".github/workflows/package-lavender.yml"
       - "tools/validate-lavender-profile.sh"
       - "tools/fix-lavender-pre-vbar.py"
+      - "tools/prepare-lavender-applelogo.sh"
+      - "tools/pack_lavender_applelogo.py"
       - "tools/verify-lavender-kernel.py"
       - "tools/mkadt-lavender.py"
       - "tools/mkpayload.py"
@@ -96,6 +98,7 @@ jobs:
                  "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
                  '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
                  "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c xnu/osfmk/arm/arm_init.c xnu/osfmk/kern/startup.c" + chr(10) +
+                 "        bash ../tools/prepare-lavender-applelogo.sh xnu/osfmk/arm64/lavender_applelogo.h" + chr(10) +
                  "    fi" + chr(10) +
                  "    venv")
           if old not in source:
@@ -119,7 +122,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
           restore-keys: |
             xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
@@ -203,7 +206,7 @@ jobs:
           EXACT_CACHE_HIT: ${{ steps.xnu-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0112-lavender-commpage-armv8a-llsc.patch 0113-lavender-corecrypto-sha2-file-scope.patch; do
+          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0112-lavender-commpage-armv8a-llsc.patch 0113-lavender-corecrypto-sha2-file-scope.patch 0114-lavender-applelogo-from-20h392.patch; do
             if grep -q "Skipping patch .*${required_patch}" xnu-build.log; then
               echo "Required Lavender diagnostic patch ${required_patch} was skipped; refusing this build."
               exit 1
@@ -233,6 +236,27 @@ jobs:
           if ".arch armv8-a+sha2" not in source:
               raise SystemExit("SHA256 assembly is missing its file-scoped ARMv8-A+SHA2 architecture declaration")
           print("PASS: SHA2 is enabled only in the SHA256 assembly translation unit")
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          header = Path("dxb/xnu/osfmk/arm64/lavender_applelogo.h")
+          if not header.is_file():
+              raise SystemExit("genuine 20H392 AppleLogo header was not generated")
+          data = header.read_text()
+          expected = (
+              "Source IM4P SHA-256: 93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8",
+              "Decoded PNG SHA-256: 9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb",
+              "#define LAVENDER_APPLELOGO_WIDTH 194u",
+              "#define LAVENDER_APPLELOGO_HEIGHT 238u",
+              "lavender_applelogo_luma[46172u]",
+          )
+          for value in expected:
+              if value not in data:
+                  raise SystemExit("generated AppleLogo header is missing pinned content: " + value)
+          source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          if "lavender_applelogo_luma" not in source or "lavender_logo_ellipse" in source:
+              raise SystemExit("Lavender logo renderer is not using only the original iBoot AppleLogo raster")
+          print("PASS: exact iPhone X 20H392 AppleLogo raster is embedded in the Lavender source")
           PY
           if [[ "$EXACT_CACHE_HIT" == "true" ]]; then
             echo "PASS: exact cache hit; MakeInc.def source target check passed and linked Mach-O verification remains mandatory"
@@ -507,7 +531,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
@@ -703,7 +727,9 @@ jobs:
             echo "Volume-key chord: hold Volume Up + Volume Down for 3 seconds; this requests a reset only and does not select a recovery boot target (physical validation pending)"
             echo "Reset path: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
             echo "Reset caveat: watchdog register sequence is source-grounded; this watchdog-first ordering still needs physical validation"
-            echo "XNU logo: full-panel clear and Apple mark are deferred until arm_vm_init returns and the permanent framebuffer alias is installed; no claim of full iOS boot"
+            echo "XNU logo: genuine iPhone X iOS 16.7.16 (20H392) AppleLogo raster, 194x238, centered after arm_vm_init and permanent framebuffer alias"
+            echo "AppleLogo source IM4P SHA-256: 93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8"
+            echo "AppleLogo decoded PNG SHA-256: 9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb"
             echo "XNU entry diagnostics: assembly stages 3-7 are green tiles; stages 8-9 trace boot-args KVA setup and the instruction immediately before ret to arm_init"
             echo "XNU C diagnostics: stage 4 is cpu_bootstrap; stages 5-14 split rtclock, early startup hooks, timer, cpu_init, processor_bootstrap and arm_vm_init entry; guardian words use 0x100+stage"
             echo "Framebuffer console: lavender_no_fbcon=1 disables only the legacy pexpert serial fbcon; the direct early checkpoint text renderer remains active"
