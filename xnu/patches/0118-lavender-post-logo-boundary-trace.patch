@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -549,11 +549,17 @@
+@@ -549,10 +549,16 @@
  #if __arm64__ && WITH_CLASSIC_S2R
  	sleep_token_buffer_init();
  #endif
