@@ -1,8 +1,8 @@
 # Chapter 5 — Post-logo kernel and Darwin userspace
 
-This is the active roadmap after the Run #261 physical diagnostic-logo milestone. Keep the XNU kernel, genuine AppleLogo artwork, storage/root device, launchd, graphics/input services and SpringBoard as separate acceptance gates.
+This is the active roadmap after the user-observed Run #261 physical framebuffer logo-rendering milestone. The observed artwork is patch 0094's custom approximation; the user explicitly requires the genuine Apple asset for subsequent images. Keep the XNU kernel, genuine AppleLogo artwork, storage/root device, launchd, graphics/input services and SpringBoard as separate acceptance gates.
 
-## 1. Genuine AppleLogo asset — extraction succeeded, XNU build integration pending
+## 1. Genuine AppleLogo asset — extracted and integrated in source; full CI acceptance pending
 
 The previous `0094-lavender-logo-and-stage-markers.patch` draws a hand-made diagnostic approximation using ellipses, a bite cut-out, leaf and stem. The user explicitly requires Apple's actual logo. Do not redraw or substitute another approximation.
 
@@ -19,13 +19,13 @@ New integration:
 - `tools/pack_lavender_applelogo.py` checks the pinned PNG/IM4P hashes, dimensions and white-alpha pixel semantics.
 - `.github/workflows/xnu.yml` requires patch 0114, includes both scripts in its cache key and checks the generated header/source before accepting the build.
 
-**CI status:** Run #267 failed before compilation could proceed because shell parameter expansions in `prepare-lavender-applelogo.sh` were backslash-escaped and `mktemp` received a literal `${TMPDIR:-/tmp}`. Commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` removes the erroneous backslashes. Run #268 (`43805363291`) is validating that correction. Do not claim the authentic logo is on the phone until a new image passes build, linked verification, packaging and a later safe physical test.
+**CI status:** Run #267 failed because shell parameter expansions were escaped; commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` fixed this. Run #268 (`43805363291`) then compiled XNU and passed the exact AppleLogo header/hash/source guard, but failed later because the startup-trace verifier sliced its helper body using the removed `lavender_logo_ellipse` symbol. Commit `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664` changes the slice boundary to `sweet_early_logo(void)`. This fix still requires a new successful build, linked Mach-O verification and RAM-only package. Do not claim the authentic logo is on the phone until a safe physical test confirms it.
 
 The original resource came from Apple's firmware; the raster is not a substitute for the entire Apple boot UI or a proof of a fully booted iOS system.
 
 ## 2. Confirm the post-logo XNU frontier
 
-The Run #261 manifest places the diagnostic logo after `arm_vm_init()`, then publishes a logo-completed marker. The user-supplied 20.317-second recording shows the diagnostic mark but does not expose stage 20 (`kprintf` startup complete), root mounting, launchd or a persistent userspace log.
+The Run #261 manifest places the logo renderer after `arm_vm_init()`, then publishes a logo-completed marker. The user-supplied 20.295-second recording shows the custom diagnostic mark; it does not expose stage 20 (`kprintf` startup complete), root mounting, launchd or a persistent userspace log. The recording is attributed to #261 by the user but is not bound to the image by a device-side checksum.
 
 Next:
 - keep Run #261/#266 as known verified old-logo baselines;
@@ -127,14 +127,16 @@ Further Lavender-specific gaps:
 
 ## Acceptance ladder
 
-1. Run #261 build, verification and package — passed.
-2. Physical Run #261 image — diagnostic logo stage observed in user video; not image-checksum-bound.
-3. Run #266 build, verification and package — passed; not separately physically tested.
-4. Official 20H392 AppleLogo — extracted and hash-verified; patch 0114/build integration pending Run #268.
-5. XNU stage 20 and post-logo kernel continuation — not physically proven.
-6. SDHC2 read-only probe and removable-card PIO reads — not implemented.
-7. BSD block device and GPT/HFS+ root mount — not done.
-8. iOS 20H392 cryptexes/dyld and launchd/early daemons — not done.
-9. backboardd, IOMobileFramebuffer, input and SpringBoard — not done.
+1. Run #261 XNU build, verification and package — passed.
+2. Physical Run #261-attributed image — custom diagnostic logo-rendering stage observed in user video; not image-checksum-bound.
+3. Run #266 build, verification and package — passed with old diagnostic logo; not separately physically tested.
+4. Genuine 20H392 AppleLogo — asset extracted/hash-verified and patch 0114 integrated; full CI acceptance pending after verifier fix commit `5dc07a9`.
+5. Genuine AppleLogo physical display — not yet tested; wait for full CI acceptance and recovery-safety gate.
+6. XNU stage 20 and post-logo kernel continuation — not physically proven.
+7. SDHC2 read-only probe — not implemented; this is the next software/hardware discovery task.
+8. SDHC2 V5 power handshake and read-only PIO card reads — not implemented.
+9. BSD block device, GPT/HFS+ read-only root mount — not done.
+10. iOS 20H392 cryptexes/dyld, launchd and early daemons — not done.
+11. backboardd, IOMobileFramebuffer, input and SpringBoard — not done.
 
 No handset retest until a power-button-independent recovery/reset route is physically verified. RAM-only boot only; never flash, erase, repartition or write Android userdata/internal eMMC.
