@@ -1,0 +1,135 @@
+name: Audit post-logo firmware assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/lavender-machine-profile]
+    paths:
+      - ".github/workflows/audit-post-logo-assets.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extract-applelogo:
+    name: Extract iPhone X 20H392 AppleLogo
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install IPSW inspection tool
+        run: brew install blacktop/tap/ipsw
+
+      - name: Range-extract and decode AppleLogo resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPSW_URL="https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw"
+          EXPECTED_SHA256="ece1194f7e233e9109c5790a8d23a4564a10a254e15ec5b09978a343265568fb"
+          mkdir -p artifacts/applelogo/source artifacts/applelogo/decoded artifacts/applelogo/logs
+
+          printf 'IPSW URL: %s\nExpected IPSW SHA-256: %s\n' "$IPSW_URL" "$EXPECTED_SHA256" > artifacts/applelogo/source/firmware-source.txt
+          python3 tools/remotezip.py "$IPSW_URL" > artifacts/applelogo/source/ipsw-members.txt
+          grep -i 'applelogo' artifacts/applelogo/source/ipsw-members.txt > artifacts/applelogo/source/applelogo-members.txt
+          test -s artifacts/applelogo/source/applelogo-members.txt
+
+          # The ZIP helper streams only matching AppleLogo members over HTTP
+          # ranges and validates each member's ZIP CRC-32 before finalizing it.
+          python3 tools/remotezip.py "$IPSW_URL" applelogo artifacts/applelogo/source
+          ipsw version > artifacts/applelogo/logs/ipsw-version.txt
+          ipsw fw ibootim --help > artifacts/applelogo/logs/ibootim-help.txt
+          ipsw img4 im4p info --help > artifacts/applelogo/logs/im4p-info-help.txt
+
+          decoded=0
+          while IFS= read -r -d '' asset; do
+            name="$(basename "$asset")"
+            out="artifacts/applelogo/decoded/$name"
+            mkdir -p "$out"
+            ipsw img4 im4p info "$asset" > "$out/im4p-info.txt" 2>&1 || true
+            if ipsw fw ibootim "$asset" --info --output "$out" > "$out/ibootim.log" 2>&1; then
+              decoded=$((decoded + 1))
+            else
+              printf 'Decode failed for %s; see ibootim.log\n' "$asset" >> artifacts/applelogo/logs/decode-errors.txt
+            fi
+          done < <(find artifacts/applelogo/source -type f -iname '*applelogo*.im4p' -print0)
+
+          find artifacts/applelogo -type f -maxdepth 6 -print | sort > artifacts/applelogo/file-index.txt
+          find artifacts/applelogo/source -type f -iname '*applelogo*.im4p' -exec shasum -a 256 {} \; > artifacts/applelogo/source/member-sha256.txt
+          find artifacts/applelogo/decoded -type f -exec file {} \; > artifacts/applelogo/decoded/file-types.txt
+          printf 'Successfully inspected/decode-invoked AppleLogo IM4P members: %s\n' "$decoded" >> artifacts/applelogo/source/firmware-source.txt
+          test -s artifacts/applelogo/source/applelogo-members.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iphone-x-20h392-applelogo-extraction
+          path: artifacts/applelogo/
+          if-no-files-found: warn
+          retention-days: 14
+
+  audit-lavender-storage:
+    name: Inspect Build 4 Lavender storage FDT
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Device Tree Compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y device-tree-compiler
+
+      - name: Range-extract Build 4 boot image and inspect its FDT
+        shell: bash
+        run: |
+          set -euo pipefail
+          OTA_URL="https://github.com/NAANG360/Lucid-OS/releases/download/lucid-android15-lavender-build-4-experimental/LucidOS-Android15-lavender-build-4-experimental.zip"
+          EXPECTED_OTA_SHA256="d2b81388a57c685b82e3cb8f29da475f540dfcb9f5114003846d9337533d3219"
+          EXPECTED_OTA_SIZE="1355867286"
+          mkdir -p artifacts/storage/ota artifacts/storage/unpacked
+
+          printf 'OTA URL: %s\nExpected whole-archive SHA-256: %s\nExpected size: %s\n' "$OTA_URL" "$EXPECTED_OTA_SHA256" "$EXPECTED_OTA_SIZE" > artifacts/storage/source.txt
+          python3 tools/remotezip.py "$OTA_URL" > artifacts/storage/ota-members.txt
+          grep -E '(^|/)boot\.img$' artifacts/storage/ota-members.txt > artifacts/storage/boot-members.txt
+          test -s artifacts/storage/boot-members.txt
+          python3 tools/remotezip.py "$OTA_URL" boot.img artifacts/storage/ota
+
+          python3 - <<'PY'
+          from pathlib import Path
+          matches = list(Path("artifacts/storage/ota").rglob("boot.img"))
+          if len(matches) != 1:
+              raise SystemExit(f"expected exactly one boot.img member, found {len(matches)}: {matches}")
+          print(f"Selected OTA boot image: {matches[0]} ({matches[0].stat().st_size} bytes)")
+          PY
+
+          BOOT_IMAGE="$(find artifacts/storage/ota -type f -name boot.img -print -quit)"
+          sha256sum "$BOOT_IMAGE" > artifacts/storage/boot-img.sha256
+          python3 tools/unpack_bootv2.py "$BOOT_IMAGE" artifacts/storage/unpacked
+          python3 tools/extract_appended_fdt.py artifacts/storage/unpacked/kernel --index 0 --compatible qcom,sdm660 --model-contains "SDM 660" --output artifacts/storage/lavender.dtb
+          dtc -I dtb -O dts -o artifacts/storage/lavender.dts artifacts/storage/lavender.dtb 2> artifacts/storage/dtc-warnings.txt
+
+          python3 - <<'PY'
+          from pathlib import Path
+          lines = Path("artifacts/storage/lavender.dts").read_text(errors="replace").splitlines()
+          out = []
+          for address in ("c084000", "c0c4000"):
+              hits = [i for i, line in enumerate(lines) if address in line]
+              out.append(f"===== address {address}: {'PRESENT' if hits else 'ABSENT'} =====")
+              if hits:
+                  for i in hits[:3]:
+                      out.extend(lines[max(0, i-3):min(len(lines), i+55)])
+              out.append("")
+          Path("artifacts/storage/storage-audit.txt").write_text("\n".join(out) + "\n")
+          print(Path("artifacts/storage/storage-audit.txt").read_text())
+          PY
+
+          sha256sum artifacts/storage/lavender.dtb artifacts/storage/lavender.dts >> artifacts/storage/source.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lavender-build4-storage-fdt-audit
+          path: artifacts/storage/
+          if-no-files-found: warn
+          retention-days: 14
