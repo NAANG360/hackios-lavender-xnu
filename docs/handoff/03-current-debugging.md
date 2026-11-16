@@ -121,3 +121,10 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - **Run #295** (commit `c1cddaa5ee4bcb536073f2cb915c9620c1ab11ad`) validates the minimal-anchor patch; it may complete independently.
 - **Run #296** (commit `52d0ac77316b3ba880b543985d215104f4a9c527`) is the preferred validation run for the corrected hunk offsets. Require patch 0118 to apply, the source-order guard to pass, linked ARM64 Mach-O verification to pass, and the RAM-only package job to finish before accepting any image.
 - Raw kernel candidates from #293/#294 are not bootable test artifacts. Preserve #290 as the last accepted package until #295 or #296 passes every gate.
+
+
+## Run 296 failure and 0118 correction — 16 November 2026
+
+- Run #296 (`43850609298`, commit `52d0ac77316b3ba880b543985d215104f4a9c527`) compiled XNU successfully, then failed the required-patch guard because patch 0118 was skipped: its first hunk targeted line 557, while the source after patches 0115–0117 had `PE_consistent_debug_inherit()` at line 553 and `serial_init()` at line 556. The failure was patch context mismatch, not a compiler error.
+- Corrected 0118 to use the final post-0117 source context around lines 553–563. Verified the exact patch with `git apply --check` and applied it cleanly against the Run 296 buildtree's `osfmk/arm/arm_init.c`.
+- Run #297 (`43853989024`, commit `fd40a4953708f22e7df492bef699e657dade93ea`) is queued to validate the corrected patch. Do not use the Run 296 raw kernel candidate; its packaging job was skipped after the required-patch guard failed.
