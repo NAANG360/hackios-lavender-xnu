@@ -1,0 +1,45 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -418,32 +418,15 @@
+ 	default:
+ 		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
+ 		break;
+ 	}
+ 	text[length] = '\0';
+ 
+-	/* 1080x2340 display: the final complete 8x16 text row begins at y=2312. */
+-	const unsigned int x0 = 24u;
+-	const unsigned int y0 = LAVENDER_FB_HEIGHT - LAVENDER_CONSOLE_CHAR_H - 12u;
+-	const unsigned int width = LAVENDER_FB_WIDTH - 2u * x0;
+-	for (unsigned int gy = 0; gy < LAVENDER_CONSOLE_CHAR_H; gy++) {
+-		volatile uint32_t *line = early_fb + (y0 + gy) * LAVENDER_FB_STRIDE + x0;
+-		for (unsigned int x = 0; x < width; x++) {
+-			line[x] = 0xff000000u;
+-		}
+-	}
+-	for (unsigned int index = 0; index < length; index++) {
+-		const unsigned char ch = (unsigned char)text[index];
+-		const unsigned char *glyph = iso_font + ch * 16u;
+-		for (unsigned int gy = 0; gy < LAVENDER_CONSOLE_CHAR_H; gy++) {
+-			volatile uint32_t *line = early_fb + (y0 + gy) * LAVENDER_FB_STRIDE + x0 + index * LAVENDER_CONSOLE_CHAR_W;
+-			for (unsigned int gx = 0; gx < LAVENDER_CONSOLE_CHAR_W; gx++) {
+-				line[gx] = (glyph[gy] & (1u << gx)) ? 0xffffffffu : 0xff000000u;
+-			}
+-		}
+-	}
++	/*
++	 * Append to the existing verbose console. Do not clear a status strip or
++	 * redraw a separate screen: sweet_early_logo() remains visible behind the
++	 * white text, with only individual glyph cells receiving black backing.
++	 */
++	if (!lavender_console_started) {
++		lavender_console_started = 1;
++		lavender_console_clear();
++		lavender_console_string("LAVENDER XNU VERBOSE BOOT\n");
++	}
++	lavender_console_string("[DARWIN] ");
++	lavender_console_string(text);
++	lavender_console_putc('\n');
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
