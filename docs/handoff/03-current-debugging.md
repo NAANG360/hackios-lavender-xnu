@@ -1,8 +1,17 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current validation:** Run #269 / workflow `43809333900`
-**Source:** `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664`
+**Current validation:** Corrected follow-up to Runs #274/#275 (see latest operations below)
+**Branch:** `ci/lavender-machine-profile`
+
+## Latest operations — 16 November 2026
+
+- **Run #274** ([43814890363](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814890363), source `5493d479039821941e0608a5e6191539eb11d52c`) **passed**: XNU build, entry-guard checks, linked Mach-O/kernel verification and RAM-only fastboot image packaging.
+- **Run #275** ([43814903820](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814903820), source `5b0d4121240d9573a10c3771afbef9f08e4a5729`) compiled XNU but failed at step 12, **Require Lavender XNU entry-guard patch**. The package job was consequently skipped.
+- **Root cause:** the newly added source assertion used basic-regex `grep -q` for a literal C string containing parentheses. In basic regular expressions, the unescaped parentheses are grouping operators, so the pattern did not match the literal source. This is a false-negative CI guard, not an XNU compile or patch-application failure.
+- **Correction:** use fixed-string matching: `grep -Fq 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c`. Keep the assertion; do not remove the guard.
+- **Acceptance:** #274 remains a valid green baseline. #275 is not a packaged-image acceptance. A fresh run after this correction must pass all guards, linked Mach-O verification and RAM-only packaging before its `iosboot.img` is accepted.
+- **Visual caveat:** patch 0116 appends post-logo `[DARWIN]` trace messages through the verbose console without clearing the logo. Earlier pre-logo console lines are currently painted before the logo's full-panel clear and are not replayed over it. Do not claim the full early log is overlaid until that is implemented and checked. The overlay has CI evidence, not yet a separate physical handset confirmation.
 
 ## Physical baseline — Run #261
 
@@ -40,9 +49,9 @@ It then failed in the startup-trace verifier with `ValueError: substring not fou
 
 ## Immediate next operations
 
-1. Inspect Run #269 (`43809333900`) to completion; require XNU build, all source guards, linked Mach-O verification and RAM-only package to pass.
-2. Preserve the #261 physical milestone and #266/#261 old-logo artifacts. Do not use #268's raw kernel candidate.
-3. Once an authentic-logo image is fully verified, keep it as the next candidate; physical retest remains blocked until the independent recovery/reset route is physically verified.
+1. Confirm the corrected follow-up run passes XNU build, all source guards, linked Mach-O verification and RAM-only package.
+2. Preserve #274 as the successful baseline. Do not treat #275 as a package or use any raw, unverified kernel candidate.
+3. Inspect the fresh `iosboot.img` artifact and record its exact size and SHA-256 before handset testing.
 4. Continue the post-logo roadmap in Chapter 05: XNU stage-20/post-logo instrumentation, read-only SDHC2 discovery, V5 power sequencing, PIO SD reads, read-only BSD block device, GPT/HFS+ root and Darwin launchd.
 
 ## Storage frontier — exact Build 4 embedded FDT
