@@ -14,10 +14,12 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 - Commit `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664` replaces that stale sentinel with the next function boundary `sweet_early_logo(void)`. Run #269 (`43809333900`, source `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664`) is now running the corrected verifier; at handoff refresh, the XNU build step is still in progress. A local check against #268's patched buildtree confirms the new function boundary and trace-scope assertions. Require linked verification and RAM-only packaging before accepting the authentic-logo image.
 
 ## Storage facts — Build 4 embedded FDT
-- SDHC2 removable host: base `0x0c084000`, size `0x1000`, `qcom,sdhci-msm-v5`, enabled, 4-bit bus, card detect GPIO54, host IRQ125, power IRQ221, PM660L L5/L2 VMMC/VQMMC and GCC SDCC2 AHB/APPS clocks (IDs 93/94).
-- Internal SDHC1 eMMC: `0x0c0c4000`, 8-bit, non-removable with CQE/ICE. Never use it for iOS root; preserve Android data.
-- Qualcomm V5 power IRQ is part of the protocol: it services BUS_ON/OFF and IO_LOW/HIGH, switches regulator/pinctrl state and acknowledges the core. See Chapter 05.
-- A 16 GiB logical HFS+ root cannot fit in the ~1.10 GiB remaining contiguous ADT RAMDisk aperture. The payload builder now rejects oversize images before reading them. Prefer a read-only removable SD root.
+- **iOS root target: internal eMMC via SDHC1**, base `0x0c0c4000`, 8-bit, non-removable, CQE/ICE resources. The intended HFS+ iOS root replaces Android's contents of the existing `userdata` partition; removable SDHC2 is not the planned root.
+- SDHC2 at `0x0c084000` is a separate removable 4-bit card host (GPIO54, host IRQ125, power IRQ221, PM660L L5/L2, GCC SDCC2 clocks 93/94). It is not the root-storage plan.
+- Topaz's `userdata` + HFS+ root deployment is the architectural reference, but Topaz uses UFS 3.0. Do not port its UFS transport to Lavender; implement the SDM660 SDHCI/eMMC path and validate SDHC1-specific clocks, rails, IRQs, CQE/ICE and reset state from Lavender sources.
+- Initial SDHC1 bring-up is read-only: identify the host/card, read GPT and HFS+ metadata using bounded PIO. Only after this works should controlled writes be enabled for the designated `userdata` image. Never write other eMMC partitions.
+- The Qualcomm MSM V5 power-event handshake and regulator/pinctrl ordering must be audited for SDHC1 too; do not assume the SDHC2 GPIO/IRQ/rail values apply to SDHC1.
+- A 16 GiB logical HFS+ root cannot fit in the ~1.10 GiB remaining contiguous ADT RAMDisk aperture. The payload builder rejects oversized RAMDisks; use `userdata` as the persistent root target, not a RAMDisk.
 
 ## Mandatory protocol
 1. Resolve live branch HEAD and newest Actions runs.
