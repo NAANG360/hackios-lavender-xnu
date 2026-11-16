@@ -11,7 +11,7 @@ A new session must read this file, inspect live GitHub branch/Actions state, the
 
 ## Current task / chapter route
 
-**Active task:** validate the corrected patch 0112 in XNU #255, then integrate pre-compilation and linked-Mach-O guards for the ARMv8.0 commpage LL/SC replacement. Do not investigate the physical mutex callback until a newly verified image exists.
+**Active task:** fix the overly broad executable-CASA verifier in Run #257, then rerun the Lavender XNU build and verify the linked commpage helpers before packaging.
 
 **XNU #252** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43733584216), source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) failed on handwritten `CASA` instructions at `commpage_asm.s:276` and `:326`, each requiring LSE. Generic ARMv8-A compiler flags cannot rewrite handwritten assembly.
 
@@ -177,3 +177,6 @@ Topaz is a useful *architectural and XNU bring-up reference*, not a same-SoC por
 ## Session completion rule
 
 After the next physical test, record the exact artifact/run/source SHA tested, exact marker and timestamp/video evidence, what it proves, and the next narrow task. Update this file, AGENTS.md, Chapter 03 and Chapter 04. Then the next session can resume with only “Continue from latest operations.”
+
+
+Run #257 (workflow `43789910990`, commit `c68f68c52bd3f227c0909e7728173632cebad27b`) failed in `Require Lavender XNU entry-guard patch` after the XNU build stage had completed. The exact fatal diagnostic was `unsupported executable LSE CASA remains in commpage assembly`. The guard stripped comments but scanned the entire `osfmk/arm/commpage/commpage_asm.s` file, so an unrelated executable CASA in another commpage routine caused a false positive; patch 0112's two target lock helpers were separately checked for LDAXR/STXR and CLREX. This is a verifier-scope bug, not evidence that the LL/SC conversion failed. The RAM-only package job was skipped, so no iosboot.img was produced. A later log line about the optional Xcode Kernel.framework PrivateHeaders/platform copy was non-fatal (`|| true`) and not the failure cause.
