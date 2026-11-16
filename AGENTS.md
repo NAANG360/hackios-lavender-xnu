@@ -68,3 +68,11 @@ Branch: `ci/lavender-machine-profile`
 - **Corrective change:** regenerated patch 0115 against the exact post-0106…0114 source tree extracted from #285's `xnu-buildtree` artifact. The new unified diff includes the actual context around scheduler startup, IOKit, BSD bootstrap, VFS initialization, root mount, and `bsd_utaskbootstrap`. It was locally validated with `patch -p1 --dry-run` against that exact build tree: all three files checked successfully.
 - **#286** ([43825403975](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43825403975)) is the fresh validation run for commit `b1b434dfc9d3668bbea9a4704a85a324ff0f9887`. It is in progress at the time of this update. Require 0115 and 0116 not to be skipped, then require kernel verification and RAM-only package completion. Do not distribute its candidate unless the full run is green.
 - **Important correction to prior reports:** #281–#285 were not valid green builds for the new trace changes. The reliable previously packaged test image remains #274. The 0115 patch fix is now tested against the actual XNU source context rather than by hunk-count lint alone.
+
+
+## Latest CI correction — Run #290 (16 November 2026)
+
+- Run #289 ([43826819680](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43826819680), source `ed8941c52741e510c2035033a6e109c1e155f332`) compiled XNU but failed the required-patch guard: patch 0115's first `startup.c` hunk did not apply at line 658. Linked verification and packaging were skipped.
+- Root cause was four comment-context lines with an extra tab in `xnu/patches/0115-lavender-post-logo-darwin-trace.patch`. Reproduced against Run #289's buildtree artifact: original hunk failed; normalized context passed `patch -p1 --dry-run`.
+- Fix commit: `e2beb8e297c498def1c09fd2a32a5b0241c86102`; only patch context changed, not XNU behavior.
+- Run #290 ([43829764065](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43829764065)) validates the correction. Do not accept raw candidates; require patch guards, linked Mach-O verification and RAM-only package success.
