@@ -50,7 +50,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -660,7 +660,13 @@
+@@ -660,6 +660,12 @@
  	 */
  	kernel_bootstrap_thread_log("sched_startup");
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -63,7 +63,7 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  
  	/*
  	 * Thread lifecycle maintenance (teardown, stack allocation)
-@@ -735,7 +741,13 @@
+@@ -735,6 +741,12 @@
  #ifdef  IOKIT
  	kernel_bootstrap_log("PE_init_iokit");
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -76,7 +76,7 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  #endif
  
  	assert(ml_get_interrupts_enabled() == FALSE);
-@@ -744,7 +756,13 @@
+@@ -744,6 +756,9 @@
  	/*
  	 * Past this point, kernel subsystems that expect to operate with interrupts or preemption enabled may begin enforcement.
  	 */
@@ -125,7 +125,7 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
  const char *const copyright =
      "Copyright (c) 1982, 1986, 1989, 1991, 1993\n\t"
      "The Regents of the University of California. "
-@@ -690,6 +695,9 @@
+@@ -690,5 +695,8 @@
  	/* Initialize the file systems. */
  	bsd_init_kprintf("calling vfsinit\n");
  	vfsinit();
@@ -134,7 +134,7 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
 +#endif
  
  #if defined(ARM64_BOARD_CONFIG_SWEET)
-@@ -879,7 +887,13 @@
+@@ -879,4 +887,10 @@
  		bsd_init_kprintf("vfs_mountroot\n");
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +		sweet_early_trace_startup(26, 0, 0, 0, 0, 0);
@@ -145,7 +145,7 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
 +#endif
  			break;
  		}
-@@ -1044,7 +1058,13 @@
+@@ -1044,6 +1058,12 @@
  	}
  
  	bsd_init_kprintf("calling bsd_utaskbootstrap\n");
