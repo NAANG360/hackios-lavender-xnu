@@ -217,24 +217,13 @@ jobs:
           print("PASS: Lavender machine flags pin generic ARMv8-A")
           PY
           python3 - <<'PY'
-          import re
+          import runpy
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/commpage/commpage_asm.s").read_text()
-          # Validate only the two Lavender lock helpers. Other commpage routines
-          # may contain independent atomics and are outside patch 0112's scope.
-          code = "\n".join(line.split("//", 1)[0] for line in source.splitlines())
-          for name, next_name in (("_pfz_trylock_and_enqueue:", "_pfz_trylock_and_dequeue:"), ("_pfz_trylock_and_dequeue:", None)):
-              start = code.index(name)
-              end = code.find(next_name, start + len(name)) if next_name else len(code)
-              body = code[start:end]
-              if re.search(r"(?im)^\s*casa\b", body):
-                  raise SystemExit(name + " still contains unsupported executable LSE CASA")
-              if "ldaxr" not in body or "stxr" not in body:
-                  raise SystemExit(name + " is missing its ARMv8.0 LL/SC sequence")
-              failed = body.split("Ltrylock_" + ("enqueue" if "enqueue" in name else "dequeue") + "_failed:", 1)[-1]
-              if not re.search(r"(?im)^\s*clrex\s*$", failed):
-                  raise SystemExit(name + " is missing CLREX on the busy-lock exit")
-          print("PASS: commpage queue locks use ARMv8.0 LDAXR/STXR + CLREX; no executable CASA remains")
+          verifier = runpy.run_path("tools/verify-lavender-commpage-llsc.py")
+          verifier["validate_source_function"](source, "_pfz_trylock_and_enqueue", "x3")
+          verifier["validate_source_function"](source, "_pfz_trylock_and_dequeue", "x2")
+          print("PASS: both Lavender commpage queue-lock helpers use ARMv8.0 LDAXR/STXR + CLREX; unrelated commpage routines are excluded")
           PY
           python3 - <<'PY'
           from pathlib import Path
