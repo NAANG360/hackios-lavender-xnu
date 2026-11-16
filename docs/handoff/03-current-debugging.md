@@ -6,7 +6,7 @@
 
 ## Physical baseline — Run #261
 
-Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed XNU build, source guards, linked Mach-O verification and RAM-only packaging. The user-supplied video `1000317742.mp4` shows the phone displaying the diagnostic Apple-shaped mark. That is patch 0094's hand-drawn approximation, not the genuine Apple logo; video provenance is user-attributed, not checksum-bound.
+Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed XNU build, source guards, linked Mach-O verification and RAM-only packaging. User video `1000317742.mp4` shows physical Lavender displaying the patch-0094 diagnostic Apple-shaped mark with the #261-attributed image. This is user-attributed, not checksum-bound. It confirms the framebuffer logo-rendering stage, not stage 20, root mount, launchd or SpringBoard. The user explicitly requires Apple's actual logo, not the custom approximation.
 
 ## Latest accepted package — Run #266
 
@@ -20,20 +20,30 @@ This is an old diagnostic-logo baseline and has not been separately physically t
 
 The exact iPhone X iOS 16.7.16 (20H392) firmware AppleLogo was extracted and hash-pinned:
 - IM4P SHA `93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8`;
-- PNG 194×238 RGBA SHA `9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb`.
-Patch 0114 replaces only the procedural logo pixels; it leaves framebuffer timing/call placement intact. Build-time helper generates the C header; the proprietary firmware image is not committed.
+- decoded 194×238 PNG SHA `9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb`.
+Patch 0114 replaces the procedural logo pixels; it leaves framebuffer timing/call placement intact. Build-time helper generates the C header; the firmware image is not committed.
 
-## Run #267 — exact script failure and correction
+## Runs #267–#268 and exact correction
 
-Run #267 (`43804842131`, source `6bbc44f3769adf8a3458137907abee75f236403d`) failed during `prepare-lavender-applelogo.sh` before verification/packaging. Exact error:
+Run #267 (`43804842131`) failed in `prepare-lavender-applelogo.sh`: escaped shell variables caused `mktemp` to receive a literal `${TMPDIR:-/tmp}`. Commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` corrected shell expansion.
 
-```text
-mktemp: mkdtemp failed on ${TMPDIR:-/tmp}/lavender-applelogo.Kp439t: No such file or directory
-```
+Run #268 (`43805363291`) compiled XNU and passed:
+- generic ARMv8-A target check;
+- both commpage LL/SC source guards;
+- file-scoped SHA2 architecture check;
+- exact 20H392 AppleLogo header hashes/dimensions and source integration check;
+- pre-VBAR and deferred-logo source checks.
 
-Cause: shell variable expansions had unnecessary backslashes, so `mktemp` received a literal `${TMPDIR:-/tmp}`. Commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` removes the backslashes. Current script check confirms no escaped `${...` remains.
+It then failed in the startup-trace verifier with `ValueError: substring not found`. The trace helper guard still sliced through `early.index("lavender_logo_ellipse", helper)`, but patch 0114 correctly removed that old custom-logo helper. This is a stale verifier boundary, not a compile or AppleLogo asset failure. Linked Mach-O verification and RAM-only packaging were skipped; raw candidate artifact `14198891426` is unverified and must not be booted.
 
-**Run #268** (`43805363291`) is validating the fix and patch 0114. A green compile alone is not acceptance: require generated AppleLogo header/source guard, linked Mach-O verification and RAM-only package job.
+**Fix committed:** `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664` changes the slice end to the next function, `sweet_early_logo(void)`, keeping the trace-body check scoped to the trace helper. This commit still needs a fresh workflow run and full linked-verifier/package success.
+
+## Immediate next operations
+
+1. Inspect the workflow triggered by verifier-fix commit `5dc07a9`; require XNU build, all source guards, linked Mach-O verification and RAM-only package to pass.
+2. Preserve the #261 physical milestone and #266/#261 old-logo artifacts. Do not use #268's raw kernel candidate.
+3. Once an authentic-logo image is fully verified, keep it as the next candidate; physical retest remains blocked until the independent recovery/reset route is physically verified.
+4. Continue the post-logo roadmap in Chapter 05: XNU stage-20/post-logo instrumentation, read-only SDHC2 discovery, V5 power sequencing, PIO SD reads, read-only BSD block device, GPT/HFS+ root and Darwin launchd.
 
 ## Storage frontier — exact Build 4 embedded FDT
 
