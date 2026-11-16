@@ -96,3 +96,11 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 - The next diagnostic boundary is event 17, `KBOOT SCHED BEGIN`, emitted at entry to `kernel_bootstrap_thread()`; event 18 follows `sched_startup()`. This is the first post-KPRINTF split. The buildtree audit proves instrumentation was compiled, not that the phone reached those events.
 - Preserve Run #300 as the accepted diagnostic image. No flash. Do not request another physical test until Chapter 01's independent power-button-free recovery/reset route is physically verified. The current recording is not checksum-bound to Run #300 and does not prove BSD/root/userspace.
 - Current routed chapter: `docs/handoff/03-current-debugging.md`; consult Chapter 05 for later BSD/root/userspace interpretation.
+
+## Latest continuation — Run #300 video and new bootstrap-entry trace (16 November 2026)
+
+- New phone clip 1000317806.mp4 shows shim handoff output before AppleLogo, four green markers and only the small verbose-console header after AppleLogo; no readable [DARWIN] log scroll is visible. The clip ends at FASTBOOT, but does not identify the reset cause.
+- Source correction: event 17 is after idle_thread_create(processor), not at kernel_bootstrap_thread entry. Absence of event 17 cannot distinguish failure to schedule/enter the bootstrap thread from a stall inside current_processor or idle_thread_create, and the console-render path remains another possible visibility issue.
+- Patch 0119 adds event 33 before load_context(thread), event 30 at bootstrap-thread entry, and events 31/32 around idle_thread_create. Existing events 17/18 continue to bracket sched_startup.
+- Patch commit 56c427f8a506cdc6ba250c536810df95dfb01ae4; workflow guard commit 34a85dd88d13cc4b30e6ccf45a92aae9f685cce8. Runs #301/#302 were queued; #302 is preferred because it includes the required source guard.
+- No new physical test until Chapter 01 recovery/reset safety gate is independently verified. RAM-only fastboot boot only; never flash.
