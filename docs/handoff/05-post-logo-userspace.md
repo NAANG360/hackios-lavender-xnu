@@ -98,7 +98,7 @@ Do not infer SDHC1 clock/IRQ/regulator details from SDHC2. The V5 controller pow
 - Build the iPhone X 20H392 root as a case-sensitive journaled HFS+ volume with the required OS/SystemOS/AppOS content and cryptex/shared-cache layout. Topaz's `tools/mkiosroot.sh` is a useful host-side layout reference: one HFS+ volume, OS root plus SystemOS/AppOS under `/private/preboot/Cryptexes/{OS,App}`, and hard-linked dyld shared-cache lookup paths. Adapt and validate for Lavender; it is not a storage transport driver.
 - The eventual image is written to the existing `userdata` partition. This intentionally replaces Android's user-data filesystem and will erase files/accounts stored there.
 - Do not repartition the eMMC or overwrite Android boot, vendor_boot, recovery, modem, persist or other partitions.
-- The user's recovery/reset route is now confirmed working. Before the first userdata image write, preserve the exact key sequence and verify that recovery can format userdata back to Android's expected filesystem. Wiping userdata restores the Android data partition format; it does not recover erased personal files.
+- The user's recovery/reset route is confirmed working. Before the first userdata image write, preserve the exact key sequence and verify that recovery can format userdata back to Android's expected filesystem. Wiping userdata restores the Android data partition format; it does not recover erased personal files.
 - Keep the root filesystem's write policy explicit. First prove block reads and HFS+ metadata using a read-only driver. Only after that and the recovery path are validated, add writes scoped to the userdata partition and its verified bounds. No raw writes outside userdata.
 
 ### Lavender SDHC1/eMMC driver plan
@@ -154,7 +154,7 @@ Further Lavender-specific gaps:
 2. Physical Run #261-attributed image — custom diagnostic logo-rendering stage observed in user video; not image-checksum-bound.
 3. Run #266 build, verification and package — passed with old diagnostic logo; not separately physically tested.
 4. Genuine 20H392 AppleLogo — asset extracted/hash-verified and patch 0114 integrated; full CI acceptance pending after verifier fix commit `5dc07a9`.
-5. Genuine AppleLogo physical display — not yet tested; wait for full CI acceptance and recovery-safety gate.
+5. Genuine AppleLogo physical display — test after the next full CI acceptance; the user-confirmed volume-key recovery route clears the prior recovery-safety gate.
 6. XNU stage 20 and post-logo kernel continuation — not physically proven.
 7. SDHC1/eMMC read-only probe — not implemented; this is the next software/hardware discovery task.
 8. SDHC1 V5 power/state audit and bounded PIO eMMC reads — not implemented.
@@ -180,4 +180,9 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 - Marker semantics: stage 17 is after the logo renderer; stage 18 is after `PE_consistent_debug_inherit()`; stage 19 is after `serial_init()`; stage 20 follows `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)`.
 - The latest user recordings show the shim's `A73 supported; launching XNU` handoff and AppleLogo, but they are not checksum-bound to Run #297. Do not attribute their visual outcome to this exact image.
 - This image's successful build/package does not establish that stage 20, BSD bootstrap, root mount, launchd, daemons or SpringBoard have been reached. The next useful physical evidence is the last visible stage marker on this exact checksum.
-- Device-test safety remains gated by a physically verified power-button-independent recovery/reset route. Use RAM-only `fastboot boot iosboot.img`; never flash.
+- The user confirms the power-button-independent volume-key recovery/reset route works; the device-test recovery gate is cleared. Use RAM-only `fastboot boot iosboot.img`; never flash.
+
+
+## Recovery status correction — 16 November 2026
+
+The user has confirmed that the independent volume-key recovery/reset route works despite the broken power button. Physical kernel testing is no longer gated on proving this route. The separate A53 Guardian watchdog-first fallback remains independently unverified. Kernel tests remain RAM-only; do not flash.
