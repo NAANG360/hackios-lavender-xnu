@@ -6,10 +6,10 @@
 - Not an Android theme, generic ARM64 kernel, emulator demo or iOS-lookalike launcher.
 
 ## Hard safety constraints
-- Preserve Android and recovery. No flashing, erasing, repartitioning or writing boot-critical partitions.
-- Preferred test is temporary RAM-only `fastboot boot iosboot.img`. Permanent writes require explicit approval.
-- User's power button is broken. Do not request another handset test until a recovery/reboot route independent of that button is established.
-- Volume Up + Volume Down was discussed but is not a verified recovery selector.
+- Preserve Android boot/recovery and all non-userdata partitions. The user explicitly selected the existing `userdata` partition for the future iOS HFS+ root, accepting that Android user data will be erased.
+- Kernel bring-up remains temporary RAM-only `fastboot boot iosboot.img`; the later root image is a separate, deliberate write to `userdata` only. Never write boot, vendor_boot, recovery, modem, persist or other eMMC partitions.
+- The power button is broken. The user now confirms the volume-key reset/recovery route works; preserve it and document the exact sequence before any destructive `userdata` write.
+- Returning to Android is expected to require recovery to wipe/format `userdata`; this does not restore personal data.
 - QEMU is allowed only for narrow isolated tests; never as proof of Lavender compatibility.
 - Keep raw dumps, serials, calibration/private data and firmware blobs out of Git.
 - Exact delivered image filename: `iosboot.img`, no date/build suffix.
