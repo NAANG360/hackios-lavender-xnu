@@ -1,58 +1,38 @@
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -379,6 +379,45 @@
+@@ -377,10 +377,23 @@
+ 		lavender_trace_append_text(text, &length, " sub=");
+ 		lavender_trace_append_decimal(text, &length, b);
  		lavender_trace_append_text(text, &length, " rank=");
  		lavender_trace_append_hex(text, &length, c);
  		break;
-+	case 17:
-+		lavender_trace_append_text(text, &length, "KBOOT SCHED BEGIN");
-+		break;
-+	case 18:
-+		lavender_trace_append_text(text, &length, "KBOOT SCHED DONE");
-+		break;
-+	case 19:
-+		lavender_trace_append_text(text, &length, "KBOOT IOKIT BEGIN");
-+		break;
-+	case 20:
-+		lavender_trace_append_text(text, &length, "KBOOT IOKIT DONE");
-+		break;
-+	case 21:
-+		lavender_trace_append_text(text, &length, "KBOOT EARLY BOOT BEGIN");
-+		break;
-+	case 22:
-+		lavender_trace_append_text(text, &length, "KBOOT INTERRUPTS ENABLED");
-+		break;
-+	case 23:
-+		lavender_trace_append_text(text, &length, "KBOOT BSD_INIT BEGIN");
-+		break;
-+	case 24:
-+		lavender_trace_append_text(text, &length, "KBOOT BSD_INIT RETURN");
-+		break;
-+	case 25:
-+		lavender_trace_append_text(text, &length, "BSD VFS INIT DONE");
-+		break;
-+	case 26:
-+		lavender_trace_append_text(text, &length, "BSD ROOT MOUNT BEGIN");
-+		break;
-+	case 27:
-+		lavender_trace_append_text(text, &length, "BSD ROOT MOUNT DONE");
-+		break;
-+	case 28:
-+		lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP BEGIN");
-+		break;
-+	case 29:
-+		lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP RETURN");
-+		break;
++	case 17: lavender_trace_append_text(text, &length, "KBOOT SCHED BEGIN"); break;
++	case 18: lavender_trace_append_text(text, &length, "KBOOT SCHED DONE"); break;
++	case 19: lavender_trace_append_text(text, &length, "KBOOT IOKIT BEGIN"); break;
++	case 20: lavender_trace_append_text(text, &length, "KBOOT IOKIT DONE"); break;
++	case 21: lavender_trace_append_text(text, &length, "KBOOT EARLY BOOT BEGIN"); break;
++	case 22: lavender_trace_append_text(text, &length, "KBOOT INTERRUPTS ENABLED"); break;
++	case 23: lavender_trace_append_text(text, &length, "KBOOT BSD_INIT BEGIN"); break;
++	case 24: lavender_trace_append_text(text, &length, "KBOOT BSD_INIT RETURN"); break;
++	case 25: lavender_trace_append_text(text, &length, "BSD VFS INIT DONE"); break;
++	case 26: lavender_trace_append_text(text, &length, "BSD ROOT MOUNT BEGIN"); break;
++	case 27: lavender_trace_append_text(text, &length, "BSD ROOT MOUNT DONE"); break;
++	case 28: lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP BEGIN"); break;
++	case 29: lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP RETURN"); break;
  	default:
  		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
  		break;
+ 	}
+ 	text[length] = '\0';
 diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -660,7 +660,13 @@
- 	 * Start up the scheduler services.
- 	 */
+@@ -658,11 +658,17 @@
+ 		 * before this point.
+ 		 *
+ 		 * Start up the scheduler services.
+ 		 */
  	kernel_bootstrap_thread_log("sched_startup");
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	sweet_early_trace_startup(17, 0, 0, 0, 0, 0);
@@ -64,7 +44,11 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  
  	/*
  	 * Thread lifecycle maintenance (teardown, stack allocation)
-@@ -735,7 +741,13 @@
+ 	 */
+ 	kernel_bootstrap_thread_log("thread_daemon_init");
+@@ -733,26 +739,38 @@
+ 	vm_kernel_addrhash_salt = early_random();
+ 	vm_kernel_addrhash_salt_ext = early_random();
  
  #ifdef  IOKIT
  	kernel_bootstrap_log("PE_init_iokit");
@@ -78,7 +62,8 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  #endif
  
  	assert(ml_get_interrupts_enabled() == FALSE);
-@@ -744,6 +756,9 @@
+ 
+ 	/*
  	 * Past this point, kernel subsystems that expect to operate with
  	 * interrupts or preemption enabled may begin enforcement.
  	 */
@@ -88,7 +73,7 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  	kernel_startup_initialize_upto(STARTUP_SUB_EARLY_BOOT);
  
  #if SCHED_HYGIENE_DEBUG
-@@ -751,6 +766,9 @@
+ 	// Reset interrupts masked timeout before we enable interrupts
  	ml_spin_debug_clear_self();
  #endif
  	(void) spllo();         /* Allow interruptions */
@@ -98,7 +83,11 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  
  	/*
  	 * This will start displaying progress to the user, start as early as possible
-@@ -836,7 +854,13 @@
+ 	 */
+ 	initialize_screen(NULL, kPEAcquireScreen);
+@@ -834,11 +852,17 @@
+ 
+ 	/*
  	 *	Start the user bootstrap.
  	 */
  #ifdef  MACH_BSD
@@ -112,10 +101,14 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
  #endif
  
  
+ 	/*
+ 	 * Get rid of pages used for early boot tracing.
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -210,6 +210,11 @@
+@@ -208,10 +208,15 @@
+ void IOSetImageBoot(void);              /* XXX */
+ void loopattach(void);                  /* XXX */
  
  void ipc_task_enable(task_t task);
  
@@ -127,7 +120,11 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
  const char *const copyright =
      "Copyright (c) 1982, 1986, 1989, 1991, 1993\n\t"
      "The Regents of the University of California. "
-@@ -690,6 +695,9 @@
+     "All rights reserved.\n\n";
+ 
+@@ -688,10 +693,13 @@
+ 	IOKitInitializeTime();
+ 
  	/* Initialize the file systems. */
  	bsd_init_kprintf("calling vfsinit\n");
  	vfsinit();
@@ -137,7 +134,11 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
  
  #if defined(ARM64_BOARD_CONFIG_SWEET)
  	/* AMFI's MAC policy is built in on SWEET (bsd/kern/sweet_amfi.c). */
-@@ -879,7 +887,13 @@
+ 	extern void sweet_amfi_policy_register(void);
+ 	sweet_amfi_policy_register();
+@@ -877,11 +885,17 @@
+ #if CONFIG_NETBOOT
+ 		netboot = (mountroot == netboot_mountroot);
  #endif
  
  		bsd_init_kprintf("vfs_mountroot\n");
@@ -151,16 +152,23 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
  			break;
  		}
  		rootdevice[0] = '\0';
-@@ -1044,7 +1058,13 @@
- 	}
+ #if CONFIG_NETBOOT
+ 		if (netboot) {
+@@ -1042,11 +1056,17 @@
+ 	/* Initialize signal state for process 0. */
+ 	bsd_init_kprintf("calling siginit\n");
+ 	siginit(kernproc);
  
  	bsd_init_kprintf("calling bsd_utaskbootstrap\n");
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
-+		sweet_early_trace_startup(28, 0, 0, 0, 0, 0);
++	sweet_early_trace_startup(28, 0, 0, 0, 0, 0);
 +#endif
  	bsd_utaskbootstrap();
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
-+		sweet_early_trace_startup(29, 0, 0, 0, 0, 0);
++	sweet_early_trace_startup(29, 0, 0, 0, 0, 0);
 +#endif
  
  	pal_kernel_announce();
+ 
+ 	bsd_init_kprintf("calling mountroot_post_hook\n");
+ 
