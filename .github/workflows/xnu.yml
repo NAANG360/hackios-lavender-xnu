@@ -225,6 +225,60 @@ jobs:
           print("PASS: post-logo PE inheritance and serial-init boundaries are instrumented")
           PY
           python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          startup = Path("dxb/xnu/osfmk/kern/startup.c").read_text()
+          bsd = Path("dxb/xnu/bsd/kern/bsd_init.c").read_text()
+          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+
+          def require_order(source, patterns, label):
+              cursor = 0
+              for pattern in patterns:
+                  match = re.search(pattern, source[cursor:])
+                  if match is None:
+                      raise SystemExit(f"{label}: missing/out-of-order boundary {pattern}")
+                  cursor += match.end()
+
+          require_order(startup, [
+              r"sweet_early_trace_startup\\(17,",
+              r"sched_startup\\(\\);",
+              r"sweet_early_trace_startup\\(18,",
+              r"sweet_early_trace_startup\\(19,",
+              r"PE_init_iokit\\(\\);",
+              r"sweet_early_trace_startup\\(20,",
+              r"sweet_early_trace_startup\\(21,",
+              r"kernel_startup_initialize_upto\\(STARTUP_SUB_EARLY_BOOT\\);",
+              r"spllo\\(\\)",
+              r"sweet_early_trace_startup\\(22,",
+              r"sweet_early_trace_startup\\(23,",
+              r"bsd_init\\(\\);",
+              r"sweet_early_trace_startup\\(24,"
+          ], "post-KPRINTF XNU startup trace")
+          require_order(bsd, [
+              r"vfsinit\\(\\);",
+              r"sweet_early_trace_startup\\(25,",
+              r"sweet_early_trace_startup\\(26,",
+              r"vfs_mountroot\\(\\)",
+              r"sweet_early_trace_startup\\(27,",
+              r"sweet_early_trace_startup\\(28,",
+              r"bsd_utaskbootstrap\\(\\);",
+              r"sweet_early_trace_startup\\(29,"
+          ], "BSD/root startup trace")
+
+          for required in (
+              'lavender_console_string("[DARWIN] ");',
+              "lavender_console_putc('\\\\n');",
+              "else if (!lavender_logo_drawn)",
+              "lavender_logo_drawn = 1;",
+          ):
+              if required not in early:
+                  raise SystemExit("post-logo trace renderer missing: " + required)
+          if early.index("lavender_logo_drawn = 1;") > early.index('lavender_console_string("LAVENDER XNU VERBOSE BOOT\\\\n");'):
+              raise SystemExit("verbose console header is not initialized after the AppleLogo draw")
+          print("PASS: post-KPRINTF events 17–29 are ordered across XNU/BSD and rendered through the transparent [DARWIN] console")
+          PY
+          python3 - <<'PY'
           from pathlib import Path
           makeinc = Path("dxb/xnu/makedefs/MakeInc.def").read_text()
           machine_line = next(line for line in makeinc.splitlines()
