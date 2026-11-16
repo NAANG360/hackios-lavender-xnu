@@ -7,11 +7,11 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 
 ## Current milestone — 16 November 2026
 
-Run #300 is the latest accepted diagnostic package. See the update immediately below for exact artifact identity and next action.
+Run #302 is the latest accepted diagnostic package. Patch 0120 is in queued guarded validation Run #304; see the current engineering update at the end for artifact identity and next action.
 
 
 
-## Latest accepted operations — Run #300 (16 November 2026)
+## Previous accepted operations — Run #300 (superseded by Run #302)
 
 - **Run #300** ([43891112657](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43891112657), source commit `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`) completed successfully. Both the XNU build/verification job and the separate RAM-only packaging job passed.
 - Build job: XNU 8796 compilation, expected cache-aware build-path guard, Lavender entry-guard patch check, and kernel artifact verification all passed. Package job: matching kernel retrieval, Mach-O presence, OTA/DTB extraction, Lavender ADT generation, payload construction, fastboot image creation, image-structure/payload-identity verification, and artifact upload all passed.
