@@ -403,7 +403,7 @@ jobs:
           grep -q 'delay_ms(2500U, f)' shim/lavender_guardian.c
           grep -q 'LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
           grep -q 'lavender_console_mark(stage, label)' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -Fq 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
           if grep -q 'Skipping patch .*0105-lavender-verbose-boot-console.patch' xnu-build.log; then
             echo "Verbose boot console patch 0105 was skipped; refusing to package a non-verbose kernel."
             exit 1
