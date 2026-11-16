@@ -7,7 +7,20 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 
 ## Current milestone — 16 November 2026
 
-## Latest operations — 16 November 2026
+Run #297 is the latest accepted diagnostic package. See the update immediately below for exact artifact identity and next action.
+
+
+
+## Latest accepted operations — Run #297 (16 November 2026)
+
+- Run #297 ([43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`) passed both XNU build/verification and RAM-only packaging jobs.
+- Artifact `14219764264` (`lavender-fastboot-boot-test`) contains `iosboot.img` (16,601,088 bytes), SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`.
+- Package manifest confirms the genuine 20H392 AppleLogo raster. Patch 0118 supplies stage 18 after `PE_consistent_debug_inherit()` and stage 19 after `serial_init()`; stage 20 is KPRINTF startup completion.
+- This is a build/package acceptance result, not proof of a physical boot. Latest user videos are not checksum-bound to Run #297. Do not claim Darwin userspace or SpringBoard.
+- Next route: `docs/handoff/03-current-debugging.md` for the exact-image marker result; Chapter 05 for subsequent BSD/root/userspace interpretation.
+- Physical test remains gated on a verified power-button-independent recovery/reset route. RAM-only `fastboot boot iosboot.img`; never flash.
+
+## Earlier operations — 16 November 2026
 
 - **Run #281** ([43819847178](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43819847178), source `94c2366567aee5df21435a7c4bb91041f161305e`) compiled XNU but failed the required-patch guard. Its log explicitly says 0115 is corrupt at EOF line 161 and 0116 at EOF line 46; verification and packaging were skipped.
 - **Root cause:** each patch had a trailing whitespace-only context line after its final hunk, and each final hunk header overstated its body by one old and one new line. The true final counts are 0115 `6/12` (not `7/13`) and 0116 `28/21` (not `29/22`).
