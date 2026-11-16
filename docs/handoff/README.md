@@ -14,7 +14,7 @@ Do not read all chapters at session start. Do not read historical material unles
 
 ## Current state
 
-As of 16 November 2026, Run #297 ([43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`) is the latest accepted XNU build/verification and RAM-only package. Artifact `14219764264` contains `iosboot.img` (16,601,088 bytes; SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`). It includes the genuine 20H392 AppleLogo and 0118 stage-18/19 post-logo checkpoints. The image is not yet checksum-bound to a physical test; no Darwin userspace success is claimed.
+As of 16 November 2026, Run #297 ([43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`) is the latest accepted XNU build/verification and RAM-only package. Artifact `14219764264` contains `iosboot.img` (16,601,088 bytes; SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`). User video `1000317779.mp4` shows four accumulated lower-edge bars strongly matching stages 17–20, likely reaching KPRINTF startup completion, but is not checksum-bound to this artifact. No BSD/root mount or Darwin userspace success is claimed.
 
 **Current route:** Chapter 03 for the exact-image diagnostic marker and next CI/physical evidence; Chapter 05 for post-logo kernel and userspace; Chapter 01 for device-test safety. Read only the routed chapter.
  
