@@ -1,55 +1,45 @@
 # Lavender XNU — agent entrypoint
 
-**Start here.** Read PROJECT_HANDOFF.md, inspect live branch HEAD and newest Actions runs, then open only the chapter selected by its routing table. “Continue from latest operations” means resume autonomously from live evidence.
+**Start here.** Read `PROJECT_HANDOFF.md`, inspect the live branch and newest Actions runs, then open only the routed chapter. Resume autonomously from live evidence.
 
 ## Mission
-Bring XNU 8796 (iOS 16 generation) up on Xiaomi Redmi Note 7/7S (lavender, SDM660 / Kryo 260, ARM64); Darwin userspace is later.
+Bring XNU 8796 (iOS 16 generation) and ultimately the iOS 16.7.16 (20H392) Darwin userspace to the Xiaomi Redmi Note 7/7S (`lavender`, SDM660 / Kryo 260, ARM64).
+
+## Current milestone — 16 November 2026
+- XNU workflow **#261** (run `43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed both kernel build/verification and RAM-only image packaging.
+- Packaged image artifact: `lavender-fastboot-boot-test`, ID `14193115710`; exact file `iosboot.img`, 16,551,936 bytes, SHA-256 `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`.
+- User-supplied recording `1000317742.mp4` (20.317 s) shows the red XNU diagnostic display, then a white Apple-shaped silhouette on the phone's black display for the remainder of the clip. The user identifies this as the Run #261 image. This is the first reported physical Lavender logo-stage result. The video has no device-side image checksum and shows no Darwin userspace.
+- **Logo correction:** patch `0094-lavender-logo-and-stage-markers.patch` implements a hand-drawn diagnostic approximation using ellipses, a bite, leaf and stem. It is not Apple's actual boot-logo asset. The user explicitly wants the genuine Apple logo artwork. Keep the successful kernel/startup path; replace only the artwork after extracting and validating the AppleLogo resource from the matching iPhone X iOS 16.7.16 IPSW.
+
+## Live CI
+- Run **#262** (`43795080764`, source `71bb3a0dc0a45a7d5482fe45de869af6281bca41`) compiled XNU successfully, then failed the Lavender entry guard; verification and packaging were skipped.
+- Source-level cause: the inline guard used an explicit next symbol for enqueue but `None` for dequeue, causing the second body scan to extend to end-of-file and potentially reject unrelated later symbols.
+- Corrective commits: `276fb31395998538afcbb620d25c647ad9f5f47e` updates the reusable guard to require CLREX on the busy-lock return path; `b6879a835d61a3382740737254a5c54b2eeeb2ee` makes the workflow use the symbol-bounded validator.
+- Run **#263** (workflow `43800607832`, source `b6879a835d61a3382740737254a5c54b2eeeb2ee`) was observed **in progress** at handoff update time. Inspect its completed jobs and artifacts before any new build; do not overlap Actions runs.
 
 ## Mandatory protocol
-
-When a difficult XNU/ARM issue benefits from independent review, the user may bring analysis from Gemini. Treat it as a second opinion: verify every proposed change against the exact XNU source, ARM semantics and linked instructions before applying it. The Gemini review of the commpage LL/SC conversion supports LDAXR/STXR and recommends CLREX on the busy-lock exit; that refinement is staged on fix/lavender-commpage-prebuild-guard, not yet merged into the active branch.
-1. Read PROJECT_HANDOFF.md, resolve live branch HEAD and newest relevant Actions runs.
+1. Resolve live branch HEAD and newest relevant Actions run.
 2. Follow the single current chapter route; do not load every chapter.
-3. Inspect exact source, CI logs/artifacts and physical evidence before edits.
-4. Continue the latest unfinished operation; avoid duplicate/overlapping builds.
-5. Make the smallest evidence-backed fix. Validate source and generated instructions; never weaken guards/verifiers.
-6. After meaningful milestones update this file, the handoff and active chapter.
+3. Inspect exact XNU source, workflow logs/artifacts and physical evidence before edits.
+4. Make the smallest evidence-backed fix; preserve source and binary guards.
+5. Keep build, Mach-O verification, package, physical kernel stages, logo, root mount, launchd and SpringBoard as separate acceptance milestones.
+6. After meaningful milestones update this file, `PROJECT_HANDOFF.md`, and the affected chapter.
 
 ## Safety and truth
-- Preserve Android/recovery. RAM boot only: fastboot boot iosboot.img; never flash, erase, repartition or write boot-critical partitions.
-- Power button is broken. No handset retest until a power-button-independent recovery/reset route is physically verified.
-- QEMU is not proof of Lavender compatibility.
-- Keep compile → Mach-O verification → package → physical XNU stages → Apple logo → Darwin userspace separate.
-- Never claim physical boot/logo/userspace without direct device evidence.
-- Do not commit raw dumps, serials, calibration data or firmware blobs.
+- Preserve Android and recovery. RAM boot only (`fastboot boot iosboot.img`); never flash, erase, repartition or write boot-critical partitions.
+- The power button is broken. Do not request a handset test until a power-button-independent recovery/reset route is physically verified.
+- The volume-up + volume-down chord is documented as a reset request, not a verified recovery selector.
+- Do not use QEMU as proof of Lavender compatibility.
+- Never claim Darwin userspace, SpringBoard or a complete iOS boot without direct evidence.
+- Do not import Sweet/Topaz UFS, Goodix, display, PMIC or other SoC-specific constants into Lavender without SDM660 evidence.
+- Do not commit private dumps, serials, calibration data or firmware blobs.
 
-## Device facts
-Lavender, Qualcomm SDM660 / Kryo 260, ARM64. Observed Silver MPIDRs 0x0–0x3, Gold MPIDRs 0x100–0x103; boot path uses Gold 0x100 due the A53 16K-granule limitation observed so far. Revalidate before changing.
-
-## Current task — resolve optional SHA2 assembly failure after commpage fix
-
-**Run #255 result:** XNU run `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`, failed during `Build XNU 8796`. The log confirms `0112-lavender-commpage-armv8a-llsc.patch` was applied; no `Skipping patch 0112` warning appears. The malformed-hunk/CASA blocker is therefore cleared at patch application.
-
-**New exact blocker:** repeated `instruction requires: sha2` errors in `osfmk/arm64/corecrypto/sha256_compress_arm64.s` for SHA-256 crypto instructions. The compiler command targets `-march=armv8-a -mcpu=generic -arch arm64`. Do not globally enable `+crypto` without checking per-core hardware support.
-
-**Artifact status:** raw candidate artifact `14174241207` was uploaded by an always-run diagnostic collection step. It is not verifier-approved. Kernel verification and the RAM-only package job were skipped; no #255 `iosboot.img` exists.
-
-**Next:** inspect XNU 8796 corecrypto build selection for `CCSHA2_VNG_ARM`, the portable SHA-256 fallback, and whether the optimized assembly is built/selected unconditionally. Obtain `ID_AA64ISAR0_EL1.SHA2` evidence on both A53 and A73 cores; the prior MMFR0 16K-granule observation is not SHA2 evidence. If SHA2 is not present uniformly, exclude the accelerated assembly for Lavender and select a portable implementation. If it is supported uniformly, prove runtime dispatch before enabling only the required assembly feature. Do not patch by adding a global `-march=armv8-a+crypto` flag.
-
-The staged commpage guard branch remains separate; do not merge it or launch a competing build until the SHA2 source-selection fix is evidence-backed. Keep the Run #240 mutex callback as a separate physical debugging lead. No handset retest until a power-button-independent recovery/reset route is physically verified; RAM boot only, never flash.
-
-## Topaz reference
-MakrSas/ios-topaz is a useful iOS 16.7.16 / XNU 8796 comparison for Kryo 260-class topology, ARMv8.0 limitations, Gold-core handoff, GIC setup and boot-image-v4 shim. It targets Redmi Note 12 4G / SM6225 and is Sweet-derived, not a Lavender port. Never copy its MMIO/DT/ADT constants or cherry-pick patches without SDM660 evidence and linked-binary verification. See Chapter 02.
-
-## Chapter router
-- docs/handoff/README.md — router and resume protocol.
-- docs/handoff/01-device-and-safety.md — physical safety, hardware, memory/display.
-- docs/handoff/02-architecture-and-build.md — architecture, patches, CI, packaging, Topaz/Sweet.
-- docs/handoff/03-current-debugging.md — active failure frontier and next operation.
-- docs/handoff/04-evidence-and-history.md — historical evidence and regressions.
+## Active routes
+- Current CI guard / build acceptance: `docs/handoff/03-current-debugging.md`.
+- Logo replacement, post-logo kernel, storage and Darwin userspace: `docs/handoff/05-post-logo-userspace.md`.
+- Architecture/patch/build details only as needed: `docs/handoff/02-architecture-and-build.md`.
+- Before any physical-device action: `docs/handoff/01-device-and-safety.md`.
+- Historical run and provenance details: `docs/handoff/04-evidence-and-history.md`.
 
 Repository: https://github.com/NAANG360/hackios-lavender-xnu
-Branch: ci/lavender-machine-profile
-
-
-Run #257 (workflow `43789910990`, commit `c68f68c52bd3f227c0909e7728173632cebad27b`) failed in `Require Lavender XNU entry-guard patch` after the XNU build stage had completed. The exact fatal diagnostic was `unsupported executable LSE CASA remains in commpage assembly`. The guard stripped comments but scanned the entire `osfmk/arm/commpage/commpage_asm.s` file, so an unrelated executable CASA in another commpage routine caused a false positive; patch 0112's two target lock helpers were separately checked for LDAXR/STXR and CLREX. This is a verifier-scope bug, not evidence that the LL/SC conversion failed. The RAM-only package job was skipped, so no iosboot.img was produced. A later log line about the optional Xcode Kernel.framework PrivateHeaders/platform copy was non-fatal (`|| true`) and not the failure cause.
+Branch: `ci/lavender-machine-profile`
