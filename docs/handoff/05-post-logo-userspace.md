@@ -47,79 +47,63 @@ In `osfmk/arm/arm_init.c`, the logo-completed marker (stage 17) is followed by:
 The user video shows the logo but not stage 20. Therefore the next kernel milestone is not assumed to be BSD/root yet. Add bounded diagnostic markers around steps 2–4 so the next safe test can distinguish a post-logo stall from kprintf startup completion. After stage 20, continue through `PE_create_console()`, `PE_init_printf()`, `PE_init_platform()`, `machine_startup()` and the BSD bootstrap/root selection path. Keep each boundary independently verifiable.
 
 
-## 3. Root filesystem and storage — removable SDHC2 is confirmed in the exact Build 4 FDT
+## 3. Root filesystem and storage — internal eMMC SDHC1, root image in userdata
 
-The inherited Sweet root flow is not portable:
-- `tools/mkiosroot.sh` creates a large case-sensitive journaled HFS+ image containing the OS volume and SystemOS/AppOS cryptexes.
-- `tools/sweet-root-tweaks.py` contains 20H392 userland bring-up edits; audit each before reuse.
-- Sweet's `bsd/dev/sweet_ufs.c` (patch 0028) reuses a UFSHCI state left active by the Sweet bootloader, sends SCSI commands and exposes a BSD disk named `ufsroot0` (rooted with `rd=ufsroot0`).
-- Lavender is not UFS. It has internal eMMC on SDHC1 and a separate removable SD host on SDHC2. Do not reuse Sweet UFS registers, SCSI protocol or `ufsroot0`.
+The user has explicitly clarified the storage plan: **the iOS root filesystem belongs in Lavender's existing `userdata` partition**, not on a removable SD card. The user accepts that Android user data will be erased and plans to return to Android by using the working volume-key recovery/reset route to wipe/format `userdata`. Keep Android boot/recovery and every non-userdata partition intact.
 
-### Exact Build 4 FDT — SDHC2 removable slot
+### Topaz is the architecture reference, not the transport driver
 
-The Build 4 OTA archive used by this project was checksum-verified before its `boot.img` and appended `qcom,sdm660` FDT were extracted. The actual embedded FDT contains:
+The exact reference is [MakrSas/ios-topaz](https://github.com/MakrSas/ios-topaz), branch `topaz`. Its README documents:
+- an iPhone X iOS 16.7.16 (20H392) HFS+ root on the existing `userdata` partition;
+- XNU booted through a RAM-loaded shim (`fastboot boot`), without replacing boot partitions;
+- BSD root selection through `rd=ufsroot0`, with separate `ufsrw=1 rootrw=1` write-enable arguments;
+- the progression from XNU root mount through dyld/shared cache, launchd, backboardd and SpringBoard;
+- a UFS 3.0 host driver on the Redmi Note 12 4G (SM6225 / Snapdragon 685).
 
-**SDHC2 — removable SD card**
-- Node: `sdhc@c084000`
-- `reg = <0x00 0x0c084000 0x00 0x1000>`
-- `compatible = "qcom,sdhci-msm-v5"`
-- `status = "ok"`
-- `bus-width = <4>`
-- `cd-gpios` points to TLMM GPIO 54; status interrupt is mapped to GPIO 54.
-- Host IRQ: GIC SPI 125; power IRQ: GIC SPI 221.
-- Clock names: `iface_clk`, `core_clk`; GCC SDCC2 AHB/APPS clock IDs are 93/94 in the matching SDM660 downstream clock bindings.
-- `vmmc-supply` maps to PM660L L5; `vqmmc-supply` maps to PM660L L2.
-- The node includes distinct default/sleep pinctrl states and a 4-bit bus configuration.
-- No CQE/ICE resource is assigned to SDHC2 in this FDT node.
+This validates the *deployment pattern* the user wants. It does **not** validate using Topaz's UFS driver on Lavender. Lavender is SDM660 and uses internal eMMC through SDHC1. Reuse only the architecture and generic XNU/BSD patterns: root-device selection, block-device registration, GPT partition discovery, HFS+ mount integration, explicit read/write policy, and staged userspace validation. Do not copy Topaz UFSHCI/SCSI commands, registers, DMA descriptors, clock/rail values, DT/ADT nodes or SoC-specific driver code.
 
-**SDHC1 — internal eMMC (do not use for the iOS root)**
-- Base: `0x0c0c4000`, 8-bit bus, `non-removable`, CQE/ICE resources.
-- Host/power IRQs 110/112.
-- This is Android's internal storage. Keep it untouched.
+### Exact Lavender storage targets
 
-This is stronger than the public mainline device-tree lead because it is the actual FDT embedded in the Build 4 boot image. It confirms the slot/controller description, not that a card is physically inserted, powered or readable at XNU entry.
+The Build 4 embedded FDT distinguishes two hosts:
 
-### SDHCI MSM V5 power sequencing — not optional
+**SDHC1 — internal eMMC (the iOS root target)**
+- Base: `0x0c0c4000`.
+- 8-bit bus, `non-removable`.
+- FDT includes CQE/ICE resources. Initial XNU driver must not assume CQE/ICE is initialized or required; start with a conservative polled PIO path.
+- This is the controller that backs the existing `userdata` partition. Confirm its exact FDT node, IRQs, clocks, rails, pinctrl and V5 power-event resources from the same Build 4 DTB and matching Xiaomi SDM660 downstream source before writing driver code.
 
-The downstream Xiaomi SDM660 kernel's `drivers/mmc/host/sdhci-msm.c` selects the V5 register layout with these power-control registers relative to the controller's V5 core base:
-- `CORE_PWRCTL_STATUS = 0x240`
-- `CORE_PWRCTL_MASK = 0x244`
-- `CORE_PWRCTL_CLEAR = 0x248`
-- `CORE_PWRCTL_CTL = 0x24c`
+**SDHC2 — removable SD slot (not the root target)**
+- Base: `0x0c084000`, 4-bit bus, GPIO54 card detect, host IRQ125, power IRQ221, PM660L L5/L2 and GCC SDCC2 clock IDs 93/94.
+- These are SDHC2-specific details and must not be applied to SDHC1.
+- No removable card is required for the planned iOS root.
 
-The power IRQ is not merely a notification. Its handler:
-- acknowledges/clears the latched status and orders register writes;
-- on BUS_ON, enables VMMC, selects active pinctrl and sets the requested VQMMC level, then sends BUS_SUCCESS/BUS_FAIL;
-- on BUS_OFF, disables the rail/selects sleep pins and acknowledges the result;
-- on IO_LOW/IO_HIGH, changes the I/O rail and acknowledges success/failure;
-- updates the vendor pad power-switch bit after the request is serviced.
+Do not infer SDHC1 clock/IRQ/regulator details from SDHC2. The V5 controller power protocol may be shared at the IP level, but the host's own FDT resources and rail/pinctrl wiring must be independently resolved.
 
-Therefore, do not just map the host and issue SD commands. First determine controller/clock/power state at XNU entry. The bootloader's use of eMMC does not prove it initialized SDHC2 or enabled the removable-card rails.
+### Root image and Android-return model
 
-Research source: [Xiaomi SDM660 downstream SDHCI MSM driver, branch 11-EAS](https://github.com/xiaomi-sdm660/android_kernel_xiaomi_sdm660/blob/11-EAS/drivers/mmc/host/sdhci-msm.c). Treat Linux as a hardware-behavior reference, not code to copy wholesale into XNU.
+- Build the iPhone X 20H392 root as a case-sensitive journaled HFS+ volume with the required OS/SystemOS/AppOS content and cryptex/shared-cache layout, following Topaz's root-image tooling as a reference only.
+- The eventual image is written to the existing `userdata` partition. This intentionally replaces Android's user-data filesystem and will erase files/accounts stored there.
+- Do not repartition the eMMC or overwrite Android boot, vendor_boot, recovery, modem, persist or other partitions.
+- The user's recovery/reset route is now confirmed working. Before the first userdata image write, preserve the exact key sequence and verify that recovery can format userdata back to Android's expected filesystem. Wiping userdata restores the Android data partition format; it does not recover erased personal files.
+- Keep the root filesystem's write policy explicit. First prove block reads and HFS+ metadata using a read-only driver. Only after that and the recovery path are validated, add writes scoped to the userdata partition and its verified bounds. No raw writes outside userdata.
 
-### XNU root-device integration audit
+### Lavender SDHC1/eMMC driver plan
 
-The exact XNU 8796 buildtree contains no Lavender SDHCI driver. The existing `bsd/dev/sweet_ufs.c` is registered in `bsd/conf/files` and lazily initializes from the Sweet-specific `IOFindBSDRoot()` branch when `rd=ufsroot0` is requested. It demonstrates the BSD-facing pattern (`bdevsw_add`, `cdevsw_add_with_bdev`, `devfs_make_node`, strategy/ioctl/psize), but its UFSHCI/SCSI transport, DMA descriptors, cache handling and partition discovery are not reusable for SDHC2.
+1. **Read-only discovery first.** Parse the exact SDHC1 node from the Build 4 FDT; validate the register window, IRQs, clocks, regulator/pinctrl states, bus width, eMMC identity and controller version. Map only the verified MMIO window and inspect documented identity/capability/present-state/version registers. Do not write controller, clock, TLMM, PMIC or power-control registers during this first probe.
+2. **Audit the SDHCI MSM V5 power handshake for SDHC1.** Resolve BUS_ON/OFF and IO_LOW/HIGH semantics, power IRQ routing, rail requests and pinctrl transitions from the matching SDM660 downstream `sdhci-msm.c` and FDT. Do not reuse SDHC2's GPIO54, IRQ125/221, PM660L rails or SDCC2 clock IDs.
+3. **Bring up conservative eMMC PIO reads.** Use the eMMC protocol and host state established by the bootloader only after inspecting it. Bound every wait; handle command/data inhibit, response and data-ready/error states. Start without DMA, CQE, ICE, HS200/HS400 tuning, hotplug or write commands. Establish the safe timing/width from the live controller and downstream driver, not assumptions.
+4. **Read GPT and identify userdata.** Verify capacity, logical block size, GPT primary/backup consistency, partition GUID/type, start/end LBAs and bounds. Do not guess the userdata LBA or size from another device.
+5. **Validate the HFS+ image read-only.** Read the volume header, allocation metadata, journal and expected 20H392 paths; ensure all block requests remain inside userdata. Only then register a Lavender-specific BSD block device and root selection (for example `rd=lavenderroot0`), distinct from Sweet/Topaz's `ufsroot0`.
+6. **Mount and progress userspace.** Initially mount HFS+ read-only; verify cryptex and dyld shared-cache resolution. Add a deliberate root-write option only after read-only boot and recovery tests pass, and enforce partition-bound checks so writes cannot reach adjacent partitions.
+7. **Keep failure recovery practical.** A failed iOS root attempt must leave boot/recovery/modem/persist intact; use the confirmed recovery route to wipe userdata and return to Android's expected data filesystem.
 
-The Lavender path should be a separate `bsd/dev/lavender_sdhci.c` implementation and a distinct `rd=sdroot0` selection in `IOKitBSDInit.cpp`. First milestone is only a no-write probe, not a disk driver: parse the exact `/arm-io/sdhc@c084000` FDT node, map the validated 0x1000 register window with XNU's `ml_io_map()`, and read only documented, non-destructive standard SDHCI identity/capability/present-state and Qualcomm V5 status/version registers after their offsets are verified against the matching SDM660 driver. Do not write controller, clock, TLMM, PMIC, interrupt-clear or power-control registers during this probe.
+### XNU integration pattern
 
-### Non-destructive driver plan
-
-1. **Read-only discovery/probe first.** Map SDHC2 and inspect standard SDHCI version/capability/present-state/clock/interrupt registers, V5 CORE_MCI_VERSION and CORE_PWRCTL status/mask/control, GPIO54 and relevant FDT nodes. Do not write controller, clock, TLMM or PMIC registers in this first probe. Record whether ABL left the host/rails usable.
-2. Audit the exact SDHC2 pinctrl states, PM660L L5/L2 regulator nodes, clock provider/IDs and IRQ mapping. Determine how XNU can safely service power IRQ 221 and host IRQ 125; do not assume a generic GIC handler alone is sufficient.
-3. Implement the V5 power-event handshake and rail/pinctrl transitions with bounded timeouts and explicit error acknowledgements. Preserve the controller's interrupt ordering/barrier requirements. Keep initial signalling at the safe 3.3-V/low-speed mode supported by the actual board; do not request 1.8-V UHS until voltage switching is implemented and verified.
-4. Add standard SD-card protocol and a **polled PIO read-only path**: card detect, CMD0, CMD8, CMD55/ACMD41, CID/CSD, RCA/select, block-length where needed, then CMD17 single-block reads. Start with no DMA, CQE, ICE, tuning, write commands or hotplug claims. Respect command/data inhibit bits, response types, buffer-ready and timeout/error bits.
-5. Verify sector reads against known GPT and HFS+ metadata from a test card image. Only then expose a Lavender-specific BSD block device (for example `sdroot0`) with writes refused unconditionally. Root selection should be a separate `IOFindBSDRoot` case such as `rd=sdroot0`, not a reuse of Sweet's UFS path. Expose `bdevsw`/`cdevsw` and devfs nodes only after media capacity and partition bounds are known.
-6. Mount HFS+ read-only, verify the journal/volume metadata and SystemOS/AppOS cryptex and dyld shared-cache paths against the 20H392 root tree. No write support until a separate non-Android target is approved.
+The exact XNU 8796 buildtree has no Lavender SDHCI/eMMC driver. The existing `bsd/dev/sweet_ufs.c` and Sweet-specific `IOFindBSDRoot()` branch demonstrate the BSD-facing pattern (`bdevsw_add`, `cdevsw_add_with_bdev`, `devfs_make_node`, strategy/ioctl/psize and root-device selection), but its UFSHCI/SCSI transport, DMA descriptors, cache handling and `ufsroot0` name are not Lavender's implementation. Create a separate `bsd/dev/lavender_sdhci.c` and a separate `rd=lavenderroot0` root-selection path.
 
 ### RAMDisk capacity — full root cannot be appended
 
-The Lavender ADT exposes one conservative contiguous DRAM aperture from `0xA2000000` to `0xEA848000` (panic-log area excluded). The kernel ends near physical `0xA4020000`, leaving around `0x46828000` bytes (~1.10 GiB). `tools/mkiosroot.sh` defaults to a 16 GiB logical HFS+ image. It cannot fit as a kernel-appended RAMDisk, even if the host-side file is sparse.
-
-`tools/mkpayload.py` now checks a page-aligned RAMDisk's logical size against the ADT aperture before reading it. The shim workflow's ADT tests pass, including a synthetic fitting image and rejection of the 16 GiB image. Keep this guard. Do not overlap kernel, panic area, framebuffer or other reserved memory.
-
-The main viable design is a large removable SD-card root. A small initramfs may still fit in the RAMDisk tail, but only after its exact size is validated.
+The Lavender ADT exposes one conservative contiguous DRAM aperture from `0xA2000000` to `0xEA848000` (panic-log area excluded). The kernel ends near physical `0xA4020000`, leaving around `0x46828000` bytes (~1.10 GiB). A 16 GiB logical HFS+ image cannot fit as a kernel-appended RAMDisk, even if the host-side file is sparse. Keep the payload builder's oversize-RAMDisk rejection. The persistent root belongs in `userdata`, not in the appended RAMDisk and not on removable SDHC2.
 
 ## 4. Darwin userspace boot sequence
 
@@ -151,10 +135,10 @@ Further Lavender-specific gaps:
 4. Genuine 20H392 AppleLogo — asset extracted/hash-verified and patch 0114 integrated; full CI acceptance pending after verifier fix commit `5dc07a9`.
 5. Genuine AppleLogo physical display — not yet tested; wait for full CI acceptance and recovery-safety gate.
 6. XNU stage 20 and post-logo kernel continuation — not physically proven.
-7. SDHC2 read-only probe — not implemented; this is the next software/hardware discovery task.
-8. SDHC2 V5 power handshake and read-only PIO card reads — not implemented.
-9. BSD block device, GPT/HFS+ read-only root mount — not done.
+7. SDHC1/eMMC read-only probe — not implemented; this is the next software/hardware discovery task.
+8. SDHC1 V5 power/state audit and bounded PIO eMMC reads — not implemented.
+9. GPT/userdata bounds, Lavender BSD block device and HFS+ read-only root mount — not done.
 10. iOS 20H392 cryptexes/dyld, launchd and early daemons — not done.
 11. backboardd, IOMobileFramebuffer, input and SpringBoard — not done.
 
-No handset retest until a power-button-independent recovery/reset route is physically verified. RAM-only boot only; never flash, erase, repartition or write Android userdata/internal eMMC.
+The user confirms the volume-key reset/recovery route works despite the broken power button. Keep RAM-only XNU boot for kernel bring-up. A later explicit root-image write to userdata is in scope; never repartition or write boot, vendor_boot, recovery, modem, persist or any non-userdata eMMC partition.
