@@ -1,0 +1,128 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -379,6 +379,45 @@
+ 		lavender_trace_append_text(text, &length, " rank=");
+ 		lavender_trace_append_hex(text, &length, c);
+ 		break;
++	case 17:
++		lavender_trace_append_text(text, &length, "KBOOT SCHED BEGIN");
++		break;
++	case 18:
++		lavender_trace_append_text(text, &length, "KBOOT SCHED DONE");
++		break;
++	case 19:
++		lavender_trace_append_text(text, &length, "KBOOT IOKIT BEGIN");
++		break;
++	case 20:
++		lavender_trace_append_text(text, &length, "KBOOT IOKIT DONE");
++		break;
++	case 21:
++		lavender_trace_append_text(text, &length, "KBOOT EARLY BOOT BEGIN");
++		break;
++	case 22:
++		lavender_trace_append_text(text, &length, "KBOOT INTERRUPTS ENABLED");
++		break;
++	case 23:
++		lavender_trace_append_text(text, &length, "KBOOT BSD_INIT BEGIN");
++		break;
++	case 24:
++		lavender_trace_append_text(text, &length, "KBOOT BSD_INIT RETURN");
++		break;
++	case 25:
++		lavender_trace_append_text(text, &length, "BSD VFS INIT DONE");
++		break;
++	case 26:
++		lavender_trace_append_text(text, &length, "BSD ROOT MOUNT BEGIN");
++		break;
++	case 27:
++		lavender_trace_append_text(text, &length, "BSD ROOT MOUNT DONE");
++		break;
++	case 28:
++		lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP BEGIN");
++		break;
++	case 29:
++		lavender_trace_append_text(text, &length, "BSD UTASK BOOTSTRAP RETURN");
++		break;
+ 	default:
+ 		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
+ 		break;
+diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -660,7 +660,13 @@
+ 	kernel_bootstrap_thread_log("sched_startup");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(17, 0, 0, 0, 0, 0);
++#endif
+ 	sched_startup();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(18, 0, 0, 0, 0, 0);
++#endif
+@@ -735,7 +741,13 @@
+ 	kernel_bootstrap_log("PE_init_iokit");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(19, 0, 0, 0, 0, 0);
++#endif
+ 	PE_init_iokit();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(20, 0, 0, 0, 0, 0);
++#endif
+@@ -744,6 +756,9 @@
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(21, 0, 0, 0, 0, 0);
++#endif
+ 	kernel_startup_initialize_upto(STARTUP_SUB_EARLY_BOOT);
+@@ -751,6 +766,9 @@
+ 	(void) spllo();         /* Allow interruptions */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(22, 0, 0, 0, 0, 0);
++#endif
+@@ -836,6 +854,12 @@
+ #ifdef  MACH_BSD
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(23, 0, 0, 0, 0, 0);
++#endif
+ 	bsd_init();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(24, 0, 0, 0, 0, 0);
++#endif
+ #endif
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -210,6 +210,11 @@
+ void ipc_task_enable(task_t task);
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++#endif
++
+ const char *const copyright =
+@@ -690,6 +695,9 @@
+ 	bsd_init_kprintf("calling vfsinit\n");
+ 	vfsinit();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(25, 0, 0, 0, 0, 0);
++#endif
+@@ -879,7 +887,13 @@
+ 		bsd_init_kprintf("vfs_mountroot\n");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++		sweet_early_trace_startup(26, 0, 0, 0, 0, 0);
++#endif
+ 		if (0 == (err = vfs_mountroot())) {
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++			sweet_early_trace_startup(27, 0, 0, 0, 0, 0);
++#endif
+ 			break;
+ 		}
+@@ -1044,6 +1058,12 @@
+ 	bsd_init_kprintf("calling bsd_utaskbootstrap\n");
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(28, 0, 0, 0, 0, 0);
++#endif
+ 	bsd_utaskbootstrap();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(29, 0, 0, 0, 0, 0);
++#endif
