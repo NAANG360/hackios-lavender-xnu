@@ -1,8 +1,8 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current validation:** Run #268 / workflow `43805363291`
-**Source:** `477a77fa43ad2bcb99c80550c96cccf9b33b3f31`
+**Current validation:** Run #269 / workflow `43809333900`
+**Source:** `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664`
 
 ## Physical baseline — Run #261
 
@@ -36,11 +36,11 @@ Run #268 (`43805363291`) compiled XNU and passed:
 
 It then failed in the startup-trace verifier with `ValueError: substring not found`. The trace helper guard still sliced through `early.index("lavender_logo_ellipse", helper)`, but patch 0114 correctly removed that old custom-logo helper. This is a stale verifier boundary, not a compile or AppleLogo asset failure. Linked Mach-O verification and RAM-only packaging were skipped; raw candidate artifact `14198891426` is unverified and must not be booted.
 
-**Fix committed:** `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664` changes the slice end to the next function, `sweet_early_logo(void)`, keeping the trace-body check scoped to the trace helper. This commit still needs a fresh workflow run and full linked-verifier/package success.
+**Fix committed:** `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664` changes the slice end to the next function, `sweet_early_logo(void)`, keeping the trace-body check scoped to the trace helper. A local check against the #268 patched buildtree confirms the new boundary exists, the trace helper still contains events 5/7, and the helper slice does not include logo-renderer code or touch Guardian state. **Run #269** (`43809333900`) is executing the corrected workflow; at last inspection, `Build XNU 8796` was in progress. Its linked Mach-O verifier and RAM-only package must both pass before accepting the resulting image.
 
 ## Immediate next operations
 
-1. Inspect the workflow triggered by verifier-fix commit `5dc07a9`; require XNU build, all source guards, linked Mach-O verification and RAM-only package to pass.
+1. Inspect Run #269 (`43809333900`) to completion; require XNU build, all source guards, linked Mach-O verification and RAM-only package to pass.
 2. Preserve the #261 physical milestone and #266/#261 old-logo artifacts. Do not use #268's raw kernel candidate.
 3. Once an authentic-logo image is fully verified, keep it as the next candidate; physical retest remains blocked until the independent recovery/reset route is physically verified.
 4. Continue the post-logo roadmap in Chapter 05: XNU stage-20/post-logo instrumentation, read-only SDHC2 discovery, V5 power sequencing, PIO SD reads, read-only BSD block device, GPT/HFS+ root and Darwin launchd.
