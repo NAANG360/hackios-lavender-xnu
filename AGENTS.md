@@ -116,3 +116,9 @@ Branch: `ci/lavender-machine-profile`
 - The matching buildtree artifact `14238555047` confirms the compiled XNU contains the [DARWIN] startup trace renderer and event markers 17–29. Next debug boundary is scheduler begin/done (17/18), followed by IOKit (19/20), early boot/interrupts (21/22), BSD/VFS/root (23–27), and utask bootstrap (28/29).
 - Instrumentation presence is not physical execution evidence. Do not claim BSD/root/launchd/SpringBoard. The latest user recording is not bound to Run #300's checksum.
 - Continue through Chapter 03. Physical retest remains gated on independent power-button-free recovery/reset verification. RAM-only `fastboot boot iosboot.img`; never flash.
+
+## Current diagnostic correction — Run #300
+
+- Read Chapter 03 before changing startup tracing. Event 17 is after idle_thread_create, not at bootstrap-thread entry.
+- Patch 0119 separates load_context entry (33), bootstrap-thread entry (30), idle_thread_create begin/done (31/32), and preserves scheduler begin/done (17/18). Require Run #302's full build and package acceptance before distributing an image.
+- No physical retest until Chapter 01's independent power-button-free recovery/reset gate is verified. Never flash.
