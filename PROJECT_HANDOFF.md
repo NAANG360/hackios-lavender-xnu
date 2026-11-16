@@ -12,17 +12,17 @@ Read this file, inspect the live branch/Actions state, then load only the routed
 
 ## Physical milestone
 
-The user-supplied 20.317-second video `1000317742.mp4` shows Run #261's attributed image reaching the diagnostic logo screen on physical Lavender. Patch 0094 renders a hand-drawn approximation, not Apple's original logo. There is no device-side checksum in the recording and no launchd/SpringBoard evidence.
+The user-supplied 20.295-second video `1000317742.mp4` shows the Redmi Note 7/Lavender displaying the Apple-shaped diagnostic mark with the #261-attributed image. This is a user-attributed physical observation, not device-checksum-bound. The mark is patch 0094's hand-drawn approximation, not Apple's original AppleLogo. It confirms arrival at the framebuffer logo-rendering stage; it does not prove stage 20, root mount, launchd, SpringBoard or a complete iOS boot.
 
-The real AppleLogo IM4P has since been extracted from the exact iPhone X 20H392 IPSW and hash-pinned. Patch 0114 and build-time conversion integrate the original 194×238 alpha mask at the same post-`arm_vm_init()` stage; Run #268 validates that build integration. Do not call it physically displayed until a new safe test.
+The user explicitly rejects the custom approximation and requires the actual Apple logo. The exact iPhone X iOS 16.7.16 (20H392) `applelogo@3x~iphone.im4p` was extracted and hash-pinned (IM4P SHA `93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8`; decoded 194×238 PNG SHA `9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb`). Patch 0114 integrates that original raster at the same post-`arm_vm_init()` stage. It has not yet passed the full CI acceptance ladder or a physical test.
 
 ## Latest known build state
 
-- **#261**: fully built/verified/packaged and user-attributed physical logo-stage baseline.
-- **#266**: latest previously completed full build/verify/package baseline using old diagnostic logo; artifact `14197706518`, SHA-256 `86518b66b094d25fe0124d091dd32f6a64841273d87c597bbed97a45e7280cf1`. Not separately physically tested.
-- **#267**: failed in AppleLogo preparation at `mktemp` because shell variables were unnecessarily backslash-escaped.
-- Commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` fixes the script.
-- **#268** (`43805363291`) is validating the corrected 0114 + AppleLogo preparation path. Check final build, linked verifier and RAM-only package result before claiming a new image.
+- **#261**: XNU build, verification and RAM-only packaging passed; user video shows the diagnostic logo-rendering stage.
+- **#266**: full build/verification/package passed with the old diagnostic logo; artifact `14197706518`, SHA-256 `86518b66b094d25fe0124d091dd32f6a64841273d87c597bbed97a45e7280cf1`; not separately physically tested.
+- **#267**: failed during AppleLogo preparation because escaped shell variables reached `mktemp`; commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` fixed expansion.
+- **#268**: XNU compiled; AppleLogo header/hash/source guard, commpage, SHA2 and framebuffer checks passed. It failed later in the startup-trace source verifier with `ValueError: substring not found`: the verifier still used removed `lavender_logo_ellipse` as the end of the trace-helper slice. Linked Mach-O verification and packaging were skipped.
+- **Verifier correction**: commit `5dc07a913a1c4ac8fd1fb9e9d88e2f7d68a37664` bounds the trace-helper slice at the next function `sweet_early_logo(void)`. This fix is committed but its resulting workflow has not yet been validated.
 
 ## Current engineering direction
 
