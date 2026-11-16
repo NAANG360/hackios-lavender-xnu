@@ -119,11 +119,18 @@ After a read-only root mounts:
 
 ## 5. Device-facing services after root
 
+Topaz is useful as a subsystem reference, with strict hardware boundaries:
+- **Wi-Fi:** Topaz patches 0113–0130 demonstrate Qualcomm PAS/TrustZone modem boot, GLINK/QRTR, modem host services, WLFW, WMI/HTT and the WPA2 station/data path. Lavender's public SDM660 runtime log identifies WCN3990 on the ath10k SNOC path; validate the exact Lavender firmware, memory, clocks, regulators, IRQs and TLMM before porting. Topaz does not establish cellular data support.
+- **Display and cache:** Topaz patches 0092–0112 demonstrate direct scanout, double buffering, cache maintenance and brightness-service integration. Reuse the concepts only; Lavender's MDSS/DSI panel and Adreno 512 are different.
+- **IOSurface:** Topaz patches 0131–0139 are a reference for CoreAnimation-facing IOSurface semantics and release/attachment behavior, independent of the underlying GPU.
+- **Input:** Topaz's FocalTech FT5452 driver is not applicable; Lavender's Novatek NT36xxx controller at I²C 0x62 needs its own driver.
+- **Battery/audio/BT/cellular:** Topaz's README lists cellular data, Bluetooth and audio as not working in that port. Its battery path is PMIC-specific. Use separate Lavender/SDM660 and topaz-woa research only as protocol references, not as claims of working iOS drivers.
+
 Further Lavender-specific gaps:
 - **Display:** framebuffer console/logo works, but an iOS IOMobileFramebuffer/IOFramebuffer service is not established.
 - **Touch:** Lavender uses Novatek `novatek,NVT-ts` on I²C address `0x62`, reset GPIO 66 and IRQ GPIO 67. Sweet patches 0060/0062 are Goodix/GENI-specific and must not be reused. No Lavender NVT driver is present in the inspected source.
 - **I²C/TLMM/PMIC:** controller, GPIO and rail sequencing must come from Lavender's FDT/vendor sources.
-- **Buttons/recovery:** power button is broken; volume-key chord is not a verified recovery selector.
+- **Buttons/recovery:** power button is broken; the user confirms the volume-key reset/recovery route works. Preserve and document the exact sequence before the userdata image write.
 - **SMP:** keep `cpus=1` until secondary CPU startup and synchronization are verified stage by stage.
 - **Wireless, cellular, audio, camera, GPU and SEP-dependent functions:** unsupported until the required Lavender hardware/services are implemented.
 
