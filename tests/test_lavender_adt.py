@@ -84,7 +84,27 @@ def run():
     assert [props(n)["state"] for n in a73_cpu_nodes] == [mod.cstr("running"), mod.cstr("stopped"), mod.cstr("stopped"), mod.cstr("stopped")]
     assert [struct.unpack("<I", props(n)["cluster-id"])[0] for n in a73_cpu_nodes] == [1, 1, 1, 1]
 
-    print("PASS: Lavender ADT memory, framebuffer, CPU order, eMMC and NVT touch checks")
+    # A small image fits after the kernel inside the one contiguous XNU aperture.
+    kernel_end_va = 0xFFFFFFE008020000
+    kernel_phys_end, ramdisk_end = payload_mod.validate_ramdisk_range(
+        0xFFFFFFE006000000, kernel_end_va, base, size, 0x100000
+    )
+    assert kernel_phys_end == 0xA4020000
+    assert ramdisk_end == 0xA4120000
+
+    # mkiosroot.sh defaults to a 16 GiB logical HFS+ image. Reject it before
+    # mkpayload reads/allocates the file: Lavender's current safe aperture has
+    # only about 1.10 GiB left after the kernel image.
+    try:
+        payload_mod.validate_ramdisk_range(
+            0xFFFFFFE006000000, kernel_end_va, base, size, 16 << 30
+        )
+    except ValueError as exc:
+        assert "RAMDisk does not fit" in str(exc)
+    else:
+        raise AssertionError("oversized Lavender RAMDisk was accepted")
+
+    print("PASS: Lavender ADT memory, framebuffer, CPU order, eMMC, NVT touch and bounded RAMDisk checks")
 
 if __name__ == "__main__":
     run()

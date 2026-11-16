@@ -15,7 +15,10 @@ Bring XNU 8796 (iOS 16 generation) and ultimately the iOS 16.7.16 (20H392) Darwi
 - Run **#262** (`43795080764`, source `71bb3a0dc0a45a7d5482fe45de869af6281bca41`) compiled XNU successfully, then failed the Lavender entry guard; verification and packaging were skipped.
 - Source-level cause: the inline guard used an explicit next symbol for enqueue but `None` for dequeue, causing the second body scan to extend to end-of-file and potentially reject unrelated later symbols.
 - Corrective commits: `276fb31395998538afcbb620d25c647ad9f5f47e` updates the reusable guard to require CLREX on the busy-lock return path; `b6879a835d61a3382740737254a5c54b2eeeb2ee` makes the workflow use the symbol-bounded validator.
-- Run **#263** (workflow `43800607832`, source `b6879a835d61a3382740737254a5c54b2eeeb2ee`) was observed **in progress** at handoff update time. Inspect its completed jobs and artifacts before any new build; do not overlap Actions runs.
+- Run **#263** (`43800607832`) and **#264** (`43800747274`) passed the source-level generic-ISA, commpage LL/SC+CLREX and SHA2-scope checks but failed an unconditional compiler-log grep on exact cache hits.
+- Commit `f3526da7461c804188f7395ad964cda9c80542da` made that grep cache-aware without relaxing source or linked-binary validation.
+- **Run #265** (`43801366044`, source `f3526da7461c804188f7395ad964cda9c80542da`) passed XNU build, source guards, linked Mach-O verification and RAM-only package validation. Artifact `14196716179`, exact `iosboot.img` SHA-256 `c1dfc841fab6545e0c4892c7f01dba4ecd7c52f972e9ff7c00ca6230f6a8537d`. Its kernel is identical to #261; its per-run ADT seed changes the full image hash.
+- **Next:** replace the hand-drawn logo with the exact AppleLogo resource; then determine the post-logo kernel frontier and prioritize removable SDHC2/root storage. Do not run another handset test until the power-button-independent recovery path is physically verified.
 
 ## Mandatory protocol
 1. Resolve live branch HEAD and newest relevant Actions run.
@@ -36,7 +39,7 @@ Bring XNU 8796 (iOS 16 generation) and ultimately the iOS 16.7.16 (20H392) Darwi
 
 ## Active routes
 - Current CI guard / build acceptance: `docs/handoff/03-current-debugging.md`.
-- Logo replacement, post-logo kernel, storage and Darwin userspace: `docs/handoff/05-post-logo-userspace.md`.
+- Logo replacement, post-logo kernel, removable SDHC2/root storage and Darwin userspace: `docs/handoff/05-post-logo-userspace.md`.
 - Architecture/patch/build details only as needed: `docs/handoff/02-architecture-and-build.md`.
 - Before any physical-device action: `docs/handoff/01-device-and-safety.md`.
 - Historical run and provenance details: `docs/handoff/04-evidence-and-history.md`.

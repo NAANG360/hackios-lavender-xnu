@@ -1,12 +1,14 @@
 # Latest evidence update — 16 November 2026
 
-- Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed XNU build/verification and RAM-only packaging. Fastboot artifact `14193115710` contains `iosboot.img` (16,551,936 bytes; SHA-256 `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`).
-- The 20.317-second user recording `1000317742.mp4` shows the physical handset transition from the red diagnostics to the white diagnostic Apple-shaped mark. The user identifies it as Run #261; the clip is not checksum-bound to the image. It supersedes the earlier “logo not reached” statement, but it does not prove Darwin userspace.
-- The visible mark is custom-rendered by patch 0094; the source uses ellipse equations, a bite cut-out, leaf and stem. The user wants Apple's genuine boot-logo artwork instead.
-- Run #262 (`43795080764`) compiled XNU but failed the source entry guard; kernel verification/package were skipped. Source inspection found the second helper scan extended to EOF because its next-symbol boundary was `None`.
-- The corrected verifier is in commits `276fb31395998538afcbb620d25c647ad9f5f47e` and `b6879a835d61a3382740737254a5c54b2eeeb2ee`; Run #263 (`43800607832`) was in progress at the time this history update was made.
+- Run #261 (`43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`) passed build, linked verification and RAM-only packaging. Artifact `14193115710` contains `iosboot.img` (16,551,936 bytes; SHA-256 `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`).
+- The 20.317-second user recording `1000317742.mp4` shows the handset changing from the red diagnostic screen to the white custom diagnostic mark on black. User attributes it to Run #261; not image-checksum-bound. It does not prove Darwin userspace.
+- Runs #262–#264 were guard failures: #262 had the unbounded second symbol scan; #263/#264 passed the corrected source checks but tripped an exact-cache-hit compiler-log grep.
+- Commit `f3526da7461c804188f7395ad964cda9c80542da` fixed the cache-aware guard.
+- Run #265 (`43801366044`) passed both the build and package jobs. Artifact `14196716179` contains `iosboot.img` (16,551,936 bytes; SHA-256 `c1dfc841fab6545e0c4892c7f01dba4ecd7c52f972e9ff7c00ca6230f6a8537d`). Its kernel binary hash matches #261; the ADT random seed makes the overall image hash different.
+- Public mainline Lavender DTS enables `sdhc_2` with GPIO54 card detect and separate VMMC/VQMMC supplies; SoC DTS defines its host at `0x0c084000` with IRQs 125/221 and a 4-bit bus. Exact Build4 embedded FDT confirmation remains open.
+- `mkiosroot.sh` defaults to a 16 GiB logical HFS+ image. Lavender's current safe contiguous ADT aperture has roughly 1.10 GiB available after the XNU kernel, so that image cannot be appended as a RAMDisk.
 
-This update supersedes older Chapter 4 statements that Run #240 was the latest candidate or that the phone had not reached the logo. Older evidence below remains historical and should not be used as the current frontier.
+This update supersedes earlier notes that #265 was in progress or that #261 was the latest packaged run.
 
 ---
 

@@ -38,6 +38,10 @@ The inherited Sweet root flow is not portable as-is:
 - `mkiosroot.sh` documents the target as `userdata` with `rd=ufsroot0`; the Sweet BSD root-device driver is `bsd/dev/sweet_ufs.c` from patch 0028 and speaks UFSHCI/SCSI.
 - Lavender's internal storage is eMMC on Qualcomm SDHCI MSM v5 (`c0c4000.sdhci`), not UFS. The inspected Lavender tree has no eMMC/SDHCI BSD block driver. Do not reuse the Sweet UFS registers, SCSI protocol or UFS root-device name.
 
+**New removable-storage lead (public mainline DTS; live-FDT confirmation still required):** the device-specific mainline `sdm660-xiaomi-lavender.dts` enables a second host via `&sdhc_2`, declares card-detect GPIO 54, and supplies separate VMMC/VQMMC rails. The included SDM630/660 SoC description places that host at `0x0c084000`, 4-bit bus, with host/power IRQs 125/221 and interface/core/XO clocks. This strongly suggests a removable SD-card slot and is a better root target than internal Android eMMC. It is **not yet confirmed** in the exact Build 4 boot-image FDT used by this branch; do not add the node to the Lavender ADT or begin driver MMIO until that embedded FDT is inspected. The public device DTS enables the node and sets GPIO54 card-detect; a downstream kernel patch also reflects this Lavender overlay.
+
+Research references: [Lavender device-tree change showing enabled `sdhc_2` and GPIO54](https://lists.openwall.net/linux-kernel/2025/06/19/1081); [Qualcomm SDM660 SDHCI MSM driver](https://github.com/torvalds/linux/blob/master/drivers/mmc/host/sdhci-msm.c).
+
 Audited target details in `xnu/patches/LAVENDER-PORT-STATUS.md`:
 - SDHCI MSM v5 register windows: `0x0c0c4000/0x1000`, `0x0c0c5000/0x1000`, `0x0c0c8000/0x8000`.
 - eMMC is 8-bit, non-removable; clocks include `iface_clk`, `core_clk`, `ice_core_clk`; the FDT lists IRQs 110 and 112.
@@ -54,14 +58,21 @@ Before root testing, choose a storage design that honours this constraint. Candi
 
 Do not silently choose one or adapt the Sweet `userdata` flash instructions. The XNU root device must support read-only bring-up first; write support is a separate later gate.
 
+### RAMDisk capacity check — do not append the current full root image
+
+The Lavender ADT exposes one conservative contiguous DRAM aperture from `0xA2000000` to `0xEA848000` (panic-log area excluded). The kernel's last segment ends at approximately physical `0xA4020000`, leaving roughly `0x46828000` bytes (about 1.10 GiB) for an appended image. By contrast, `tools/mkiosroot.sh` defaults to a **16 GiB logical HFS+ image**. Even if the host file is sparse, its logical size is still 16 GiB; it cannot be placed wholly in that RAM aperture.
+
+The current `tools/mkpayload.py --ramdisk` path appends the whole image to the kernel payload and advertises it as `RAMDisk` in the ADT. Add/retain a pre-read bounds check against `dram-base + dram-size`; fail before reading an oversized file. Do not attempt to fit the 16 GiB image by overlapping the panic reservation, other RAM, framebuffer, kernel or ADT. This capacity mismatch makes a removable SD-card root materially more attractive. A small initramfs remains possible only if its actual page-aligned size fits the validated remaining aperture.
+
 ### Recommended driver sequence
 
-1. Read the exact Linux SDHCI MSM v5 implementation and Lavender FDT to map clock/reset, power, bus width, voltage, tuning and DMA behavior. Linux sources are hardware references, not drop-in XNU code.
-2. Audit the post-ABL controller state: determine which eMMC initialization stages ABL already completed and what state survives the shim. Never assume this from the device-tree node alone.
-3. Implement a conservative polled, read-only SDHCI data path first: controller reset/readiness, CMD0/CMD1 (eMMC), RCA selection, EXT_CSD/CSD decode, block reads, timeouts and error recovery. Verify DMA addressing/coherency and the controller's ADMA/SDMA requirements against the Lavender memory map.
-4. Expose a BSD block device and GPT partition discovery with a stable Lavender-specific root-device name. Do not reuse `ufsroot0`.
-5. Mount an HFS+ root read-only, verify journal/root metadata handling, then test APFS cryptex integration and dyld shared-cache paths using the existing 20H392 root build.
-6. Only then add narrowly scoped write/sync support, with explicit approval and a safe non-Android target.
+1. Inspect the exact Build 4 embedded FDT for `sdhc_2` at `0x0c084000`, GPIO54 card detect, IRQs, clocks, reset, pinctrl and regulator phandles. Compare it to the public Lavender DTS; do not infer that the branch's generated ADT already contains this node.
+2. If confirmed, implement the removable SD host first as a conservative polled, read-only path. Begin at low clock with PIO and no CQE/ICE/DMA; validate card detection, CMD0/CMD8/ACMD41, CID/CSD, RCA/select and single-block reads before GPT or HFS+. Keep separate from the internal eMMC driver.
+3. Read the exact Linux SDHCI MSM v5 implementation and Lavender FDT to map clock/reset, power, bus width, voltage, tuning and DMA behavior. Linux sources are hardware references, not drop-in XNU code.
+4. Audit whether ABL has already initialized the removable controller and whether its state survives the shim. Never assume the host's card/clock/power state from the device-tree node alone.
+5. Expose a BSD block device and GPT partition discovery with a stable Lavender-specific root-device name. Do not reuse `ufsroot0`.
+6. Mount an HFS+ root read-only, verify journal/root metadata handling, then test APFS cryptex integration and dyld shared-cache paths using the existing 20H392 root build.
+7. Only then add narrowly scoped write/sync support, with explicit approval and a safe non-Android target.
 
 The exact SDHCI MSM hardware programming sequence must be grounded in the Lavender controller revision and Linux/vendor source. Do not copy register constants from Topaz or Sweet.
 

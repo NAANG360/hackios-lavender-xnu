@@ -23,7 +23,8 @@ The clip shows no launchd, SpringBoard or Darwin userspace. It does not independ
 - **#261** — workflow `43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`: build and package jobs both passed. The kernel verifier and RAM-only package checks passed.
 - Image artifact `14193115710`, name `lavender-fastboot-boot-test`; exact `iosboot.img`, 16,551,936 bytes; SHA-256 `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`.
 - **#262** — workflow `43795080764`, source `71bb3a0dc0a45a7d5482fe45de869af6281bca41`: XNU compilation passed, then the Lavender entry-guard step failed. Kernel verification and packaging were skipped. Do not use #262's raw kernel candidate.
-- **#263** — workflow `43800607832`, source `b6879a835d61a3382740737254a5c54b2eeeb2ee`: in progress when this handoff was written. It includes the symbol-bounded guard correction and a reusable source validator that checks CLREX on the busy-lock failure path. Inspect the final result before starting another build.
+- **#263** (`43800607832`) and **#264** (`43800747274`) passed source guards but failed because an exact cache hit emitted no compiler invocation while a log grep expected one.
+- **#265** — workflow `43801366044`, source `f3526da7461c804188f7395ad964cda9c80542da`: build, source guards, linked Mach-O verification and RAM-only packaging all passed. Artifact `14196716179`; exact `iosboot.img` size 16,551,936 bytes, SHA-256 `c1dfc841fab6545e0c4892c7f01dba4ecd7c52f972e9ff7c00ca6230f6a8537d`. Kernel binary is identical to #261; full image differs due the randomized ADT seed.
 
 ## Current task / chapter route
 

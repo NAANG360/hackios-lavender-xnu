@@ -149,6 +149,43 @@ def validate_lavender_bootstrap_alignment(virt_base, phys_base):
         )
 
 
+def validate_ramdisk_range(virt_base, kernel_end_va, phys_base, mem_size, ramdisk_size):
+    """Validate an appended RAMDisk against the ADT-advertised physical aperture.
+
+    mkpayload places the RAMDisk immediately after the highest kernel segment,
+    using the same VA-to-PA offset as the bootstrap mapping. Reject an image
+    that would extend beyond the one contiguous DRAM aperture before reading
+    the potentially very large file into memory.
+    """
+    values = (virt_base, kernel_end_va, phys_base, mem_size, ramdisk_size)
+    if any(not isinstance(value, int) for value in values):
+        raise TypeError("RAMDisk range values must be integers")
+    if mem_size <= 0 or ramdisk_size < 0:
+        raise ValueError("RAMDisk aperture size must be positive and image size non-negative")
+    if kernel_end_va < virt_base:
+        raise ValueError(
+            f"kernel end {kernel_end_va:#x} precedes virtual base {virt_base:#x}"
+        )
+
+    aperture_end = phys_base + mem_size
+    kernel_end_pa = phys_base + (kernel_end_va - virt_base)
+    if kernel_end_pa < phys_base or kernel_end_pa > aperture_end:
+        raise ValueError(
+            "kernel end is outside the ADT DRAM aperture: "
+            f"kernel_end_pa={kernel_end_pa:#x}, aperture={phys_base:#x}..{aperture_end:#x}"
+        )
+
+    ramdisk_end_pa = kernel_end_pa + ramdisk_size
+    if ramdisk_end_pa > aperture_end:
+        available = aperture_end - kernel_end_pa
+        raise ValueError(
+            "RAMDisk does not fit in the ADT DRAM aperture: "
+            f"requested={ramdisk_size:#x} bytes, available={available:#x} bytes "
+            f"after kernel; RAMDisk end={ramdisk_end_pa:#x}, aperture end={aperture_end:#x}"
+        )
+    return kernel_end_pa, ramdisk_end_pa
+
+
 def adt_dram(adt_blob):
     """Kernel-managed RAM <base, size> from the ADT's /chosen dram-base/dram-size."""
     root, _ = adt.parse(adt_blob)
@@ -178,11 +215,21 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None, machine="SWEET"):
     pieces = [(s['vmaddr'], s['vmsize'], buf[s['fileoff']:s['fileoff'] + s['filesize']]) for s in segs]
     ramdisk = None
     if ramdisk_path:
-        image = open(ramdisk_path, 'rb').read()
-        rd_size = (len(image) + PAGE - 1) & ~(PAGE - 1)
+        # Check the logical image size before reading it. Sparse HFS+ images
+        # can be many GiB logically even when their host-side file is sparse.
+        source_size = os.path.getsize(ramdisk_path)
+        rd_size = (source_size + PAGE - 1) & ~(PAGE - 1)
+        rd_pa, _ = validate_ramdisk_range(
+            virt_base, kernel_end, PHYS_BASE, MEM_SIZE, rd_size
+        )
+        with open(ramdisk_path, 'rb') as f:
+            image = f.read()
+        if len(image) != source_size:
+            raise ValueError(
+                f"RAMDisk changed while being read: expected {source_size} bytes, got {len(image)}"
+            )
         rd_va = kernel_end
         kernel_end = rd_va + rd_size
-        rd_pa = rd_va - virt_base + PHYS_BASE
         pieces.append((rd_va, rd_size, image))
         adt_blob = add_ramdisk_to_adt(adt_blob, rd_pa, rd_size)
         ramdisk = (hex(rd_pa), hex(rd_size))
