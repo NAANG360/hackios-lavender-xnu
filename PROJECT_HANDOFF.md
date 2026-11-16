@@ -1,182 +1,47 @@
-# Lavender XNU — seamless project handoff
+# Lavender XNU — live project handoff
 
 **Resume command:** “Continue from latest operations.”
 
-A new session must read this file, inspect live GitHub branch/Actions state, then load only the chapter named below. Repository and live evidence outrank this snapshot if they differ.
+Read this file, inspect the live branch/Actions state, then load only the routed chapter. Current repository state outranks this snapshot if it changes.
 
 - Repository: https://github.com/NAANG360/hackios-lavender-xnu
 - Branch: `ci/lavender-machine-profile`
-- Device: Xiaomi Redmi Note 7/7S, `lavender`, Qualcomm SDM660 / Kryo 260, ARM64
-- Mission: physical XNU 8796 (iOS 16 generation) bring-up; Darwin userspace is a later milestone.
+- Target: Xiaomi Redmi Note 7/7S, `lavender`, Qualcomm SDM660 / Kryo 260, ARM64
+- Kernel: XNU 8796 (iOS 16 generation)
+- Intended userland reference: iPhone X iOS 16.7.16 (20H392)
+
+## Current milestone
+
+**Run #261 reaches the logo stage on the physical phone, according to the user-supplied recording.** The 20.317-second video `1000317742.mp4` first shows the red diagnostic display and then a white bitten-apple-shaped image on a black display. The user identifies the image as the Run #261 build.
+
+Important qualification: this is the hand-drawn diagnostic logo from patch 0094, not Apple's actual boot-logo resource. The user explicitly wants the genuine Apple logo. Do not label this graphic “official Apple logo.” Replace the artwork without regressing the now-working startup path.
+
+The clip shows no launchd, SpringBoard or Darwin userspace. It does not independently prove a device-side checksum. Treat the run association as user-attributed rather than cryptographically bound.
+
+## Latest known CI state
+
+- **#261** — workflow `43789919931`, source `65f94b72544722d921dd332e2da94540d86b6709`: build and package jobs both passed. The kernel verifier and RAM-only package checks passed.
+- Image artifact `14193115710`, name `lavender-fastboot-boot-test`; exact `iosboot.img`, 16,551,936 bytes; SHA-256 `ee96e9273a4699ca1da78d85e761cc8947ee1c520757fe2f87d2c314d9ea445c`.
+- **#262** — workflow `43795080764`, source `71bb3a0dc0a45a7d5482fe45de869af6281bca41`: XNU compilation passed, then the Lavender entry-guard step failed. Kernel verification and packaging were skipped. Do not use #262's raw kernel candidate.
+- **#263** — workflow `43800607832`, source `b6879a835d61a3382740737254a5c54b2eeeb2ee`: in progress when this handoff was written. It includes the symbol-bounded guard correction and a reusable source validator that checks CLREX on the busy-lock failure path. Inspect the final result before starting another build.
 
 ## Current task / chapter route
 
-**Active task:** fix the overly broad executable-CASA verifier in Run #257, then rerun the Lavender XNU build and verify the linked commpage helpers before packaging.
+1. Let #263 finish; inspect the guard, build, linked-kernel verification, package jobs and exact `iosboot.img` artifact. Do not overlap runs.
+2. Replace the custom diagnostic mark with the real AppleLogo resource extracted from the same iPhone X iOS 16.7.16 (20H392) IPSW used by the userland reference. Do not approximate or redraw the mark. See Chapter 05.
+3. Continue kernel startup beyond the visible logo. The video is 20.317 seconds and captures no stage-20/kprintf completion marker, root mount or userspace. Add/inspect narrowly scoped post-logo evidence before claiming those stages.
+4. Begin the storage/root path. The inherited Sweet path is UFS-based and assumes an HFS+ root on `userdata`; Lavender uses eMMC/SDHCI. No Lavender SDHCI block driver is implemented in the inspected source. A non-destructive root-storage design is required before any system image is installed or mounted.
+5. Once the root is reachable, bring up the actual iOS 20H392 root tree, launchd and required early daemons; then framebuffer, input and SpringBoard integration.
 
-**XNU #252** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43733584216), source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`) failed on handwritten `CASA` instructions at `commpage_asm.s:276` and `:326`, each requiring LSE. Generic ARMv8-A compiler flags cannot rewrite handwritten assembly.
+**Read now:** [Chapter 03 — Current debugging](docs/handoff/03-current-debugging.md) and [Chapter 05 — Post-logo and Darwin userspace](docs/handoff/05-post-logo-userspace.md).
 
-**XNU #254** ([run](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43736404806), source `58bda409ddc1c6e67d077c6acdf5f4ca9790dfba`) failed because patch 0112 was malformed and skipped at line 24: its hunk counts did not match the actual context/add/remove lines. The original CASA instructions consequently remained and the assembler failed at the same two source locations. The build job failed; the linked-kernel verifier and RAM-only package job were skipped. Raw candidate artifact `14171510404` and buildtree artifact `14170687291` are diagnostic only; **no #254 `iosboot.img` exists**.
+**Read additionally only when needed:**
+- [Chapter 02 — Architecture and build](docs/handoff/02-architecture-and-build.md): XNU source, patches, compiler, cache, linked verification and packaging.
+- [Chapter 01 — Device and safety](docs/handoff/01-device-and-safety.md): mandatory before physical testing or any storage/recovery operation.
+- [Chapter 04 — Evidence and history](docs/handoff/04-evidence-and-history.md): provenance and older diagnostic history.
 
-**Fix committed:** `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac` corrects the patch hunk headers:
-- enqueue: `@@ -272,11 +272,16`
-- dequeue: `@@ -322,9 +327,14`
+## Hard constraints
 
-The LL/SC implementation itself is unchanged. The corrected patch commit triggered XNU #255 (run `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`). Live status: **in progress**, with `Build XNU 8796` still running. Setup/toolchain/profile/cache/dependency steps passed. No compile, linked-verification or package conclusion is available yet.
+Preserve Android and recovery. RAM boot only; no flashing, erasing, repartitioning or boot-critical writes. The handset power button is broken, and the volume-key chord is not a verified recovery selector. No new physical test until an independent recovery/reset route is physically verified.
 
-**Next operation:** do not overlap #255. When it completes, inspect its build log and artifacts to prove patch 0112 applied, both helpers contain `LDAXR/STXR` and no CASA, XNU compiles, linked Mach-O verification succeeds, and the RAM-only package job produces exact `iosboot.img`. Do not globally enable LSE or weaken verification. Do not use #254's raw candidate.
-
-**Guard hardening prepared:** `tools/verify-lavender-commpage-llsc.py` validates both patched source functions and linked instruction mnemonics. Gemini's review confirmed the `LDAXR/STXR` acquire-CAS replacement and recommended `CLREX` on the busy-lock exit. The staged patch now includes that defensive cleanup and the source/binary guards require it. The exact XNU symbols are `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue` (not timebase readers). Workflow integration is staged on `fix/lavender-commpage-prebuild-guard` at `a459b2479281be186683b5b4519a49fb5d824c57`; it adds a `git apply --numstat` preflight, a post-patch/pre-compile source guard, and linked disassembly of `__TEXT_EXEC,__commpage_text`. It is deliberately not merged while #255 is compiling, to avoid starting an overlapping build.
-
-Keep the Run #240 `HOOK idx=680` mutex mapping as the later physical debugging lead, not the current build blocker. Do not skip/reorder that initializer. No handset retest until the power-button-independent recovery/reset safety gate is physically verified; RAM boot only, never flash.
-
-**Read now:** [Chapter 03 — Current debugging](docs/handoff/03-current-debugging.md).
-
-**Read additionally only if needed:**
-- Build/patch/cache/packaging change or Topaz/Sweet comparative research → [Chapter 02](docs/handoff/02-architecture-and-build.md).
-- Before any device action or safety decision → [Chapter 01](docs/handoff/01-device-and-safety.md).
-- Historical comparison/regression investigation → [Chapter 04](docs/handoff/04-evidence-and-history.md).
-
-**Topaz reference:** [`MakrSas/ios-topaz`](https://github.com/MakrSas/ios-topaz) is indexed in Chapter 02 and summarized below. It is a Redmi Note 12 4G / SM6225 target and Sweet-derived project; use it only for carefully validated comparative techniques, never as a Lavender hardware profile.
-
-Do not read every chapter by default.
-
-## Latest diagnostic candidate — Run #240
-
-- Run #240 image/build source SHA: `c61d930ac2fc379a2bdacfb9daa803b013d3f9ac`.
-- Workflow ID `43709690089`, conclusion `success`; XNU build and RAM-only package jobs both passed, including the Lavender entry guard, Mach-O verifier, and boot-image structure/payload verification.
-- `0109-lavender-startup-hook-trace.patch` was applied and both `startup.c` and `sweet_early.c` compiled into the accepted kernel.
-- Fastboot artifact `lavender-fastboot-boot-test`, ID `14160128075`. Image exact name `iosboot.img`, size 16,531,456 bytes; SHA-256 `e21d513f42f288e2cbd1705111507c9ba9ab398c7366b397227efb6b9227922a`. The ZIP contains the same bytes at `shim/out/shim-boot.img`.
-- Kernel artifact `xnu-kernel`, ID `14159918757`; kernel size 16,587,456 bytes; SHA-256 `cba785aa6ccf6916ca86fde8ff97b1b4f583e888b5b57b8ba159b1e03743e712`. Official verifier passes ARM64 Mach-O, Lavender identity and compiled stage-8/stage-9 sequences.
-- Buildtree artifact ID `14160182439`; build log artifact ID `14160376884`.
-- Runs #238 and #239 failed only in the temporary source-guard check while its ordering/delimiter assertions were being corrected. Run #240 is the corrected passing run. Run #237 also failed the patch guard before the patch was added.
-- This is a successfully compiled and packaged diagnostic candidate. The newly supplied screenshots expose a patch-0109 hook line and the accompanying binary analysis maps it against this kernel's table/symbols; however, the screenshots are not yet independently checksum-bound to the Run #240 image, so do not overstate physical artifact provenance.
-
-## Run #236 physical recording
-
-- Video `1000317701.mp4`, 87.8 seconds. Its checkpoint labels match Run #236's instrumentation. No device-side checksum was captured, so its association with Run #236 is consistent with the labels, not byte-for-byte proven.
-- The final visible line is `[09] entering kernel_startup_bootstrap` (marker `0x109`); marker `0x10A` is absent. The display later goes black and shows a charging/battery indication; the cause is unknown and must not be described as a confirmed kernel panic.
-
-## New video batch — 15 November 2026
-
-Four physical recordings are reviewed as checkpoint-video evidence and remain separate from Run #240. Two later close-up screenshots expose the patch-0109 HOOK line; see the callback-resolution section in Chapter 03. The screenshot-to-image provenance is not independently checksum-bound.
-
-| File | Duration | Visible evidence | Provenance |
-|---|---:|---|---|
-| `1000317701.mp4` | 87.785 s | Earlier review: completed checkpoints 01–08 and final visible `[09] entering kernel_startup_bootstrap`; later screen dark/charging indication | Run #236-consistent by labels, not checksum-bound |
-| `1000317713.mp4` | 27.531 s | SHIM/Lavender XNU red diagnostic panel; boot counters; white checkpoint list reaches `[09] entering kernel_startup_bootstrap`; remains on that display in early frames, later recording shows dark screen with a bright lower-edge line | Unknown build; no Run #240 trace |
-| `1000317714.mp4` | 27.744 s | Same SHIM/Lavender XNU diagnostic panel and boot-counter layout at start; screen becomes dark shortly after; bright lower-edge line persists; later battery icon appears | Unknown build; likely same diagnostic generation as adjacent clips, but not established |
-| `1000317717.mp4` | 54.303 s | Same red panel and checkpoint list; `[09] entering kernel_startup_bootstrap` remains the last visible completed checkpoint across the long middle section; near the end screen goes dark and battery icon appears | Unknown build; no Run #240 trace |
-
-### Cross-video interpretation
-
-- The new clips reinforce that the older checkpoint-based image reaches the *entry* to `kernel_startup_bootstrap()`; none visibly proves marker `0x10A` or a return from that function.
-- `1000317717.mp4` is the clearest sustained view: checkpoint 09 remains unchanged for roughly the visible middle of the 54.3-second recording. This is consistent with a stall after entering startup bootstrap, but the clip does not expose the internal patch-0109 trace, so it cannot identify table validation, qsort, subsystem logging or a particular callback.
-- `1000317713.mp4` and `1000317714.mp4` show the same boot-panel family but have insufficient provenance to assign a workflow/run. Treat as corroborating historical footage, not a new test of Run #240.
-- The red-panel counters include `BOOT CPU16K unsupported; trying A73`, A73 entry/target/observed fields, PSCI CPU fields, and MMFR value ending `101122`. These are shim diagnostics, not proof of an XNU startup-hook failure. Preserve exact readings as visual evidence; do not infer a new CPU bug from them alone.
-- The screen darkening and later battery icon are visible outcomes, but they do not establish a kernel panic, Guardian reset, or exact cause.
-- No separate 64-second clip was present in the mounted batch. The 54.303-second `1000317717.mp4` must not be mislabeled as the 1:04 clip mentioned by the user. The previously supplied 87.785-second `1000317701.mp4` is retained as the older Run #236-consistent reference.
-
-### Critical next step
-
-The Run #240 image remains untested in the evidence available here. Do not treat these clips as its output. The next useful diagnostic evidence is a recording of the bottom-row patch-0109 trace from the exact Run #240 `iosboot.img`, but only after the independent recovery/reset safety gate is satisfied. No code change or additional build is justified by these videos alone.
-
-## Current physical frontier
-
-Confirmed on the handset: `arm_init()`, `PE_init_platform`, CPU-topology parsing, `cpu_bootstrap()`, return from `rtclock_early_init()`, return from `kernel_debug_string_early()`, and entry to `kernel_startup_bootstrap()`.
-
-Not confirmed: return from `kernel_startup_bootstrap()`, timer/CPU initialization, `arm_vm_init()`, stable scheduler/interrupt operation, Apple logo or Darwin userspace.
-
-## Run #236 marker map
-
-| Marker | Meaning |
-|---:|---|
-| `0x105` | entering `rtclock_early_init()` |
-| `0x106` | `rtclock_early_init()` returned |
-| `0x107` | entering `kernel_debug_string_early()` |
-| `0x108` | early debug-string call returned |
-| `0x109` | entering `kernel_startup_bootstrap()` |
-| `0x10A` | `kernel_startup_bootstrap()` returned |
-| `0x10B` | `timer_call_init()` returned |
-| `0x10C` | `cpu_init()` returned |
-| `0x10D` | `processor_bootstrap()` returned |
-| `0x10E` | entering `arm_vm_init()` |
-| `0x10F` | `arm_vm_init()` returned |
-
-## Patch 0109 — current diagnostic logic
-
-The new trace is a console-only rolling line at the bottom of the XNU framebuffer. It does **not** update the Guardian's shared progress cell and does not change startup callback order or skip any hook.
-
-Events shown by the line:
-- `TABLE n=...`: table count, byte size and start/end addresses, before validation.
-- `QSORT BEGIN` / `QSORT DONE`: the sorting call boundary.
-- `INIT BEGIN` / `INIT DONE`: `kernel_startup_initialize_upto(STARTUP_SUB_LOCKS)` boundary.
-- `SUBSYS LOG BEGIN/DONE`: subsystem-name early logging boundary.
-- `HOOK idx=... sub=... rank=... fn=... arg=...`: callback about to execute. If this remains the last line, that callback (or the immediate post-call path) is the next source to inspect.
-
-## Exact Run #240 startup-table audit
-
-The accepted Run #240 kernel has `__BOOTDATA,__init_entry_set` at file offset `0xb1cd58`, size `0x17e20` (97,824 bytes), exactly 4,076 entries of 24 bytes each. The same table extracted from the binary was sorted using the XNU 8796 `bsd/kern/qsort.c` algorithm against the actual `startup_entry_cmp` fields.
-
-- XNU qsort simulation: 10,790 comparisons; maximum recursion depth 7.
-- Simulated sorted entries: TUNABLES 242, TIMEOUTS 18, LOCKS 614 (874 callbacks total before `STARTUP_SUB_LOCKS` returns).
-- Every entry's function pointer fell inside a mapped executable segment; every non-null argument fell inside a mapped kernel segment.
-- The simulated result had zero subsystem/rank ordering violations.
-- Linked symbols in the accepted kernel include `_sweet_early_trace_startup`, `_kernel_startup_bootstrap`, `_kernel_startup_initialize_upto` and `_qsort`.
-
-These checks make a malformed/empty startup table and pathological host-side sort workload less likely. They do **not** prove the handset's physical qsort path completes or identify the blocking callback. The next useful evidence is the last visible Run #240 trace line.
-
-## Safety gate
-
-The device power button is broken. Do not request another physical boot until a recovery/reboot path independent of that button is established. Preserve Android/recovery; no flashing, erasing or repartitioning. The Volume Up + Volume Down chord has not been verified as a recovery selector.
-
-## Latest CI state — 15 November 2026
-
-- **Mutex inspection #25** — run `43733584201`, source `e463e56ca9d9c5b1d78c541ecfd751fe890f7a24`: **passed**. It validated the Xcode 16.0 ARMv8-A atomic-codegen comparison and inspected the Run #240 group-reference/startup data.
-- **XNU build #252** — run `43733584216`, same source SHA: **failed** at 16:30:14 UTC in `Build XNU 8796`. The build reached commpage assembly; `osfmk/arm/commpage/commpage_asm.s:276` and `:326` rejected `casa` with `instruction requires: lse`. The generic ARMv8-A C flags were present, but do not rewrite handwritten LSE assembly. Package job was skipped.
-- Run #252 diagnostic artifacts: raw kernel candidate ID `14169598249` (not verifier-approved), buildtree ID `14170183341`, build-log ID `14170312913`. No `iosboot.img` was produced.
-- **Corrective change:** patch `0112-lavender-commpage-armv8a-llsc.patch` replaces both commpage queue-lock CASA operations with ARMv8.0 `LDAXR/STXR` retry loops. Workflow acceptance requires patch 0112 and source-checks both helpers for LL/SC and absence of CASA.
-- Inspection #25 remains successful but does not validate patch 0112. No physical test until the independent recovery/reset safety gate is met.
-## Latest CI failure — XNU #255 (15 November 2026)
-
-- Run `#255` / workflow `43743932922` / source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`: **failed** in `Build XNU 8796`.
-- Patch `0112-lavender-commpage-armv8a-llsc.patch` is confirmed applied; the log has no skip warning for 0112. The earlier malformed-hunk/CASA blocker is cleared at patch application.
-- New blocker: repeated `instruction requires: sha2` errors in `osfmk/arm64/corecrypto/sha256_compress_arm64.s` (`sha256su0`, `sha256h`, `sha256su1`, `sha256h2`). Lavender compiler target is `-march=armv8-a -mcpu=generic`, which correctly avoids optional instructions by default.
-- Raw candidate artifact `14174241207` is unverified and not for device use. Verification and packaging were skipped; no new `iosboot.img` exists.
-- Do **not** enable `+crypto` globally until SHA2 support is proven on every CPU that can run the kernel's accelerated path. Inspect exact XNU corecrypto selection (`CCSHA2_VNG_ARM`), portable fallback availability, and per-core `ID_AA64ISAR0_EL1.SHA2` first. If support is absent/nonuniform, exclude the optimized SHA2 assembly for Lavender and select a portable implementation.
-- Chapter 03 is the active route. Keep device safety unchanged: no physical test with this candidate, no flashing, RAM-only boot after the broken-power-button recovery gate is satisfied.
-
-## Comparative reference: iOS Topaz
-
-Primary reference: [`MakrSas/ios-topaz`](https://github.com/MakrSas/ios-topaz), branch `topaz`, especially its [README](https://github.com/MakrSas/ios-topaz/blob/topaz/README.md), `xnu/patches/`, `shim/`, and `tools/`. This is a working iOS 16.7.16 + XNU 8796 port for Xiaomi Redmi Note 12 4G (`topaz/tapas`, Qualcomm SM6225 / Snapdragon 685). It is a fork/continuation of [`dipa-studio/ios-sweet`](https://github.com/dipa-studio/ios-sweet), not an independent implementation; its README credits earlier HackiOS work too.
-
-### Why it matters to Lavender (SDM660 / Kryo 260)
-
-Topaz is a useful *architectural and XNU bring-up reference*, not a same-SoC port. Its documented Kryo 260-class big/little split and ARMv8.0 constraints overlap with the issues being investigated here:
-- **CPU topology / execution core:** Topaz describes A53 Silver cores at MPIDR `0x0–0x3` and A73 Gold cores at `0x100–0x103`. Its shim wakes a Gold core with PSCI and parks the Silver boot core because the Silver cores report no 16K translation-granule support. This is a strong lead to compare against Lavender's actual MPIDR, `ID_AA64MMFR0.TGran16`, PSCI and ADT observations; do not assume the exact topology or CPU handoff is identical.
-- **ARMv8.0 instruction baseline:** Topaz documents no LSE atomics, RCpc/`ldapr`, or PAN on its target cores. It explicitly overrides Apple's `apple-m1` default with `-mcpu=cortex-a53`, replaces relevant kernel LSE operations with LL/SC loops, removes PAN assumptions, and emulates remaining userland LSE/LDAPR instructions. This directly supports auditing the current Lavender compiler-target mismatch and checking the *linked* kernel for unsupported instructions, but does not prove that the current mutex callback stall has the same cause.
-- **Interrupt bring-up:** Topaz's shim prepares GIC distributor/redistributor state and Group 1 SGI/PPI delivery before entering XNU. Compare the sequence and register assumptions only after Lavender's own GIC map, security state and interrupt IDs are established.
-- **Boot-image handoff:** Topaz uses a boot-image-v4 shim and appends the XNU payload after the shim's `_end`; it documents Xiaomi ABL dropping a v1/v2 ramdisk. Treat this as a packaging/ABL comparison point, not a substitute for validating Lavender's bootloader behavior.
-- **Platform drivers and MMIO:** Topaz's UFS, GIC, framebuffer, TLMM, power, modem and GPU addresses belong to SM6225/topaz. They must **not** be copied into Lavender's SDM660 device tree, shim, or drivers.
-
-### Relevant upstream patch series
-
-- `0080-topaz-cpu-topology-skip-sweet-hw.patch`: changes Sweet CPU matching to the A53/A73 MPIDR ranges and gates inherited SM7150-specific keys/touch/USB probes behind `sweethw=1`. Read the actual patch and its call sites; it is not a generic topology fix.
-- `0081-topaz-armv8.0-no-lse-no-pan.patch`: selects `-mcpu=cortex-a53`, replaces selected kernel LSE atomics with LL/SC sequences, adds user-mode LSE/LDAPR emulation, and removes the PAN-available define.
-- `0082-topaz-boot-on-gold-cpu.patch`: requires boot logical CPU 0 to be physical MPIDR `0x100`, documenting the Gold-core handoff for 16K-page support.
-
-**Application rule:** use Topaz to generate concrete comparison questions and identify reusable *concepts*. Do not cherry-pick its patches or copy SoC constants blindly. For every proposed Lavender adaptation, verify source applicability, exact XNU configuration, compiler output, Lavender hardware registers/ADT, and the existing handoff evidence first.
-
-## Safety and acceptance gates
-
-- Keep Android/recovery intact. Use RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write boot-critical partitions.
-- The device power button is broken. The shim recovery/reset path is the known route; do not assume a volume-key chord selects recovery without physical proof.
-- Exact output filename: `iosboot.img`.
-- Do not commit private/raw dumps, serials, calibration data or firmware blobs.
-- Separate build, verifier, package, physical kernel stages, Apple logo and Darwin userspace. No logo/userspace claims without direct evidence.
-
-## Session completion rule
-
-After the next physical test, record the exact artifact/run/source SHA tested, exact marker and timestamp/video evidence, what it proves, and the next narrow task. Update this file, AGENTS.md, Chapter 03 and Chapter 04. Then the next session can resume with only “Continue from latest operations.”
-
-
-Run #257 (workflow `43789910990`, commit `c68f68c52bd3f227c0909e7728173632cebad27b`) failed in `Require Lavender XNU entry-guard patch` after the XNU build stage had completed. The exact fatal diagnostic was `unsupported executable LSE CASA remains in commpage assembly`. The guard stripped comments but scanned the entire `osfmk/arm/commpage/commpage_asm.s` file, so an unrelated executable CASA in another commpage routine caused a false positive; patch 0112's two target lock helpers were separately checked for LDAXR/STXR and CLREX. This is a verifier-scope bug, not evidence that the LL/SC conversion failed. The RAM-only package job was skipped, so no iosboot.img was produced. A later log line about the optional Xcode Kernel.framework PrivateHeaders/platform copy was non-fatal (`|| true`) and not the failure cause.
+Do not confuse a successful XNU build/package with a physical boot; do not confuse a diagnostic Apple-shaped mark with Apple's official boot artwork; and do not confuse a visible kernel logo with Darwin userspace.
