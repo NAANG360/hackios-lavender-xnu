@@ -27,12 +27,13 @@ The user explicitly rejects the custom approximation and requires the actual App
 
 ## Latest operations — 16 November 2026
 
-- **Run #274** ([43814890363](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814890363), source `5493d479039821941e0608a5e6191539eb11d52c`) passed kernel verification and RAM-only packaging, but its build log shows patches 0115 and 0116 were skipped as corrupt unified diffs. It remains a valid older AppleLogo/verbose-boot baseline; it does **not** contain the post-logo Darwin trace or overlay.
-- **Run #275** ([43814903820](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43814903820)) failed a source guard after XNU build due to a literal-string regex mismatch; the package job was skipped.
-- **Run #276** ([43817621737](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43817621737)) failed the required-patch guard. Its exact-cache build log reports patch 0115 corrupt at line 66 and patch 0116 corrupt at line 46; the restored kernel was not accepted as an updated overlay build.
-- **Fix committed:** `2b327992dcef9223ddd8a4640bebc75fdd50c983` recalculates the old/new unified-diff hunk counts in both patch files without changing their intended code edits.
-- **Run #277** ([43818798098](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43818798098)) is queued. Require patch application, all source/binary guards, linked Mach-O verification and RAM-only packaging before accepting its image.
-- **Visual status:** the genuine AppleLogo itself was physically observed in the earlier handset test. The 0115/0116 post-logo Darwin trace overlay has not yet been applied successfully or physically verified; replaying pre-logo console lines over the logo remains outstanding.
+- **Run #281** ([43819847178](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43819847178), source `94c2366567aee5df21435a7c4bb91041f161305e`) compiled XNU but failed the required-patch guard. Its log reports 0115 corrupt at EOF line 161 and 0116 at EOF line 46; linked verification and packaging were not reached.
+- **Exact cause:** both patches had a trailing whitespace-only context line after the final hunk, and the final hunk headers each declared one extra old and new line. Correct bodies are 0115 `6/12` (previously `7/13`) and 0116 `28/21` (previously `29/22`).
+- **Repair commits:** `ab90b5840b891ee2894e2606f8b0e45b83ef8bd4` and `857e735a046c76c9889ddac429583b4a24e03706` remove the stray EOF context lines; `f84b0c43b94c322bb300bf57b2fde7329fce8ca5` and `596bf0c9690e468ab188d0008e7e9495108c6b11` correct the final hunk counts.
+- **Patch validation:** an independent count of all 11 hunks confirms each declared old/new count matches its actual body; no malformed lines remain.
+- **Run #285** ([43822752674](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43822752674), source `596bf0c9690e468ab188d0008e7e9495108c6b11`) is the first run using both fully corrected patches. It has reached **Build XNU 8796**. Still require clean patch application, all source guards, linked Mach-O verification and successful RAM-only packaging before accepting `iosboot.img`.
+- Runs #282–#284 were triggered by intermediate repair commits; #285 is the acceptance run.
+- **Visual status:** the genuine AppleLogo itself was physically observed earlier. The post-logo 0115/0116 trace overlay is not yet accepted in a packaged artifact or physically verified; pre-logo console replay remains a separate gap.
 
 
 ## Current engineering direction
