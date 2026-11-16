@@ -1,0 +1,19 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -551,9 +551,15 @@
+ #endif
+ 
+ 	PE_consistent_debug_inherit();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_mark(18, "PE_consistent_debug_inherit returned");
++#endif
++
+ 	/* Setup debugging output. */
+ 	const unsigned int serial_exists = serial_init();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_mark(19, "serial_init returned");
++#endif
+ 	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
+ 	kprintf("kprintf initialized\n");
+ 	sweet_early_mark(20, "kprintf startup complete");
