@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -418,29 +418,22 @@
+@@ -418,28 +418,21 @@
  	default:
  		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
  		break;
