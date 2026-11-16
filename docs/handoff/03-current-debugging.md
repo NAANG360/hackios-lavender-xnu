@@ -111,3 +111,13 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - **Root cause:** the first 0118 diff had incorrect unified-diff hunk counts and incomplete source context. The actual XNU 8796 `arm_init.c` context was recovered from Run #290 buildtree: `WITH_CLASSIC_S2R` block, `PE_consistent_debug_inherit()`, `serial_init()`, and the existing stage-20 marker.
 - **Correction:** commit `4b91491e3ced22cda444c46161f72a05738a58fd` replaces 0118 with the exact context and corrected hunk metadata. `patch -p1 --dry-run` against the Run #290 XNU buildtree succeeds (one hunk, fuzz 2).
 - **Next:** obtain a fresh CI run for commit `4b91491e3ced22cda444c46161f72a05738a58fd`; confirm 0118 is applied, its stage-order source guard passes, then require linked ARM64 Mach-O verification and RAM-only packaging. No new image is accepted before all gates pass.
+
+
+## Run #293–#296 post-logo trace patch repair — 16 November 2026
+
+- **Run #293** (commit `b3e852cc15cba5e2b527a7e13de2333703166e60`) compiled XNU, then failed the required-patch guard: patch 0118 did not apply at `osfmk/arm/arm_init.c:549`. Linked verification and packaging were skipped.
+- **Run #294** (commit `71ff3e91eff4877d8e57d7adf6627fc2c826566e`) reproduced the same failure. The actual patch log confirms `PE_consistent_debug_inherit()` context did not match after patch 0108 had modified earlier code in the same file. XNU compilation itself succeeded; this is a patch-context failure, not a compiler failure.
+- **Correction:** patch 0118 was reduced to single-line anchors on the exact `PE_consistent_debug_inherit();` and `serial_init();` statements, with only the stage 18/19 additions. Hunk offsets were then aligned for the +8-line insertion made by patch 0108: commit `52d0ac77316b3ba880b543985d215104f4a9c527`.
+- **Run #295** (commit `c1cddaa5ee4bcb536073f2cb915c9620c1ab11ad`) validates the minimal-anchor patch; it may complete independently.
+- **Run #296** (commit `52d0ac77316b3ba880b543985d215104f4a9c527`) is the preferred validation run for the corrected hunk offsets. Require patch 0118 to apply, the source-order guard to pass, linked ARM64 Mach-O verification to pass, and the RAM-only package job to finish before accepting any image.
+- Raw kernel candidates from #293/#294 are not bootable test artifacts. Preserve #290 as the last accepted package until #295 or #296 passes every gate.
