@@ -1,8 +1,8 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current accepted build:** Run #290 (`43829764065`, commit `e2beb8e297c498def1c09fd2a32a5b0241c86102`) completed XNU compilation, linked verification and RAM-only fastboot packaging. Its `iosboot.img` is 16,601,088 bytes; SHA-256 `c3396b3a4a41a5dd952074b51183d254e20daa4561f2099663c72efae8b87656`. Physical testing is not checksum-bound to this artifact.
-**Current diagnostic validation:** Run #291 (`43843250915`, commit `cb5c444f4071bae4dc84de8d21670d9cab3bfbf3`) adds post-logo checkpoints 18/19 around `PE_consistent_debug_inherit()` and `serial_init()`; build was in progress at handoff update.
+**Latest accepted diagnostic build:** Run #297 (`43853989024`, commit `fd40a4953708f22e7df492bef699e657dade93ea`) completed XNU compilation, linked verification and RAM-only package job successfully. Artifact `14219764264` (`lavender-fastboot-boot-test`) contains `iosboot.img` (16,601,088 bytes); SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`. The package manifest identifies the genuine iPhone X iOS 16.7.16 (20H392) AppleLogo and stages 18/19 instrumentation. No physical retest of this exact checksum is recorded.
+**Diagnostic purpose:** stage 18 follows `PE_consistent_debug_inherit()`; stage 19 follows `serial_init()`; stage 20 remains the kprintf startup completion marker.
 
 ## Latest operations — 16 November 2026
 
@@ -52,10 +52,10 @@ It then failed in the startup-trace verifier with `ValueError: substring not fou
 
 ## Immediate next operations
 
-1. Follow Run #291 and confirm patch 0118 applies and its source-order guard passes.
-2. Use the physical bottom-edge marker result: stage 18 means `PE_consistent_debug_inherit()` returned; stage 19 means `serial_init()` returned; stage 20 remains the existing kprintf-startup/Guardian-completion marker.
-3. Require linked ARM64 Mach-O verification and RAM-only packaging before producing another test image.
-4. Preserve the RAM-only `fastboot boot iosboot.img` path and existing recovery safeguards.
+1. The next physical test must use the exact Run #297 image (SHA above) to make marker observations attributable.
+2. Record the last visible bottom-edge marker: 17 = logo completed; 18 = PE consistency returned; 19 = serial initialization returned; 20 = KPRINTF startup completed.
+3. Do not infer BSD/root/userspace from marker 20. Continue only after the observed boundary is recorded.
+4. Preserve RAM-only `fastboot boot iosboot.img`; no flashing. Do not request a handset test until the power-button-independent recovery/reset path is physically verified.
 
 ## Storage frontier — exact Build 4 embedded FDT
 
@@ -128,3 +128,14 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - Run #296 (`43850609298`, commit `52d0ac77316b3ba880b543985d215104f4a9c527`) compiled XNU successfully, then failed the required-patch guard because patch 0118 was skipped: its first hunk targeted line 557, while the source after patches 0115–0117 had `PE_consistent_debug_inherit()` at line 553 and `serial_init()` at line 556. The failure was patch context mismatch, not a compiler error.
 - Corrected 0118 to use the final post-0117 source context around lines 553–563. Verified the exact patch with `git apply --check` and applied it cleanly against the Run 296 buildtree's `osfmk/arm/arm_init.c`.
 - Run #297 (`43853989024`, commit `fd40a4953708f22e7df492bef699e657dade93ea`) is queued to validate the corrected patch. Do not use the Run 296 raw kernel candidate; its packaging job was skipped after the required-patch guard failed.
+
+
+## Latest accepted diagnostic package — Run #297 (16 November 2026)
+
+- Run #297: [43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`.
+- Both jobs completed successfully: `build` and `Package RAM-only Lavender fastboot image`. This run is green through XNU build, linked verification and RAM-only package.
+- Artifact `14219764264`, name `lavender-fastboot-boot-test`, contains `iosboot.img` (16,601,088 bytes). Verified SHA-256: `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`.
+- The artifact's `BUILD-MANIFEST.txt` identifies XNU workflow run 43853989024, source commit fd40a495…, genuine 20H392 AppleLogo raster (194×238), and the early stage diagnostics. The artifact's own `SHA256SUMS` agrees with the extracted image hash.
+- Patch 0118 provides stage 18 after `PE_consistent_debug_inherit()` and stage 19 after `serial_init()`. Stage 20 remains after `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)`.
+- **Physical status:** user videos from the preceding test show the shim handoff and AppleLogo, but are not checksum-bound to Run #297. No claim is made that Run #297 has been physically tested or that Darwin userspace has booted.
+- **Next:** only test the exact Run #297 image after the independent recovery/reset safety gate is physically confirmed. Capture the final visible marker and whether the watchdog resets. Do not flash.
