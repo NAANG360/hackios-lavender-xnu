@@ -29,10 +29,10 @@ diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
 @@ -658,11 +658,17 @@
- 		 * before this point.
- 		 *
- 		 * Start up the scheduler services.
- 		 */
+ 	 * before this point.
+ 	 *
+ 	 * Start up the scheduler services.
+ 	 */
  	kernel_bootstrap_thread_log("sched_startup");
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +	sweet_early_trace_startup(17, 0, 0, 0, 0, 0);
