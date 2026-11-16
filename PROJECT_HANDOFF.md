@@ -87,3 +87,12 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 - Added workflow source guards for the distinct `sweet_early_trace_startup` event namespace 17–29: ordered scheduler, IOKit, early-boot, interrupt, BSD-init, VFS, root-mount and utask-bootstrap boundaries; plus the transparent `[DARWIN]` console renderer and post-logo header ordering.
 - Change commit: `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`. The guard was executed locally against the exact patched XNU source extracted from Run #297's `xnu-buildtree` artifact and passed. A fresh Actions run is the next acceptance gate; no new image is accepted until XNU build, linked Mach-O verification and RAM-only package all pass.
 - Physical retest remains blocked until the independent power-button-free recovery/reset route is physically verified. Never flash; RAM-only fastboot boot only.
+
+
+## Latest continuation checkpoint — Run #300 forensic verification (16 November 2026)
+
+- Revalidated the downloadable Run #300 `iosboot.img`: 16,601,088 bytes; SHA-256 `772acd07ebfccd6c58c0370cf38c85bb66b27fe4f0f9ccf9183bbea2c5815cef`, matching artifact `14236569374` from run `43891112657`.
+- Inspected the exact Run #300 `xnu-buildtree` artifact `14238555047`. The compiled XNU tree contains the `sweet_early_trace_startup()` renderer and event instrumentation 17–29. The source sequence is scheduler 17–18, IOKit 19–20, early boot/interrupt enable 21–22, BSD init 23–24, VFS/root mount 25–27, and BSD utask bootstrap 28–29.
+- The next diagnostic boundary is event 17, `KBOOT SCHED BEGIN`, emitted at entry to `kernel_bootstrap_thread()`; event 18 follows `sched_startup()`. This is the first post-KPRINTF split. The buildtree audit proves instrumentation was compiled, not that the phone reached those events.
+- Preserve Run #300 as the accepted diagnostic image. No flash. Do not request another physical test until Chapter 01's independent power-button-free recovery/reset route is physically verified. The current recording is not checksum-bound to Run #300 and does not prove BSD/root/userspace.
+- Current routed chapter: `docs/handoff/03-current-debugging.md`; consult Chapter 05 for later BSD/root/userspace interpretation.
