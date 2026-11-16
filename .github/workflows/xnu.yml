@@ -220,15 +220,21 @@ jobs:
           import re
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/commpage/commpage_asm.s").read_text()
-          if re.search(r"\bcasa\b", source, re.IGNORECASE):
-              raise SystemExit("unsupported LSE CASA remains in commpage assembly")
+          # Ignore comments: the upstream unlock comments mention CASA even after
+          # every executable CASA instruction has been replaced.
+          code = "\n".join(line.split("//", 1)[0] for line in source.splitlines())
+          if re.search(r"(?im)^\s*casa\b", code):
+              raise SystemExit("unsupported executable LSE CASA remains in commpage assembly")
           for name, next_name in (("_pfz_trylock_and_enqueue:", "_pfz_trylock_and_dequeue:"), ("_pfz_trylock_and_dequeue:", None)):
-              start = source.index(name)
-              end = source.find(next_name, start + len(name)) if next_name else len(source)
-              body = source[start:end]
+              start = code.index(name)
+              end = code.find(next_name, start + len(name)) if next_name else len(code)
+              body = code[start:end]
               if "ldaxr" not in body or "stxr" not in body:
                   raise SystemExit(name + " is missing its ARMv8.0 LL/SC sequence")
-          print("PASS: commpage queue locks use ARMv8.0 LDAXR/STXR; no CASA remains")
+              failed = body.split("Ltrylock_" + ("enqueue" if "enqueue" in name else "dequeue") + "_failed:", 1)[-1]
+              if "clrex" not in failed:
+                  raise SystemExit(name + " is missing CLREX on the busy-lock exit")
+          print("PASS: commpage queue locks use ARMv8.0 LDAXR/STXR + CLREX; no executable CASA remains")
           PY
           python3 - <<'PY'
           from pathlib import Path
