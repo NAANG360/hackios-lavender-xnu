@@ -7,7 +7,7 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 
 ## Current milestone — 16 November 2026
 
-Run #297 is the latest accepted diagnostic package. See the update immediately below for exact artifact identity and next action.
+Run #300 is the latest accepted diagnostic package. See the update immediately below for exact artifact identity and next action.
 
 
 
