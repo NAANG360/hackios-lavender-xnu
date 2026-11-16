@@ -81,7 +81,7 @@ Do not infer SDHC1 clock/IRQ/regulator details from SDHC2. The V5 controller pow
 
 ### Root image and Android-return model
 
-- Build the iPhone X 20H392 root as a case-sensitive journaled HFS+ volume with the required OS/SystemOS/AppOS content and cryptex/shared-cache layout, following Topaz's root-image tooling as a reference only.
+- Build the iPhone X 20H392 root as a case-sensitive journaled HFS+ volume with the required OS/SystemOS/AppOS content and cryptex/shared-cache layout. Topaz's `tools/mkiosroot.sh` is a useful host-side layout reference: one HFS+ volume, OS root plus SystemOS/AppOS under `/private/preboot/Cryptexes/{OS,App}`, and hard-linked dyld shared-cache lookup paths. Adapt and validate for Lavender; it is not a storage transport driver.
 - The eventual image is written to the existing `userdata` partition. This intentionally replaces Android's user-data filesystem and will erase files/accounts stored there.
 - Do not repartition the eMMC or overwrite Android boot, vendor_boot, recovery, modem, persist or other partitions.
 - The user's recovery/reset route is now confirmed working. Before the first userdata image write, preserve the exact key sequence and verify that recovery can format userdata back to Android's expected filesystem. Wiping userdata restores the Android data partition format; it does not recover erased personal files.
@@ -112,7 +112,7 @@ The broad sequence is:
 
 After a read-only root mounts:
 1. Verify the root is the exact iPhone X 20H392 tree and the SystemOS/AppOS cryptex contents and dyld cache paths resolve.
-2. Audit `sweet-root-tweaks.py` for Lavender relevance; keep only individually justified changes.
+2. Audit `sweet-root-tweaks.py` for Lavender relevance; keep only individually justified changes. In particular, Topaz removes CommCenter launch jobs because its README says cellular data is not working, and disables some audio/recorder and Setup paths. Do not apply those changes blindly: preserve CommCenter and required Apple services for Lavender's intended future cellular bring-up.
 3. Capture launchd's first logs and resolve missing symbols, trust-cache/AMFI, entitlements, sandbox and platform-service dependencies one at a time. Do not disable entire subsystems blindly.
 4. Stabilize essential early daemons before attempting `backboardd`.
 5. Treat SpringBoard/lock screen as a later milestone, after graphics and input services exist.
