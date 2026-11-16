@@ -137,5 +137,13 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - Artifact `14219764264`, name `lavender-fastboot-boot-test`, contains `iosboot.img` (16,601,088 bytes). Verified SHA-256: `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`.
 - The artifact's `BUILD-MANIFEST.txt` identifies XNU workflow run 43853989024, source commit fd40a495…, genuine 20H392 AppleLogo raster (194×238), and the early stage diagnostics. The artifact's own `SHA256SUMS` agrees with the extracted image hash.
 - Patch 0118 provides stage 18 after `PE_consistent_debug_inherit()` and stage 19 after `serial_init()`. Stage 20 remains after `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)`.
-- **Physical status:** user videos from the preceding test show the shim handoff and AppleLogo, but are not checksum-bound to Run #297. No claim is made that Run #297 has been physically tested or that Darwin userspace has booted.
-- **Next:** only test the exact Run #297 image after the independent recovery/reset safety gate is physically confirmed. Capture the final visible marker and whether the watchdog resets. Do not flash.
+## Physical recording update — 16 November 2026
+
+- User clip `1000317779.mp4` shows the red shim handoff screen reporting the initial CPU16K rejection, successful A73 fallback (`TGRAN=1`), `BOOT CPU guardian active`, `A73 16K supported: launching XNU`, `BOOT MPI=0x100`, and the XNU entry address.
+- Later frames show the centered AppleLogo on black and four discrete green bars accumulated along the lower edge. The actual firmware AppleLogo asset is integrated by patch 0114 in Run #297's accepted patch chain.
+- The visible bars strongly match stages 17–20: stage 17 follows `sweet_early_logo()`; stage 18 follows `PE_consistent_debug_inherit()`; stage 19 follows `serial_init()`; stage 20 follows `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)` and the `kprintf initialized` call. Thus the clip strongly suggests that XNU reached KPRINTF startup completion, beyond the earlier shim-entry-only evidence.
+- **Attribution limit:** the phone recording contains no device-side image digest. It is not checksum-bound to Run #297 artifact `14219764264` / `iosboot.img` SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`; treat stage 20 as a strong source-correlated inference, not exact-image proof.
+- No readable `[DARWIN]` event trace is visible after the four bars. Do not infer scheduler completion, IOKit, BSD init, root mount, launchd, SpringBoard or Darwin userspace from stage 20. The separate `sweet_early_trace_startup` event IDs 17–29 in patch 0115 are a different trace namespace from the simple stage markers 17–20.
+- **Next:** preserve Run #297 as the accepted diagnostic image. Focus on post-KPRINTF startup and make the patch-0115 events 17–29 observable; do not change the AppleLogo or early handoff without new evidence. Any further physical boot remains RAM-only and gated on the power-button-independent reset/recovery procedure being verified. Never flash.
+
+
