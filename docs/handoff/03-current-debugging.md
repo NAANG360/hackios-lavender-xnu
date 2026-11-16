@@ -164,3 +164,18 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - This confirms that the trace instrumentation is present in the Run #300 buildtree; it does **not** establish that the handset executed any of these events. Stage 20 is still only the earlier kprintf-startup boundary. The first post-KPRINTF observable event is 17, emitted when `kernel_bootstrap_thread()` begins scheduler startup.
 - **Next diagnostic split:** look for `[DARWIN] KBOOT SCHED BEGIN` (17), then `KBOOT SCHED DONE` (18). If 17 is absent, investigate entry into `kernel_bootstrap_thread()` after KPRINTF; if 17 appears without 18, isolate `sched_startup()`. Only then proceed to IOKit (19–20), early boot/interrupt enable (21–22), BSD init (23–24), VFS/root (25–27), and utask bootstrap (28–29).
 - Do not request a new handset test until the independent power-button-free recovery/reset procedure is physically verified as required by Chapter 01. The user's clip is not checksum-bound to Run #300. Do not claim BSD/root/launchd/SpringBoard from the current video.
+
+## Run #300 physical result and bootstrap-entry trace correction — 16 November 2026
+
+- User recording 1000317806.mp4 shows the red shim handoff diagnostics before the genuine AppleLogo. Those red-screen lines are shim/loader handoff output, not the post-logo XNU/Darwin verbose transcript.
+- After the logo appears, four green lower-edge markers remain visible and the small LAVENDER XNU VERBOSE BOOT header is visible. No readable [DARWIN] event lines or scrolling XNU log are visible after the logo. The recording ends on a FASTBOOT screen; the clip alone does not establish whether the transition was automatic, watchdog-triggered, or manually requested.
+- The four green markers are consistent with the existing stage 17–20 sequence and strongly suggest the simple early marker path reached KPRINTF startup completion. This remains provisional because the video has no device-side checksum and is not bound to Run #300's image. It does not prove BSD, root mount, launchd or SpringBoard.
+- Correction to the Run #300 source interpretation: in the exact compiled startup.c, event 17 (KBOOT SCHED BEGIN) is emitted only after idle_thread_create(processor) returns. It is not at the beginning of kernel_bootstrap_thread(). Therefore absence of visible [DARWIN] lines cannot yet isolate sched_startup(); the bootstrap thread may not have been entered, or may stall in current_processor() / idle_thread_create(), or the trace output may not be visible.
+- Added patch 0119-lavender-bootstrap-thread-entry-trace.patch (commit 56c427f8a506cdc6ba250c536810df95dfb01ae4) with four non-Guardian trace events:
+  - 33: immediately before load_context(thread);
+  - 30: first statement of kernel_bootstrap_thread();
+  - 31/32: immediately before/after idle_thread_create(processor);
+  - existing 17/18 remain the before/after sched_startup() boundaries.
+- Patch 0119 was dry-run validated against the exact Run #300 compiled buildtree, and the resulting source-order check passed. Workflow guard update commit 34a85dd88d13cc4b30e6ccf45a92aae9f685cce8 requires patch 0119 and validates the new ordering.
+- Runs #301 and #302 were created by the patch and guard commits; #302 includes both changes and is the preferred acceptance run. They were queued at the time of this update. Require the complete XNU build, required-patch/source guards, linked Mach-O verification and RAM-only package job to pass before accepting any new image.
+- Do not ask for another handset test until Chapter 01's independent power-button-free recovery/reset route is physically verified. No flashing. The next accepted test must remain RAM-only fastboot boot iosboot.img.
