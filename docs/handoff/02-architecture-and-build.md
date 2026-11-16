@@ -88,3 +88,12 @@ All callback function pointers resolved inside executable kernel segments; all n
 ## Run 257 — scope of the commpage atomic guard
 
 The first CLREX-enabled build reached the source-validation gate but failed because the workflow searched the entire `osfmk/arm/commpage/commpage_asm.s` file for executable `CASA`. That file contains other commpage routines outside patch 0112's scope. The guard is now scoped to `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue`; within each function it requires no executable CASA, the expected LDAXR/STXR loop, and CLREX after the busy-lock label. Do not impose a file-wide CASA ban on unrelated routines.
+
+
+## Userdata-root and Topaz storage/driver reference (16 November 2026)
+
+The user has clarified the deployment model: install the iOS HFS+ root into the existing Lavender `userdata` partition, accepting loss of Android user data, while keeping Android boot/recovery and all non-userdata partitions intact. Android recovery's wipe/format-data path is the planned return route. The user confirms the volume-key reset/recovery route works; document and preserve the exact sequence before destructive operations.
+
+Topaz (`MakrSas/ios-topaz`, branch `topaz`) is a direct iOS 16.7.16 (20H392) reference. Its README documents a journaled HFS+ root on `userdata`, a RAM-booted shim/XNU, BSD root selection via `rd=ufsroot0`, and separate `ufsrw=1 rootrw=1` write enablement. It also documents the launchd → backboardd → SpringBoard progression. **Topaz hardware is SM6225 / Snapdragon 685 with UFS 3.0**, whereas Lavender is SDM660 with eMMC behind SDHC1. Reuse the storage/root architecture, boot-argument separation, block-device registration and staged validation; do not copy UFSHCI/SCSI transport, UFS addresses, descriptors, DMA assumptions or Topaz DT/ADT values.
+
+For Lavender, SDHC1 (`0x0c0c4000`, 8-bit, non-removable) is the candidate root transport. The first driver milestone remains a read-only, bounded probe and PIO read path; only after GPT/HFS+ reads and the recovery path are validated may write support be scoped to `userdata` alone. Do not write boot, vendor_boot, recovery, modem, persist, or any other eMMC partition. SDHC2 (`0x0c084000`) is removable media and is not the root target. See Chapter 05 for the detailed implementation plan.
