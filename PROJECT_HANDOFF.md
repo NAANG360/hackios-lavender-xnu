@@ -5,13 +5,22 @@
 Read this file, inspect the live branch/Actions state, then load only the routed chapter.
 
 - Repository: https://github.com/NAANG360/hackios-lavender-xnu
+
+## Current milestone — 16 November 2026
+
+- **Latest accepted image:** Run #302 (`43903857144`), artifact `14245608682`, SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`; both XNU build and RAM-only package jobs passed.
+- **Next acceptance:** patch 0120 is in queued Run #303; Run #304 includes the required source guard and is the preferred acceptance run.
+- **Recovery:** the user confirms the independent volume-key recovery/reset route works despite the broken power button. The handset-test recovery gate is cleared.
+- **Video correction:** the apparent final FASTBOOT frame is a recording glitch; the phone restarts normally. Reset cause remains unknown.
+- **Boot safety:** RAM-only `fastboot boot iosboot.img` only. Never flash or write non-`userdata` partitions.
+
 - Branch: `ci/lavender-machine-profile`
 - Device: Redmi Note 7/7S `lavender`, Qualcomm SDM660 / Kryo 260, ARM64
 - Kernel: XNU 8796, iOS 16 generation
 - Intended Darwin userspace reference: iPhone X iOS 16.7.16 (20H392)
 
 
-## Latest accepted operations — Run #300 (16 November 2026)
+## Previous accepted operations — Run #300 (superseded by Run #302)
 
 - **Run #300** ([43891112657](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43891112657), source commit `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`) completed successfully. Both the XNU build/verification job and the separate RAM-only packaging job passed.
 - Build job: XNU 8796 compilation, expected cache-aware build-path guard, Lavender entry-guard patch check, and kernel artifact verification all passed. Package job: matching kernel retrieval, Mach-O presence, OTA/DTB extraction, Lavender ADT generation, payload construction, fastboot image creation, image-structure/payload-identity verification, and artifact upload all passed.
@@ -99,7 +108,7 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 
 ## Latest continuation — Run #300 video and new bootstrap-entry trace (16 November 2026)
 
-- New phone clip 1000317806.mp4 shows shim handoff output before AppleLogo, four green markers and only the small verbose-console header after AppleLogo; no readable [DARWIN] log scroll is visible. The clip ends at FASTBOOT, but does not identify the reset cause.
+- New phone clip 1000317806.mp4 shows shim handoff output before AppleLogo, four green markers and only the small verbose-console header after AppleLogo; no readable [DARWIN] log scroll is visible. The apparent final FASTBOOT frame is a recording glitch; the phone restarts normally, but the video does not identify the reset cause.
 - Source correction: event 17 is after idle_thread_create(processor), not at kernel_bootstrap_thread entry. Absence of event 17 cannot distinguish failure to schedule/enter the bootstrap thread from a stall inside current_processor or idle_thread_create, and the console-render path remains another possible visibility issue.
 - Patch 0119 adds event 33 before load_context(thread), event 30 at bootstrap-thread entry, and events 31/32 around idle_thread_create. Existing events 17/18 continue to bracket sched_startup.
 - Patch commit 56c427f8a506cdc6ba250c536810df95dfb01ae4; workflow guard commit 34a85dd88d13cc4b30e6ccf45a92aae9f685cce8. Runs #301/#302 were queued; #302 is preferred because it includes the required source guard.
