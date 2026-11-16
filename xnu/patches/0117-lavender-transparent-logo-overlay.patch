@@ -1,0 +1,49 @@
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -159,10 +159,11 @@
+ #define LAVENDER_CONSOLE_CHAR_W 8u
+ #define LAVENDER_CONSOLE_CHAR_H 16u
+ static unsigned int lavender_console_row;
+ static unsigned int lavender_console_col;
+ static unsigned int lavender_console_started;
++static unsigned int lavender_logo_drawn;
+ 
+ static void
+ lavender_console_clear(void)
+ {
+ 	for (unsigned int y = LAVENDER_CONSOLE_TOP; y < LAVENDER_FB_HEIGHT; y++) {
+@@ -192,11 +193,15 @@
+ 	for (unsigned int gy = 0; gy < 16; gy++) {
+ 		volatile uint32_t *line = early_fb +
+ 		    (LAVENDER_CONSOLE_TOP + lavender_console_row * LAVENDER_CONSOLE_CHAR_H + gy) *
+ 		    LAVENDER_FB_STRIDE + lavender_console_col * LAVENDER_CONSOLE_CHAR_W;
+ 		for (unsigned int gx = 0; gx < 8; gx++) {
+-			line[gx] = (glyph[gy] & (1u << gx)) ? 0xffffffffu : 0xff000000u;
++			if (glyph[gy] & (1u << gx)) {
++				line[gx] = 0xffffffffu;
++			} else if (!lavender_logo_drawn) {
++				line[gx] = 0xff000000u;
++			}
+ 		}
+ 	}
+ 	lavender_console_col++;
+ }
+ 
+@@ -438,10 +443,16 @@
+ 		for (unsigned int x = 0; x < LAVENDER_APPLELOGO_WIDTH; x++) {
+ 			const uint32_t value = lavender_applelogo_luma[y * LAVENDER_APPLELOGO_WIDTH + x];
+ 			line[x] = opaque | (value << 16) | (value << 8) | value;
+ 		}
+ 	}
++	/* Start the verbose text layer only after the logo is fully painted. */
++	lavender_logo_drawn = 1;
++	lavender_console_started = 1;
++	lavender_console_row = 0;
++	lavender_console_col = 0;
++	lavender_console_string("LAVENDER XNU VERBOSE BOOT\n");
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ }
+ 
+ void
+ sweet_early_guard_init(uintptr_t boot_args_kva)
