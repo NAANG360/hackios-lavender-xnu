@@ -13,41 +13,51 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Device Tree Compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y device-tree-compiler
+          sudo apt-get install -y device-tree-compiler unzip
 
-      - name: Range-extract Build 4 boot image and inspect its embedded FDT
+      - name: Download and verify the exact Build 4 OTA
         shell: bash
         run: |
           set -euo pipefail
           OTA_URL="https://github.com/NAANG360/Lucid-OS/releases/download/lucid-android15-lavender-build-4/LucidOS-Android15-lavender-build-4-experimental.zip"
           EXPECTED_OTA_SHA256="d2b81388a57c685b82e3cb8f29da475f540dfcb9f5114003846d9337533d3219"
           EXPECTED_OTA_SIZE="1355867286"
-          mkdir -p artifacts/storage/ota artifacts/storage/unpacked
-
+          mkdir -p artifacts/storage/unpacked
           printf 'OTA URL: %s\nExpected whole-archive SHA-256: %s\nExpected size: %s\n' "$OTA_URL" "$EXPECTED_OTA_SHA256" "$EXPECTED_OTA_SIZE" > artifacts/storage/source.txt
-          python3 tools/remotezip.py "$OTA_URL" > artifacts/storage/ota-members.txt
-          grep -E '[[:space:]/]boot\.img$' artifacts/storage/ota-members.txt > artifacts/storage/boot-members.txt
-          test -s artifacts/storage/boot-members.txt
-          python3 tools/remotezip.py "$OTA_URL" boot.img artifacts/storage/ota
+          curl -fL --retry 4 --retry-delay 5 --connect-timeout 30 --max-time 3600 "$OTA_URL" -o artifacts/storage/build4.zip
+          ACTUAL_SIZE="$(stat -c '%s' artifacts/storage/build4.zip)"
+          test "$ACTUAL_SIZE" = "$EXPECTED_OTA_SIZE"
+          printf '%s  %s\n' "$EXPECTED_OTA_SHA256" "artifacts/storage/build4.zip" | sha256sum -c -
 
+      - name: Extract the embedded Lavender FDT and audit SDHCI hosts
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          matches = list(Path("artifacts/storage/ota").rglob("boot.img"))
-          if len(matches) != 1:
-              raise SystemExit(f"expected exactly one boot.img member, found {len(matches)}: {matches}")
-          print(f"Selected OTA boot image: {matches[0]} ({matches[0].stat().st_size} bytes)")
+          import zipfile
+          archive = Path("artifacts/storage/build4.zip")
+          with zipfile.ZipFile(archive) as zf:
+              matches = [name for name in zf.namelist() if name.rsplit("/", 1)[-1] == "boot.img"]
+              if len(matches) != 1:
+                  raise SystemExit(f"expected one boot.img member, found {len(matches)}: {matches}")
+              member = matches[0]
+              with zf.open(member) as src, Path("artifacts/storage/boot.img").open("wb") as dst:
+                  while chunk := src.read(8 << 20):
+                      dst.write(chunk)
+              Path("artifacts/storage/boot-member.txt").write_text(
+                  f"member={member}\nbytes={Path('artifacts/storage/boot.img').stat().st_size}\n"
+              )
           PY
-
-          BOOT_IMAGE="$(find artifacts/storage/ota -type f -name boot.img -print -quit)"
-          sha256sum "$BOOT_IMAGE" > artifacts/storage/boot-img.sha256
-          python3 tools/unpack_bootv2.py "$BOOT_IMAGE" artifacts/storage/unpacked
+          sha256sum artifacts/storage/boot.img > artifacts/storage/boot-img.sha256
+          python3 tools/unpack_bootv2.py artifacts/storage/boot.img artifacts/storage/unpacked
           python3 tools/extract_appended_fdt.py artifacts/storage/unpacked/kernel --index 0 --compatible qcom,sdm660 --model-contains "SDM 660" --output artifacts/storage/lavender.dtb
           dtc -I dtb -O dts -o artifacts/storage/lavender.dts artifacts/storage/lavender.dtb 2> artifacts/storage/dtc-warnings.txt
 
@@ -67,6 +77,8 @@ jobs:
           PY
 
           sha256sum artifacts/storage/lavender.dtb artifacts/storage/lavender.dts >> artifacts/storage/source.txt
+          rm -f artifacts/storage/build4.zip artifacts/storage/boot.img
+          rm -rf artifacts/storage/unpacked
 
       - uses: actions/upload-artifact@v4
         if: always()
