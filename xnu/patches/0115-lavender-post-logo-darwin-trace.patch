@@ -145,7 +145,7 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
 +#endif
  			break;
  		}
-@@ -1044,7 +1058,13 @@
+@@ -1044,6 +1058,12 @@
  	}
  
  	bsd_init_kprintf("calling bsd_utaskbootstrap\n");
