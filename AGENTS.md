@@ -108,3 +108,11 @@ Branch: `ci/lavender-machine-profile`
 - Added workflow source guards for the distinct `sweet_early_trace_startup` event namespace 17–29: ordered scheduler, IOKit, early-boot, interrupt, BSD-init, VFS, root-mount and utask-bootstrap boundaries; plus the transparent `[DARWIN]` console renderer and post-logo header ordering.
 - Change commit: `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`. The guard was executed locally against the exact patched XNU source extracted from Run #297's `xnu-buildtree` artifact and passed. A fresh Actions run is the next acceptance gate; no new image is accepted until XNU build, linked Mach-O verification and RAM-only package all pass.
 - Physical retest remains blocked until the independent power-button-free recovery/reset route is physically verified. Never flash; RAM-only fastboot boot only.
+
+
+## Current continuation checkpoint — Run #300 verified (16 November 2026)
+
+- Latest accepted image remains Run #300 / artifact `14236569374`, `iosboot.img` SHA-256 `772acd07ebfccd6c58c0370cf38c85bb66b27fe4f0f9ccf9183bbea2c5815cef` (16,601,088 bytes). It has been independently downloaded and hash-checked.
+- The matching buildtree artifact `14238555047` confirms the compiled XNU contains the [DARWIN] startup trace renderer and event markers 17–29. Next debug boundary is scheduler begin/done (17/18), followed by IOKit (19/20), early boot/interrupts (21/22), BSD/VFS/root (23–27), and utask bootstrap (28/29).
+- Instrumentation presence is not physical execution evidence. Do not claim BSD/root/launchd/SpringBoard. The latest user recording is not bound to Run #300's checksum.
+- Continue through Chapter 03. Physical retest remains gated on independent power-button-free recovery/reset verification. RAM-only `fastboot boot iosboot.img`; never flash.
