@@ -1,7 +1,8 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current validation:** Run #290 (`43829764065`), testing the four-line 0115 startup.c context correction from commit `e2beb8e297c498def1c09fd2a32a5b0241c86102`. Build XNU 8796 is still running; patch guards, linked Mach-O verification and RAM-only packaging are not yet confirmed.
+**Current accepted build:** Run #290 (`43829764065`, commit `e2beb8e297c498def1c09fd2a32a5b0241c86102`) completed XNU compilation, linked verification and RAM-only fastboot packaging. Its `iosboot.img` is 16,601,088 bytes; SHA-256 `c3396b3a4a41a5dd952074b51183d254e20daa4561f2099663c72efae8b87656`. Physical testing is not checksum-bound to this artifact.
+**Current diagnostic validation:** Run #291 (`43843250915`, commit `cb5c444f4071bae4dc84de8d21670d9cab3bfbf3`) adds post-logo checkpoints 18/19 around `PE_consistent_debug_inherit()` and `serial_init()`; build was in progress at handoff update.
 
 ## Latest operations — 16 November 2026
 
@@ -51,10 +52,10 @@ It then failed in the startup-trace verifier with `ValueError: substring not fou
 
 ## Immediate next operations
 
-1. Follow Run #290 through the required-patch guard. Confirm 0115, 0116 and 0117 apply without a `Skipping patch` entry.
-2. Require every source guard and the linked ARM64 Mach-O verifier to pass; do not accept raw candidate artifacts.
-3. Require the separate RAM-only package job to pass, then record the exact `iosboot.img` size and SHA-256 from the artifact.
-4. Only then consider handset testing; preserve the RAM-only `fastboot boot iosboot.img` path and existing recovery safeguards.
+1. Follow Run #291 and confirm patch 0118 applies and its source-order guard passes.
+2. Use the physical bottom-edge marker result: stage 18 means `PE_consistent_debug_inherit()` returned; stage 19 means `serial_init()` returned; stage 20 remains the existing kprintf-startup/Guardian-completion marker.
+3. Require linked ARM64 Mach-O verification and RAM-only packaging before producing another test image.
+4. Preserve the RAM-only `fastboot boot iosboot.img` path and existing recovery safeguards.
 
 ## Storage frontier — exact Build 4 embedded FDT
 
@@ -93,3 +94,12 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - **Root cause:** the startup.c hunk context in `0115-lavender-post-logo-darwin-trace.patch` had one extra tab in four comment-context lines (`\\t\\t *` instead of the source's `\\t *`). Hunk counts were not the issue. Reproduced locally against Run #289's `xnu-buildtree` artifact: the original hunk fails; correcting the four context lines passes `patch -p1 --dry-run`.
 - **Fix committed:** `e2beb8e297c498def1c09fd2a32a5b0241c86102` changes only those four startup.c patch-context lines. No XNU source logic or diagnostic behavior changed.
 - **Run #290** ([43829764065](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43829764065), source `e2beb8e297c498def1c09fd2a32a5b0241c86102`) is the validation run. Require 0115/0116/0117 to apply without skips, then all source guards, linked Mach-O verification and RAM-only packaging. Do not use Run #289's raw kernel candidate.
+
+
+## Physical boot recordings and post-logo boundary — 16 November 2026
+
+- The two user-supplied recordings show the shim handoff screen, the explicit `A73 supported; launching XNU` message, then the genuine AppleLogo. This rules out a simple failure before the XNU launch handoff.
+- The recordings show no readable Darwin console transcript after the AppleLogo. The small bottom-edge green marks are consistent with the existing stage-16/17 markers, but the video is not checksum-bound to Run #290 image; treat the stage attribution as provisional.
+- Run #290 source places stage 17 immediately after `sweet_early_logo()`. Stage 20 is not written until after `serial_init()` and `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)`. The next useful split is the post-logo interval, not another AppleLogo change.
+- **Patch 0118** adds stage 18 immediately after `PE_consistent_debug_inherit()` and stage 19 immediately after `serial_init()`. The markers are raw framebuffer bars and Guardian words, so they do not depend on the unverified text-overlay path. Stage 20 semantics are unchanged.
+- **Run #291** (`43843250915`, commit `cb5c444f4071bae4dc84de8d21670d9cab3bfbf3`) is the validation build. If stage 18 is absent, investigate the interval from stage 17 through PE consistency setup; if 18 appears but 19 does not, isolate `serial_init()`; if 19 appears but 20 does not, isolate KPRINTF startup.
