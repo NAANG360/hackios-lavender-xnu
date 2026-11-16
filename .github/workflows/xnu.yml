@@ -199,6 +199,8 @@ jobs:
 
       - name: Require Lavender XNU entry-guard patch
         if: success() && env.MACHINE_CONFIG == 'LAVENDER'
+        env:
+          EXACT_CACHE_HIT: ${{ steps.xnu-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0112-lavender-commpage-armv8a-llsc.patch 0113-lavender-corecrypto-sha2-file-scope.patch; do
@@ -232,7 +234,11 @@ jobs:
               raise SystemExit("SHA256 assembly is missing its file-scoped ARMv8-A+SHA2 architecture declaration")
           print("PASS: SHA2 is enabled only in the SHA256 assembly translation unit")
           PY
-          grep -Fq -- "-march=armv8-a -mcpu=generic -arch arm64" xnu-build.log
+          if [[ "$EXACT_CACHE_HIT" == "true" ]]; then
+            echo "PASS: exact cache hit; MakeInc.def source target check passed and linked Mach-O verification remains mandatory"
+          else
+            grep -Fq -- "-march=armv8-a -mcpu=generic -arch arm64" xnu-build.log
+          fi
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm64/start.s").read_text()
