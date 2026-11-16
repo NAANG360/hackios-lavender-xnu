@@ -84,6 +84,18 @@ def validate_source_function(source: str, name: str, address_reg: str) -> None:
     for pattern, description in checks:
         require_instruction(body, pattern, f"{name}: {description}")
 
+    # Clear the exclusive monitor on the contended/busy-lock return path only.
+    failed_label = f"Ltrylock_{stem}_failed:"
+    exit_label = f"Ltrylock_{stem}_exit:"
+    if failed_label not in body or exit_label not in body:
+        raise ValueError(f"{name}: cannot isolate the busy-lock return path")
+    failed_path = body.split(failed_label, 1)[1].split(exit_label, 1)[0]
+    require_instruction(
+        failed_path,
+        r"^[ \t]*clrex[ \t]*$",
+        f"{name}: CLREX on the busy-lock return path",
+    )
+
 
 def validate_disassembly_function(disassembly: str, name: str) -> None:
     body = disassembly_symbol_body(disassembly, name)
