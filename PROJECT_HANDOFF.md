@@ -10,13 +10,23 @@ Read this file, inspect the live branch/Actions state, then load only the routed
 - Kernel: XNU 8796, iOS 16 generation
 - Intended Darwin userspace reference: iPhone X iOS 16.7.16 (20H392)
 
+
+## Latest accepted operations — Run #297 (16 November 2026)
+
+- **Run #297** ([43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`) completed successfully. Both the XNU build/verification job and the separate RAM-only package job passed.
+- Artifact `14219764264` (`lavender-fastboot-boot-test`) contains `iosboot.img`, 16,601,088 bytes. SHA-256: `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`.
+- The package manifest confirms the genuine iPhone X iOS 16.7.16 (20H392) AppleLogo raster and early diagnostic markers. Patch 0118 adds stage 18 after `PE_consistent_debug_inherit()` and stage 19 after `serial_init()`; stage 20 remains the KPRINTF startup-complete marker.
+- The image has not been physically tested by checksum. The latest user videos show the shim handoff and AppleLogo but are not bound to this Run #297 image.
+- **Next task:** use Chapter 03 to attribute the last visible marker from the exact Run #297 image, but only after the independent power-button-free recovery/reset route is physically verified. RAM-only boot only; never flash.
+- **Current route:** Chapter 03 for the next diagnostic boot; Chapter 05 for post-logo interpretation and Darwin userspace. Chapter 01 governs device safety.
+
 ## Physical milestone
 
 The user-supplied 20.295-second video `1000317742.mp4` shows the Redmi Note 7/Lavender displaying the Apple-shaped diagnostic mark with the #261-attributed image. This is a user-attributed physical observation, not device-checksum-bound. The mark is patch 0094's hand-drawn approximation, not Apple's original AppleLogo. It confirms arrival at the framebuffer logo-rendering stage; it does not prove stage 20, root mount, launchd, SpringBoard or a complete iOS boot.
 
 The user explicitly rejects the custom approximation and requires the actual Apple logo. The exact iPhone X iOS 16.7.16 (20H392) `applelogo@3x~iphone.im4p` was extracted and hash-pinned (IM4P SHA `93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8`; decoded 194×238 PNG SHA `9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb`). Patch 0114 integrates that original raster at the same post-`arm_vm_init()` stage. It has not yet passed the full CI acceptance ladder or a physical test.
 
-## Latest known build state
+## Earlier build history (superseded by Run #297 below)
 
 - **#261**: XNU build, verification and RAM-only packaging passed; user video shows the diagnostic logo-rendering stage.
 - **#266**: full build/verification/package passed with the old diagnostic logo; artifact `14197706518`, SHA-256 `86518b66b094d25fe0124d091dd32f6a64841273d87c597bbed97a45e7280cf1`; not separately physically tested.
