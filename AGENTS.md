@@ -16,7 +16,7 @@ Run #297 is the latest accepted diagnostic package. See the update immediately b
 - Run #297 ([43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`) passed both XNU build/verification and RAM-only packaging jobs.
 - Artifact `14219764264` (`lavender-fastboot-boot-test`) contains `iosboot.img` (16,601,088 bytes), SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`.
 - Package manifest confirms the genuine 20H392 AppleLogo raster. Patch 0118 supplies stage 18 after `PE_consistent_debug_inherit()` and stage 19 after `serial_init()`; stage 20 is KPRINTF startup completion.
-- This is a build/package acceptance result, not proof of a physical boot. Latest user videos are not checksum-bound to Run #297. Do not claim Darwin userspace or SpringBoard.
+- New physical clip `1000317779.mp4` shows the shim's A73/16K handoff, the AppleLogo screen and four accumulated lower-edge green bars. Source maps the four bars to `sweet_early_mark` stages 17–20 (logo complete, PE consistency returned, `serial_init` returned, KPRINTF startup complete), strongly indicating stage 20. The clip is not bound to Run #297's SHA-256; do not claim exact-image validation, BSD/root mount, launchd, SpringBoard or a complete iOS boot.
 - Next route: `docs/handoff/03-current-debugging.md` for the exact-image marker result; Chapter 05 for subsequent BSD/root/userspace interpretation.
 - Physical test remains gated on a verified power-button-independent recovery/reset route. RAM-only `fastboot boot iosboot.img`; never flash.
 
