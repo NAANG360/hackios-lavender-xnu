@@ -1,7 +1,7 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current validation:** Run #277, validating corrected 0115/0116 patch syntax
+**Current validation:** Run #285, validating corrected 0115/0116 patch application, linked kernel and RAM-only package
 
 ## Latest operations — 16 November 2026
 
@@ -51,10 +51,10 @@ It then failed in the startup-trace verifier with `ValueError: substring not fou
 
 ## Immediate next operations
 
-1. Confirm the corrected follow-up run passes XNU build, all source guards, linked Mach-O verification and RAM-only package.
-2. Preserve #274 as the successful baseline. Do not treat #275 as a package or use any raw, unverified kernel candidate.
-3. Inspect the fresh `iosboot.img` artifact and record its exact size and SHA-256 before handset testing.
-4. Continue the post-logo roadmap in Chapter 05: XNU stage-20/post-logo instrumentation, read-only SDHC2 discovery, V5 power sequencing, PIO SD reads, read-only BSD block device, GPT/HFS+ root and Darwin launchd.
+1. Follow Run #285 through the required-patch guard. Confirm the build log applies 0115 and 0116 without a `Skipping patch` entry.
+2. Require every source guard and the linked ARM64 Mach-O verifier to pass; do not accept raw candidate artifacts.
+3. Require the separate package job to pass, then record the exact `iosboot.img` size and SHA-256 from the artifact.
+4. Only then consider handset testing; preserve the RAM-only `fastboot boot iosboot.img` path and existing recovery safeguards.
 
 ## Storage frontier — exact Build 4 embedded FDT
 
