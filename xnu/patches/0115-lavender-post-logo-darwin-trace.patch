@@ -158,4 +158,3 @@ diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
 +#endif
  
  	pal_kernel_announce();
- 
