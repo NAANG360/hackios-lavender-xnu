@@ -5,7 +5,7 @@
 **Last completed XNU run:** #254, workflow `43736404806`, failed because 0112 was skipped as malformed.
 **Latest XNU run:** #255, workflow `43743932922`, source `24f81dc92b1b9bbe13a9cf15a0a5757ae5ed06ac`; **failed** in `Build XNU 8796` on ARM SHA2 assembly instructions.
 **Last successful packaged diagnostic image:** Run #240, artifact `14160128075`; it predates patches 0110–0112 and remains physically untested.
-**Current acceptance state:** no newly verified kernel or `iosboot.img`. #255 confirms patch 0112 applied, but compilation failed in `sha256_compress_arm64.s`; verification and packaging were skipped.
+**Current acceptance state:** no accepted `iosboot.img`; packaging was skipped after the false-positive guard failure.
 **Current routed chapter:** this chapter for the active build blocker; Chapter 02 only for patch/build mechanics. Chapter 01 remains mandatory before any handset action.
 
 ## Live correction — patch 0112 was skipped in XNU #254
@@ -279,3 +279,8 @@ The raw candidate from #255 is diagnostic only. No physical test, flash, or use 
 Run `43743932922` completed with failure in `osfmk/arm64/corecrypto/sha256_compress_arm64.s`. The full job log contains 80 assembler diagnostics of the form `error: instruction requires: sha2` for `sha256h`, `sha256h2`, `sha256su0` and `sha256su1`. The failure is an assembler target-feature declaration mismatch: the Lavender machine flags intentionally remain `-march=armv8-a -mcpu=generic`, while this one SHA256 assembly translation unit uses the ARMv8 SHA2 instruction group. It is not an LL/SC patch failure. The make job exits 2; the kernel candidate artifact `14174241207` was uploaded as a diagnostic artifact, but it is not a verified kernel and the RAM-only package job was skipped.
 
 Patch `0113-lavender-corecrypto-sha2-file-scope.patch` now adds `.arch armv8-a+sha2` only to `sha256_compress_arm64.s`; the global Lavender target remains generic ARMv8-A and LSE remains disabled. The workflow requires patch 0113 and checks the file-scoped directive after patching. This is a targeted assembler fix; a subsequent build must still prove the actual SDM660 supports the SHA2 instructions before any physical execution. Do not treat the uploaded partial kernel as bootable.
+
+
+Run #257 (workflow `43789910990`, commit `c68f68c52bd3f227c0909e7728173632cebad27b`) failed in `Require Lavender XNU entry-guard patch` after the XNU build stage had completed. The exact fatal diagnostic was `unsupported executable LSE CASA remains in commpage assembly`. The guard stripped comments but scanned the entire `osfmk/arm/commpage/commpage_asm.s` file, so an unrelated executable CASA in another commpage routine caused a false positive; patch 0112's two target lock helpers were separately checked for LDAXR/STXR and CLREX. This is a verifier-scope bug, not evidence that the LL/SC conversion failed. The RAM-only package job was skipped, so no iosboot.img was produced. A later log line about the optional Xcode Kernel.framework PrivateHeaders/platform copy was non-fatal (`|| true`) and not the failure cause.
+
+**Fix committed:** the workflow now checks for CASA only inside `_pfz_trylock_and_enqueue` and `_pfz_trylock_and_dequeue`, while retaining per-helper LDAXR/STXR and CLREX requirements. This avoids rejecting unrelated commpage code.
