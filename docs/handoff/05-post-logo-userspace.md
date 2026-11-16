@@ -171,3 +171,13 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 - **Corrective change:** regenerated patch 0115 against the exact post-0106…0114 source tree extracted from #285's `xnu-buildtree` artifact. The new unified diff includes the actual context around scheduler startup, IOKit, BSD bootstrap, VFS initialization, root mount, and `bsd_utaskbootstrap`. It was locally validated with `patch -p1 --dry-run` against that exact build tree: all three files checked successfully.
 - **#286** ([43825403975](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43825403975)) is the fresh validation run for commit `b1b434dfc9d3668bbea9a4704a85a324ff0f9887`. It is in progress at the time of this update. Require 0115 and 0116 not to be skipped, then require kernel verification and RAM-only package completion. Do not distribute its candidate unless the full run is green.
 - **Important correction to prior reports:** #281–#285 were not valid green builds for the new trace changes. The reliable previously packaged test image remains #274. The 0115 patch fix is now tested against the actual XNU source context rather than by hunk-count lint alone.
+
+
+## Run #297 post-logo diagnostic image — 16 November 2026
+
+- Run #297 (`43853989024`, commit `fd40a4953708f22e7df492bef699e657dade93ea`) passed both the XNU build/verification job and the separate RAM-only packaging job.
+- The packaged image contains the genuine iPhone X 20H392 AppleLogo raster and the corrected 0118 post-logo boundary instrumentation. Artifact `14219764264` contains `iosboot.img`, 16,601,088 bytes, SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`.
+- Marker semantics: stage 17 is after the logo renderer; stage 18 is after `PE_consistent_debug_inherit()`; stage 19 is after `serial_init()`; stage 20 follows `kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF)`.
+- The latest user recordings show the shim's `A73 supported; launching XNU` handoff and AppleLogo, but they are not checksum-bound to Run #297. Do not attribute their visual outcome to this exact image.
+- This image's successful build/package does not establish that stage 20, BSD bootstrap, root mount, launchd, daemons or SpringBoard have been reached. The next useful physical evidence is the last visible stage marker on this exact checksum.
+- Device-test safety remains gated by a physically verified power-button-independent recovery/reset route. Use RAM-only `fastboot boot iosboot.img`; never flash.
