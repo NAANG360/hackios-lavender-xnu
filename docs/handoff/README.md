@@ -14,8 +14,10 @@ Do not read all chapters at session start. Do not read historical material unles
 
 ## Current state
 
-As of 16 November 2026, Run #266 is the latest fully accepted old-logo package; Run #261 is the user-attributed physical diagnostic-logo result. Apple's real iPhone X 20H392 AppleLogo has been extracted and patch 0114 integrates it at the same post-VM stage. Run #267 exposed a shell-escaping bug in that preparation script; commit `477a77fa43ad2bcb99c80550c96cccf9b33b3f31` fixes it and Run #268 validates. The exact Build 4 FDT confirms removable SDHC2 at `0x0c084000` and its power IRQ/rails; Chapter 05 details the required V5 power handshake and read-only PIO driver plan. Internal Android eMMC remains off-limits.
+As of 16 November 2026, Run #297 ([43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`) is the latest accepted XNU build/verification and RAM-only package. Artifact `14219764264` contains `iosboot.img` (16,601,088 bytes; SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`). It includes the genuine 20H392 AppleLogo and 0118 stage-18/19 post-logo checkpoints. The image is not yet checksum-bound to a physical test; no Darwin userspace success is claimed.
 
+**Current route:** Chapter 03 for the exact-image diagnostic marker and next CI/physical evidence; Chapter 05 for post-logo kernel and userspace; Chapter 01 for device-test safety. Read only the routed chapter.
+ 
 ## Resume prompt
 
 ```text
