@@ -274,7 +274,10 @@ jobs:
           ):
               if required not in early:
                   raise SystemExit("post-logo trace renderer missing: " + required)
-          if early.index("lavender_logo_drawn = 1;") > early.index('lavender_console_string("LAVENDER XNU VERBOSE BOOT\\n");'):
+          logo_drawn = early.index("lavender_logo_drawn = 1;")
+          try:
+              early.index('lavender_console_string("LAVENDER XNU VERBOSE BOOT\\n");', logo_drawn)
+          except ValueError:
               raise SystemExit("verbose console header is not initialized after the AppleLogo draw")
           print("PASS: post-KPRINTF events 17–29 are ordered across XNU/BSD and rendered through the transparent [DARWIN] console")
           PY
