@@ -409,3 +409,43 @@ The Apple logo is not evidence of Darwin userspace. At this snapshot there is no
 ### Safety
 
 Use **RAM-only** `fastboot boot iosboot.img` for handset testing. Never flash, erase, repartition, or write internal Android eMMC/userdata. Preserve the confirmed volume-key recovery/reset route. The separate watchdog-first fallback remains physically unverified.
+
+
+## Live correction — Run #337 build passed; RAM-only packaging still running — 17 November 2026
+
+This section supersedes the earlier Run #337 status line above, which was captured while the build job was still saving its cache.
+
+### Verified CI state
+
+- Run **#337** ([44105853768](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44105853768)) is still in progress on source commit `f9737461fc21f3181600a39c5ff6d71716baa045`.
+- The **XNU build job has now completed successfully**. Its machine-profile validation, Lavender ADT memory/CPU-topology regression, exact-match cache restoration, XNU 8796 compilation, cache-aware build-path check, entry-guard patch validation, and the `Verify Lavender non-secure Group-1 virtual timer contract` check all passed. The kernel artifact was verified and uploaded, and the XNU build cache was saved.
+- The separate **Package RAM-only Lavender fastboot image** job is currently running. Checkout passed and it is at **Download XNU kernel artifact**. This is not yet a completed package job. There is no newly accepted `iosboot.img` from Run #337 at this update; wait for packaging, boot-image structure/payload checks, and artifact verification.
+- Run **#336** ([44090184786](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44090184786)) did compile XNU 8796 successfully, but then failed the final static check `Verify Lavender non-secure Group-1 virtual timer contract`. The job log identifies the issue as verifier comment matching, not a compiler failure. Its package job was skipped. The Run #337 verifier correction now passes.
+
+### Consolidated engineering status
+
+| Area | Verified state | What remains unproven / unfinished |
+|---|---|---|
+| Early boot tracing | Events 72–87 are in the accepted Run #331 diagnostic image; the last physical checkpoint is event 87 | Events 88+ still need to be in a successfully packaged image and observed on the handset |
+| GIC initialization | Post-map trace instrumentation exists; DS=0/DS=1 security assumptions and firmware preconditions are documented and guarded | Exact event-87 failure cause and successful physical GIC initialization remain unresolved |
+| Non-secure virtual timer | Lavender Group-1 NS route is implemented and the Run #337 static contract verifier passes | Actual physical timer interrupt delivery into XNU is not demonstrated |
+| CPU topology | A53 efficiency / A73 performance metadata is generated; full eight-core and A73-only ADT profiles are regression-tested | Secondary CPU startup remains disabled; keep `cpus=1` until SMP and interrupt delivery are proven |
+| eMMC description | SDHC1/eMMC register windows, host/power IRQs, clocks, 8-bit bus width, non-removable and enabled metadata have exact ADT checks | No Lavender SDHC1/eMMC kernel driver, block device, or verified root mount |
+| XNU compilation | Run #336 and Run #337 both compiled XNU 8796 successfully; Run #337 also passed its final timer-contract static check | Run #337's separate RAM-only packaging and artifact acceptance are still pending |
+| Darwin boot | No verified read-only root mount, launchd startup, or SpringBoard | Darwin userspace is not reached/demonstrated |
+
+### Ordered next engineering passes
+
+1. Finish Run #337's separate RAM-only package job. Verify the downloaded artifact, image structure, payload identity, manifest and SHA-256 before calling it an accepted image.
+2. Use that exact image for a RAM-only handset test and capture the last visible event. Correlate the recording with the image hash; do not infer progress beyond event 87 from static checks alone.
+3. Extend the post-map GIC trace and establish the exact source boundary at which execution stops. Separately prove physical non-secure Group-1 timer delivery; static route configuration is not enough.
+4. Audit the startup path from `PE_init_cpu()` through the first userspace transition, but keep conclusions tied to observable milestones.
+5. Keep `cpus=1` until secondary startup and interrupt delivery are proven.
+6. Build eMMC support incrementally and read-only: first a no-write SDHC1 register/state probe, then bounded PIO reads, GPT validation, and only then a BSD block device. CQE, ICE, DMA and writes remain disabled until independently justified.
+7. Validate a read-only root filesystem and its dependencies before attempting launchd; demonstrate launchd before attempting SpringBoard.
+
+### Boot milestone and safety statement
+
+The Apple logo is not the finish line and is not proof of Darwin userspace. At this update there is no demonstrated read-only root mount, launchd, or SpringBoard. The project is making meaningful progress in build infrastructure, hardware metadata, static guards and diagnostics, but Lavender XNU bring-up remains **in progress**.
+
+All physical tests must use **RAM-only** `fastboot boot iosboot.img`. Never flash, erase, repartition, or write internal Android eMMC/userdata. Preserve the confirmed volume-key recovery/reset route. The separate watchdog-first fallback remains physically unverified.
