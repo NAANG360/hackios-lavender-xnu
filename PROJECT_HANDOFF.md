@@ -9,7 +9,8 @@ Read this file, inspect the live branch/Actions state, then load only the routed
 ## Current milestone — 16 November 2026
 
 - **Latest accepted image:** Run #302 (`43903857144`), artifact `14245608682`, SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`; both XNU build and RAM-only package jobs passed.
-- **Next acceptance:** patch 0120 is in queued Run #303; Run #304 includes the required source guard and is the preferred acceptance run.
+- **Latest source fix:** commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26 fixes the Run #318 final-link trace ABI mismatch and Step 13 stale source guards.
+- **Current acceptance run:** Run #320 (44020121980) is compiling XNU 8796 for that commit. Source guards, linked verification and RAM-only packaging remain required; no new image is accepted yet.
 - **Recovery:** the user confirms the independent volume-key recovery/reset route works despite the broken power button. The handset-test recovery gate is cleared.
 - **Video correction:** the apparent final FASTBOOT frame is a recording glitch; the phone restarts normally. Reset cause remains unknown.
 - **Boot safety:** RAM-only `fastboot boot iosboot.img` only. Never flash or write non-`userdata` partitions.
@@ -135,3 +136,15 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 - Run #306 failed during XNU compilation; its raw kernel candidate is not accepted. Run #302 artifact 14245608682 remains the latest accepted diagnostic image, SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98.
 - The source split preserves Lavender's verified framebuffer geometry and all current logo, guard, checkpoint, panic and trace behavior. It does not import Sweet's framebuffer or GIC/timer assumptions.
 - Continue only with RAM-only fastboot boot iosboot.img. Never flash or write boot-critical partitions.
+
+
+## Latest Lavender early-source split correction — Run #318 / Run #320 (17 November 2026)
+
+- Run #318 (44016311664, source 9041148e40462d7eea7a32b9fd176f7ec29d0f28) compiled all translation units but failed at the final link of kernel.development.lavender.unstripped with undefined _sweet_early_trace_startup references.
+- Cause: the splitter renamed the implementation to lavender_early_trace_startup, and sweet_early.h macro-redirects callers that include it. However, startup.c, lock_mtx.c, lock_group.c and other patched translation units have raw extern declarations and do not include the facade header, so their object files still reference the original ABI symbol.
+- Run #318 also exposed a guaranteed Step 13 verifier failure after linking: the workflow still searched lavender_early.c for sweet_early_* names and the old single-line putc signature.
+- Commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26 fixes both issues. The splitter appends a sweet_early_trace_startup compatibility definition forwarding all six arguments to lavender_early_trace_startup, and ensures the wrapper on already-split/idempotent paths. The workflow's Step 13 anchors now use lavender_early_* names and lavender_early_putc(char c).
+- The Python splitter parsed successfully and the workflow YAML parsed successfully before commit. The duplicate stage-marker assertion was removed. The caller source files were not rewritten; the ABI wrapper is the compatibility boundary.
+- Run #320 (44020121980) is the validation run for the fix. At last inspection, setup, Xcode/tooling selection, machine profile, cache restore, runner capacity, dependency install and cache invalidation passed; Build XNU 8796 was in progress. Step 12/13, linked verification, artifact verification and RAM-only package are not yet confirmed.
+- Run #302 artifact 14245608682 remains the latest accepted diagnostic image (16,601,088 bytes; SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98). Do not boot raw candidates from failed or incomplete runs.
+- Next action: follow Run #320 through the source guards, linked Mach-O verifier and package job. RAM-only fastboot boot only; never flash.

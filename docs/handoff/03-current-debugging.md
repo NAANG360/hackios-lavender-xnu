@@ -4,6 +4,18 @@
 **Latest accepted diagnostic build:** Run #302 (`43903857144`, commit `34a85dd88d13cc4b30e6ccf45a92aae9f685cce8`) completed XNU compilation, linked kernel verification and RAM-only packaging successfully. Artifact `14245608682` (`lavender-fastboot-boot-test`) contains `iosboot.img` (16,601,088 bytes); SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`. It includes the 0119 bootstrap-thread boundary instrumentation and genuine 20H392 AppleLogo. This is an accepted diagnostic kernel image, not proof of a complete Darwin userspace boot.
 **Diagnostic purpose:** stage 18 follows `PE_consistent_debug_inherit()`; stage 19 follows `serial_init()`; stage 20 remains the kprintf startup completion marker.
 
+
+## Latest operations — Run #318 diagnosis and Run #320 validation (17 November 2026)
+
+- Run #318 (44016311664, commit 9041148e40462d7eea7a32b9fd176f7ec29d0f28) compiled translation units, then failed at the final Mach-O link of kernel.development.lavender.unstripped with unresolved _sweet_early_trace_startup references. This is a link-time ABI issue, not a C compilation failure.
+- The splitter renames the implementation to lavender_early_trace_startup and the sweet_early.h macro redirect only affects translation units that include that header. startup.c, lock_mtx.c, lock_group.c and related patched callers have raw extern declarations without the header, so they still require a real global sweet_early_trace_startup symbol.
+- Run #318 also exposed stale Step 13 guard anchors: the verifier searched the generated Lavender source for sweet_early_guard_init, sweet_early_mark, sweet_early_putc, sweet_early_logo and sweet_early_trace_startup. The split output uses lavender_early_* names; the putc definition is formatted as a multi-line function signature.
+- Fix commit: 0abe1270618c7a5d3a303dd1c2603e107c94bf26. The splitter now appends a forwarding sweet_early_trace_startup ABI wrapper calling lavender_early_trace_startup, and ensures it on both fresh-split and already-split paths. Step 13 now uses the post-split Lavender names and searches for lavender_early_putc(char c). The duplicated stage marker assertion was removed.
+- Pre-commit validation: Python syntax and YAML parsing both passed. The four raw-extern caller files were not modified; the wrapper preserves their existing ABI.
+- Run #320 (44020121980) is the validation run for commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26. At the latest poll, all setup/toolchain/profile/cache/capacity/dependency steps passed and Build XNU 8796 was in progress. Steps 12 and 13, linked Mach-O verification and package/artifact gates remain pending.
+- No new image is accepted. Run #302 artifact 14245608682 remains the latest accepted diagnostic image, 16,601,088 bytes, SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98.
+- Next: inspect Run #320 through Step 13, linked verification and RAM-only package. If the link still fails, inspect generated lavender_early.c in the buildtree and verify the wrapper is present exactly once and emitted as a global symbol. Never flash; physical tests remain RAM-only.
+
 ## Latest operations — 17 November 2026
 
 - Run #314 (`44013809798`, source `e49691eaa88dca38e5b344b8981b12e10665a874`) passed setup and entered the BSD compile stage, but failed because exported `osfmk/arm64/sweet_early.h` included `<arm64/lavender_early.h>`, which the XNU exported-header set did not contain. Exact compiler error: `sweet_early.h:10:10: fatal error: 'arm64/lavender_early.h' file not found`.

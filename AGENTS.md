@@ -5,9 +5,9 @@
 ## Mission
 Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to Xiaomi Redmi Note 7/7S (`lavender`, Qualcomm SDM660 / Kryo 260, ARM64).
 
-## Current milestone — 16 November 2026
+## Current milestone — 17 November 2026
 
-Run #302 is the latest accepted diagnostic package. Patch 0120 is in queued guarded validation Run #304; see the current engineering update at the end for artifact identity and next action.
+Run #302 remains the latest accepted diagnostic image. The Lavender early-source split has advanced through Run #318, which exposed a final-link ABI mismatch and stale Step 13 source-guard names. Both are fixed in commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26. Run #320 (44020121980) is currently compiling XNU 8796; do not accept a candidate until the source guards, linked verification and RAM-only package gates pass. The routed chapter is docs/handoff/03-current-debugging.md.
 
 
 
@@ -143,3 +143,16 @@ Branch: `ci/lavender-machine-profile`
 - Run #306 failed during XNU compilation; its raw kernel candidate is not accepted. Run #302 artifact 14245608682 remains the latest accepted diagnostic image, SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98.
 - The source split preserves Lavender's verified framebuffer geometry and all current logo, guard, checkpoint, panic and trace behavior. It does not import Sweet's framebuffer or GIC/timer assumptions.
 - Continue only with RAM-only fastboot boot iosboot.img. Never flash or write boot-critical partitions.
+
+
+## Latest Lavender early-source split correction — Run #318 / Run #320 (17 November 2026)
+
+- Run #318 (44016311664, source 9041148e40462d7eea7a32b9fd176f7ec29d0f28) compiled its translation units but failed at the final Mach-O link for kernel.development.lavender.unstripped: unresolved _sweet_early_trace_startup references remained in startup.o, lock_mtx.o, lock_group.o and related objects.
+- Cause: the splitter renamed the implementation to lavender_early_trace_startup and the macro redirect lived in sweet_early.h, but several patched callers declare the old symbol directly without including that header. Those callers therefore retain the original ABI symbol at link time.
+- The same run's Step 13 source guard still searched lavender_early.c for old sweet_early_* function names and the old single-line putc signature. After the split, these definitions are lavender_early_* and lavender_early_putc(char c) is formatted across lines.
+- Fix commit: 0abe1270618c7a5d3a303dd1c2603e107c94bf26 (fix: preserve Lavender trace ABI and update source guards). tools/split-lavender-early.py now appends an ABI-compatible sweet_early_trace_startup forwarding wrapper that calls lavender_early_trace_startup. The wrapper is also ensured in both already-split/idempotent paths, so an existing generated source cannot skip the compatibility symbol.
+- .github/workflows/xnu.yml Step 13 now slices the generated source using lavender_early_guard_init, lavender_early_mark, lavender_early_putc(char c), lavender_early_logo and lavender_early_trace_startup. The duplicate checkpoint assertion was removed.
+- Python syntax and YAML parsing passed before commit. No other patched caller files needed modification because the original ABI symbol is provided by the wrapper.
+- Run #320 (44020121980) is the validation run for commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26. At the latest inspection, runner setup, Xcode/tooling selection, machine-profile validation, cache restore, capacity detection, dependency install and legacy-cache invalidation passed; Build XNU 8796 is in progress. Step 12/13 guards, linked Mach-O verification, artifact collection and RAM-only package are still pending.
+- No new iosboot.img is accepted. Run #302 artifact 14245608682 remains the latest accepted diagnostic image (16,601,088 bytes; SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98). Raw candidates from failed runs are not bootable acceptance artifacts.
+- Next: monitor Run #320 through Step 13, linked verification and package verification. If the linker still reports the old symbol, inspect the generated lavender_early.c in the buildtree and confirm the wrapper is present exactly once and exported as a global symbol. Keep all device tests RAM-only; never flash.
