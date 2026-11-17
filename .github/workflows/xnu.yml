@@ -132,7 +132,11 @@ jobs:
           path.write_text(source)
           PY
           grep -F 'ARCHS="arm64" VALID_ARCHS="arm64"' dxb/build.sh
-          grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
+          if grep -Fq 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh; then
+            echo "ERROR: legacy multi-architecture Firehose target remains in the patched build script."
+            exit 1
+          fi
+          echo "PASS: Firehose build is arm64-only for Lavender."
           ls dxb/patches
 
       - name: Validate selected machine profile
