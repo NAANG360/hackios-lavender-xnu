@@ -525,3 +525,38 @@ All physical tests must use **RAM-only** `fastboot boot iosboot.img`. Never flas
 - Manifest provenance: source workflow run `44123579468`, source commit `b69f4a27a78ec5c60ce882c5ab0c329e1273acbb`, target Redmi Note 7 / lavender / SDM660, bootargs include `cpus=1`, and mode is RAM-only fastboot boot. No speculative GIC changes were made by this publisher; this packages the pinned source-run kernel and OTA-derived DTB/payload.
 - **Disposition: artifact accepted as byte-verified package output, not as proof of successful physical boot.** The 5.57 MiB artifact size shown by GitHub is explained by ZIP compression; the actual image is 15.84 MiB. It is newer than Run #337's artifact in this publisher's intended source lineage, but it remains a repackaging of Run #343's kernel/source commit above, not a new XNU compile.
 - Physical test remains **RAM-only**: `fastboot boot iosboot.img`. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve the volume-key recovery route. Keep `cpus=1`.
+
+
+## Run 343 physical test footage — FEAT_LSE undefined-instruction panic — 17 November 2026
+
+### Observed handset result
+
+- New handset recording `1000317921.mp4` shows the Run #3 image progressing past the shim handoff and the visible `KBOOT ... BOOTSTRAP DONE` marker, then taking a synchronous exception. The on-screen panic text reads `Undefined kernel instruction`, with PC `0xfffffe00072dca54` and instruction word `0xf8280128`. The Apple logo overlay is not a successful Darwin/userspace milestone.
+- The recording itself does not embed the boot image SHA-256, so it is not cryptographically bound to the artifact. However, the displayed PC and instruction word match the exact Run 343 kernel packaged into the verified Run #3 image.
+
+### Binary-level match
+
+- In Run 343's exact `xnu-kernel` artifact, PC `0xfffffe00072dca54` lands inside `___firehose_buffer_tracepoint_flush` in `__TEXT_EXEC`.
+- The word at that address is exactly `0xf8280128`; independent AArch64 disassembly decodes it as `LDADD x8, x8, [x9]`.
+- `LDADD` is an Arm FEAT_LSE large-system-extension atomic instruction. Arm documents FEAT_LSE as optional from Armv8.0 and mandatory from Armv8.1, and identifies it through `ID_AA64ISAR0_EL1.Atomic`. The Cortex-A73 technical reference manual's `ID_AA64ISAR0_EL1` layout has no Atomic field; the Cortex-A53 manual's documented baseline value also has Atomic=0. Snapdragon 660's Kryo 260 uses Cortex-A73 performance cores and Cortex-A53 efficiency cores. Thus the observed instruction is incompatible with the documented SDM660 core feature set and explains the Undefined Instruction exception.
+- This is a concrete post-bootstrap ISA mismatch, not evidence of a GIC fault. Do not make GIC routing, PPI, redistributor or timer changes in response to this panic.
+
+### Build provenance / likely source of incompatible code
+
+- Run 343's XNU build log shows the main XNU compilation using `-march=armv8-a -mcpu=generic`; these flags do not request FEAT_LSE.
+- The same kernel link command explicitly links `-lfirehose_kernel`. The source tree contains the call to `__firehose_buffer_tracepoint_flush` in `xnu/libkern/os/log.c` and its private declaration, but not its implementation. The final binary's faulting routine is therefore strongly indicated to come from the linked prebuilt Firehose kernel library/KDK, rather than from the main XNU C compilation. This attribution should be confirmed by inspecting the archive member/object or linker map before selecting the replacement.
+- Do not assume that adding another `-march=armv8-a` flag to XNU fixes this. The source compile already carries that target; the linked Firehose implementation must be rebuilt/replaced with a baseline-compatible implementation, or gated by a correct runtime feature dispatch. Do not hand-patch the single `LDADD` instruction without auditing its atomic semantics and all other LSE instructions in the final linked kernel.
+
+### Next narrowly scoped engineering task
+
+1. Inspect the exact `libfirehose_kernel` archive/KDK provenance and identify the archive member that defines `___firehose_buffer_tracepoint_flush`; preserve its source/build inputs and compiler target in the engineering journal.
+2. Inventory every FEAT_LSE opcode in the final linked Mach-O, not just this first observed fault. Check all executable segments and all archive-supplied code against the target's `ID_AA64ISAR0_EL1.Atomic` value.
+3. Produce a build whose entire reachable early-boot path is Armv8-A-safe. Prefer a compatible Firehose library/object or a semantically correct non-LSE implementation. Add a CI disassembly/feature guard that fails if LSE encodings remain in code reachable before feature detection.
+4. Keep `cpus=1`. No speculative GIC modifications. Require fresh compile/link, ISA audit, package verification, manifest/hash verification, and only then repeat a RAM-only handset test.
+
+### Safety / test state
+
+- Run #3 image remains **package-integrity verified**, but this footage demonstrates that the tested image panics and must not be described as a booting XNU build.
+- Any retest must use RAM-only `fastboot boot iosboot.img`. Never flash, erase, repartition, or write internal Android eMMC/userdata. Preserve the volume-key recovery route.
+
+References: [Arm FEAT_LSE overview and ID register](https://support.arm.com/documentation/ddi0487/mc/-Part-A-Arm-Architecture-Introduction-and-Overview/-Chapter-A2-A-profile-Architecture-Extensions/-A2-2-Armv8-A-architecture-extensions/-A2-2-2-The-Armv8-1-architecture-extension), [Arm LDADD instruction (FEAT_LSE)](https://documentation-service.arm.com/static/6023d5512cb3723f20208db2), [Cortex-A73 Technical Reference Manual](https://documentation-service.arm.com/static/5e7b6c837158f500bd5c03fc), [Cortex-A53 Technical Reference Manual](https://docs.arduino.cc/resources/datasheets/cortexa53.pdf), [Qualcomm Snapdragon 660 specifications](https://www.qualcomm.com/smartphones/products/6-series/snapdragon-660-mobile-platform), [Kryo 260 core composition](https://www.anandtech.com/show/11338/qualcomm-announces-snapdragon-660-630-mobile-platforms).
