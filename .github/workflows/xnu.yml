@@ -96,6 +96,9 @@ jobs:
           source = path.read_text()
           old = "    patches" + chr(10) + "    venv"
           new = ("    patches" + chr(10) +
+                 '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
+                 "        python3 ../tools/split-lavender-early.py" + chr(10) +
+                 "    fi" + chr(10) +
                  "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
                  '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
                  "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c xnu/osfmk/arm64/lavender_early.c xnu/osfmk/arm/arm_init.c xnu/osfmk/kern/startup.c" + chr(10) +
