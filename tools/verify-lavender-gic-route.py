@@ -157,6 +157,6 @@ require("cpus=1" in workflow,
         "package command line no longer constrains Lavender bring-up to one CPU")
 require("event >= 47 && event <= 106" in
         ((repo / "tools/split-lavender-early.py").read_text()),
-        "generated Lavender trace renderer does not include events 104-105")
+        "generated Lavender trace renderer does not include events 104-106")
 
-print(f"PASS: Lavender timer PPI {vtimer} has a DS-aware Group-1NS route and firmware preconditions; single-core gate retained")
+print(f"PASS: Lavender timer PPI {vtimer} has guarded DS-aware GIC affinity routing, Group-1NS forwarding and single-core gate retained")
