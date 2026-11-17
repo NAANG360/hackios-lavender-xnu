@@ -50,3 +50,5 @@ if grep -Eiq 'SWEET_VTIMER_INTID|sweet_touch_init|sweet_keys_init|sweet_ufs' "$p
   exit 1
 fi
 echo "Lavender profile preflight passed (compile profile only; not boot-ready)."
+
+# Trigger a fresh XNU validation run for the Run 337 artifact-publication repair.
