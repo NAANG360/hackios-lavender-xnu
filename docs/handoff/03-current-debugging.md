@@ -202,3 +202,14 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - The corrected committed patch has 16 hunks with all old/new counts matching. It was applied after patch 0119 to a fresh copy of the exact Run #300 buildtree; both `git apply --check` and application succeeded.
 - Run #303 uses the pre-correction patch and is not an acceptance candidate. Run #304 also references the pre-correction patch. **Run #305** (`43910208977`) is the preferred guarded acceptance run containing both the corrected 0120 patch and the workflow source guard.
 - Recovery route remains confirmed; the previous physical-test gate is cleared. Only use a CI-accepted image and RAM-only `fastboot boot iosboot.img`.
+
+## Lavender early-console split — 17 November 2026
+
+- User requested that the inherited sweet_early.c be ported into a distinct lavender_early.c.
+- Live branch at start of work: ci/lavender-machine-profile, HEAD 9295a8324577bc1c26f4a03e1f4598ca1107236d. Run #306 (43910553183) failed during XNU compilation; it did not pass the linked verifier or package job. Do not use its raw kernel candidate.
+- Inspected the exact Run #306 xnu-buildtree artifact 14247844964; its patched source contains the current Lavender implementation in the ARM64_BOARD_CONFIG_LAVENDER branch of osfmk/arm64/sweet_early.c.
+- Added tools/split-lavender-early.py. After the full pinned patch stack, the workflow now extracts that Lavender implementation to osfmk/arm64/lavender_early.c, renames public functions to lavender_early_*, creates a dedicated header, removes the Lavender branch from sweet_early.c, adds the new source to files.arm64, and retains sweet_early.h as a macro compatibility facade for existing shared call sites.
+- Updated .github/workflows/xnu.yml: invoke the splitter after patches, touch the generated source, include the tool in cache hashing and push filters, and assert the source split and target routing before existing startup/panic trace guards.
+- Workflow runs #307–#310 were triggered by incremental commits while the change was being wired in. #310 (44008439363, source 22590d814dc0770b2740d413b52600e0c32d622e) is the latest intended guarded validation run; inspect its actual build, source guard, linked verifier and package results before accepting it. Runs #307–#309 are intermediate snapshots, not acceptance candidates.
+- The generated source is based on the exact #306 post-patch buildtree, preserving the existing Lavender framebuffer (0x9d400000, 1080×2340, stride 1080 pixels), bootloader AppleLogo asset integration, stage markers, Guardian cell, panic output and trace events 1–46. The SWEET source remains for SWEET only.
+- No new iosboot.img is accepted yet. Run #302 artifact 14245608682 remains the latest accepted diagnostic image (SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98). Continue RAM-only fastboot boot iosboot.img; never flash.
