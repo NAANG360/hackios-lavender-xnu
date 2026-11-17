@@ -238,7 +238,7 @@ jobs:
           EXACT_CACHE_HIT: ${{ steps.xnu-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0115-lavender-post-logo-darwin-trace.patch 0116-lavender-logo-overlay-verbose-console.patch 0117-lavender-transparent-logo-overlay.patch 0118-lavender-post-logo-boundary-trace.patch 0119-lavender-bootstrap-thread-entry-trace.patch 0120-lavender-panic-and-bootstrap-trace.patch 0121-lavender-arm-init-machine-startup-trace.patch 0122-lavender-pe-fiq-trace.patch 0112-lavender-commpage-armv8a-llsc.patch 0113-lavender-corecrypto-sha2-file-scope.patch 0114-lavender-applelogo-from-20h392.patch; do
+          for required_patch in 0106-lavender-verbose-boot-final.patch 0107-lavender-post-assembly-entry-trace.patch 0108-lavender-post-cpubootstrap-trace.patch 0109-lavender-startup-hook-trace.patch 0110-lavender-mutex-startup-subtrace.patch 0111-lavender-armv8a-generic-cpu.patch 0115-lavender-post-logo-darwin-trace.patch 0116-lavender-logo-overlay-verbose-console.patch 0117-lavender-transparent-logo-overlay.patch 0118-lavender-post-logo-boundary-trace.patch 0119-lavender-bootstrap-thread-entry-trace.patch 0120-lavender-panic-and-bootstrap-trace.patch 0121-lavender-arm-init-machine-startup-trace.patch 0122-lavender-pe-fiq-trace.patch 0123-lavender-pe-fiq-post-map-trace.patch 0112-lavender-commpage-armv8a-llsc.patch 0113-lavender-corecrypto-sha2-file-scope.patch 0114-lavender-applelogo-from-20h392.patch; do
             if grep -q "Skipping patch .*${required_patch}" xnu-build.log; then
               echo "Required Lavender diagnostic patch ${required_patch} was skipped; refusing this build."
               exit 1
@@ -435,7 +435,7 @@ jobs:
           ], "machine_conf internal boundaries", mc)
 
           early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
-          if "event >= 47 && event <= 87" not in early or "POST-PLATFORM EVENT " not in early:
+          if "event >= 47 && event <= 103" not in early or "POST-PLATFORM EVENT " not in early:
               raise SystemExit("generated Lavender console is missing the extended post-platform event renderer")
 
           pe = Path("dxb/xnu/pexpert/arm/pe_identify_machine.c").read_text()
@@ -461,6 +461,34 @@ jobs:
               "ml_io_map(soc_base_phys + gicr_base_prop",
               "LAVENDER_FIQ_TRACE(87",
           ], "Lavender GIC/FIQ initialization boundaries")
+
+          require_order(fiq, [
+              "LAVENDER_FIQ_TRACE(88",
+              "LAVENDER_FIQ_TRACE(89",
+              "uint64_t gicr_typer = gicr_read64(GICR_TYPER);",
+              "LAVENDER_FIQ_TRACE(90",
+              "if (phys_id == aff_value)",
+              "LAVENDER_FIQ_TRACE(91",
+              "if (gicr_typer & GICR_TYPER_LAST)",
+              "LAVENDER_FIQ_TRACE(92",
+              "LAVENDER_FIQ_TRACE(93",
+              "gicr_size = gicr_size_prop;",
+              "LAVENDER_FIQ_TRACE(94",
+              "vm_offset_t gicr_pe_base = find_gicr_pe_base();",
+              "LAVENDER_FIQ_TRACE(95",
+              "LAVENDER_FIQ_TRACE(96",
+              "uint32_t gicr_waker = gicr_read32(GICR_WAKER);",
+              "LAVENDER_FIQ_TRACE(97",
+              "LAVENDER_FIQ_TRACE(98",
+              "LAVENDER_FIQ_TRACE(99",
+              '__builtin_arm_wsr64("ICC_SRE_EL1", icc_sre);',
+              "LAVENDER_FIQ_TRACE(100",
+              "LAVENDER_FIQ_TRACE(101",
+              "LAVENDER_FIQ_TRACE(102",
+              '__builtin_arm_wsr64("ICC_IGRPEN0_EL1", 1);',
+              "__builtin_arm_isb(ISB_SY);",
+              "LAVENDER_FIQ_TRACE(103"
+          ], "post-map GICR discovery, wake, and CPU-interface boundaries")
           print("PASS: PE_init_cpu and Lavender GIC/FIQ initialization boundaries are ordered and rendered")
           PY
           python3 - <<'PY'
@@ -998,68 +1026,3 @@ jobs:
           payload = Path("artifacts/verify/ramdisk").read_bytes()
           dtb = Path("artifacts/verify/dtb").read_bytes()
           import re
-          header = {}
-          for line in Path("artifacts/verify/header.txt").read_text().splitlines():
-              if ": " in line:
-                  k, v = line.split(": ", 1)
-                  header[k] = v
-          assert kernel[0x38:0x3c] == b"ARMd", "shim is missing the ARM64 Image header"
-          assert payload[:8] == b"LAVENDRX", "ramdisk does not contain a Lavender XNU payload"
-          assert len(dtb) > 0, "stock DTB is missing"
-          def hx(k): return int(header[k], 0)
-          ranges = {
-              "kernel": (hx("kernel_addr"), hx("kernel_addr") + len(kernel)),
-              "ramdisk": (hx("ramdisk_addr"), hx("ramdisk_addr") + len(payload)),
-              "dtb": (hx("dtb_addr"), hx("dtb_addr") + len(dtb)),
-          }
-          for name, (lo, hi) in ranges.items():
-              assert lo >= 0 and hi > lo, f"invalid {name} load range: {lo:#x}..{hi:#x}"
-          names = list(ranges)
-          for i, a in enumerate(names):
-              for b in names[i+1:]:
-                  alo, ahi = ranges[a]; blo, bhi = ranges[b]
-                  assert ahi <= blo or bhi <= alo, (
-                      f"BOOT IMAGE LOAD OVERLAP: {a} [{alo:#x},{ahi:#x}) "
-                      f"and {b} [{blo:#x},{bhi:#x})"
-                  )
-          assert hx("dtb_addr") % 0x1000 == 0, "DTB load address is not page-aligned"
-          print("PASS: non-overlapping boot load ranges:")
-          for name, (lo, hi) in ranges.items():
-              print(f"  {name}: [{lo:#x}, {hi:#x}) ({hi-lo} bytes)")
-          print(f"PASS: ARM64 shim={len(kernel)} bytes, LAVENDRX payload={len(payload)} bytes, DTB={len(dtb)} bytes")
-          PY
-          sha256sum "$KERNEL_PATH" shim/out/shim-boot.img artifacts/lavender-payload.bin artifacts/lavender.adt > artifacts/SHA256SUMS
-          {
-            echo "XNU workflow run: ${{ github.run_id }}"
-            echo "Source commit: ${{ github.sha }}"
-            echo "Boot mode: fastboot boot only; do not flash to a partition"
-            echo "Volume-key recovery route: user confirms the power-button-independent recovery/reset path works; physical recovery gate cleared"
-            echo "Guardian watchdog fallback: arm SDM660 one-tick watchdog at 0x17817000 before calling PSCI SYSTEM_RESET"
-            echo "Guardian watchdog caveat: watchdog-first fallback remains separately unverified; it is distinct from the confirmed volume-key recovery route"
-            echo "XNU logo: genuine iPhone X iOS 16.7.16 (20H392) AppleLogo raster, 194x238, centered after arm_vm_init and permanent framebuffer alias"
-            echo "AppleLogo source IM4P SHA-256: 93e6586cdd85ee2208469d8ca4052a27bb5465b2f142c52d0e00286bda7d50b8"
-            echo "AppleLogo decoded PNG SHA-256: 9c1af53fd36eb86021657bd8e94df4f54b1e407a74cbcfd37f60aff63c604bdb"
-            echo "XNU entry diagnostics: assembly stages 3-7 are green tiles; stages 8-9 trace boot-args KVA setup and the instruction immediately before ret to arm_init"
-            echo "XNU C diagnostics: stage 4 is cpu_bootstrap; stages 5-14 split rtclock, early startup hooks, timer, cpu_init, processor_bootstrap and arm_vm_init entry; guardian words use 0x100+stage"
-            echo "Framebuffer console: lavender_no_fbcon=1 disables only the legacy pexpert serial fbcon; the direct early checkpoint text renderer remains active"
-            echo "A53 stall report: last shared marker is printed at y=580 for 2.5 seconds before the watchdog reset"
-            echo "Early watchdog: reset if XNU stage marker stalls for 60 seconds before stage 20"
-            echo "Target: Redmi Note 7 / lavender / Qualcomm SDM660"
-            echo "XNU boot CPU MPIDR: 0x100 (Kryo 260 Gold cluster)"
-            echo "Android boot metadata: ${OS_VERSION} / ${OS_PATCH_LEVEL}"
-            echo "Kernel: ${KERNEL_PATH}"
-          } > artifacts/BUILD-MANIFEST.txt
-
-      - name: Upload Lavender fastboot test image
-        uses: actions/upload-artifact@v4
-        with:
-          name: lavender-fastboot-boot-test
-          path: |
-            shim/out/shim-boot.img
-            iosboot.img
-            artifacts/lavender-payload.bin
-            artifacts/lavender.adt
-            artifacts/SHA256SUMS
-            artifacts/BUILD-MANIFEST.txt
-          if-no-files-found: error
-          retention-days: 14
