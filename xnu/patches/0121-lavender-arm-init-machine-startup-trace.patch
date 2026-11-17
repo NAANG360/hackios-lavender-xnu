@@ -151,3 +151,42 @@
  	/* NOTREACHED */
  }
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm/machine_routines_common.c
++++ b/osfmk/arm/machine_routines_common.c
+@@ -74,5 +74,10 @@
+ #include <mach/machine/sdt.h>
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
++    uintptr_t c, uintptr_t d, uintptr_t e);
++#endif
++
+ #if !HAS_CONTINUOUS_HWCLOCK
+ extern uint64_t mach_absolutetime_asleep;
+ #else
+@@ -1411,11 +1416,23 @@ machine_conf(void)
+ {
+ 	/*
+ 	 * This is known to be inaccurate. mem_size should always be capped at 2 GB
+ 	 */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(68, mem_size, 0, 0, 0, 0);
++#endif
+ 	machine_info.memory_size = (uint32_t)mem_size;
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(69, machine_info.memory_size, 0, 0, 0, 0);
++#endif
+ 
+ 	// rdar://problem/58285685: Userland expects _COMM_PAGE_LOGICAL_CPUS to report
+ 	// (max_cpu_id+1) rather than a literal *count* of logical CPUs.
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(70, 0, 0, 0, 0, 0);
++#endif
+ 	unsigned int num_cpus = ml_get_topology_info()->max_cpu_id + 1;
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(71, num_cpus, 0, 0, 0, 0);
++#endif
+ 	machine_info.max_cpus = num_cpus;
+ 	machine_info.physical_cpu_max = num_cpus;
+ 	machine_info.logical_cpu_max = num_cpus;
+ }
