@@ -235,7 +235,7 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - No new iosboot.img is accepted yet. Run #302 artifact 14245608682 remains the latest accepted diagnostic image (SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98). Continue RAM-only fastboot boot iosboot.img; never flash.
 
 
-### Run #321 trace-event decoding
+### Run #322 trace-event decoding
 
 The compact renderer prints the numeric event ID as `[DARWIN] POST-PLATFORM EVENT N`. Decode it as follows:
 
