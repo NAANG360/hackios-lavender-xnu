@@ -67,6 +67,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Persist downloaded Homebrew bottles between fresh hosted macOS runners.
+      # The key changes with this dependency workflow and runner architecture.
+      - name: Restore Homebrew dependency download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-macos15-${{ runner.arch }}-${{ hashFiles('.github/workflows/xnu.yml') }}
+          restore-keys: |
+            homebrew-macos15-${{ runner.arch }}-
+
       - name: Inspect runner and select Xcode
         run: |
           sw_vers
@@ -145,9 +155,27 @@ jobs:
           echo "KERNEL_PARALLELISM_OVERRIDE=$physical" >> "$GITHUB_ENV"
           printf 'Runner resources: %s physical CPUs, %s logical CPUs, %s bytes RAM; make -j%s\\n' "$physical" "$logical" "$memory" "$jobs"
 
-      - name: Install build dependencies
+      - name: Install only missing build dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+          HOMEBREW_NO_ANALYTICS: '1'
         run: |
-          brew install jq gum bash cmake ninja
+          set -euo pipefail
+          missing=()
+          for formula in jq gum bash cmake ninja; do
+            if ! brew list --versions "$formula" >/dev/null 2>&1; then
+              missing+=("$formula")
+            else
+              echo "Using runner-provided/cached formula: $formula"
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            printf 'Installing missing Homebrew formulae: %s\n' "${missing[*]}"
+            brew install --formula "${missing[@]}"
+          else
+            echo 'All build dependencies are already installed; skipping Homebrew installation.'
+          fi
           # darwin-xnu-build checks for xcodes; Xcode is selected explicitly above.
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
