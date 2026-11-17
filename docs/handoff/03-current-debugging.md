@@ -1,3 +1,9 @@
+## Repackaging rerun status — 17 November 2026
+
+- Corrected publisher commit: `9256d45d5d33281d082a9fa970fbb499349e0416`.
+- Fresh repackaging run #2: [44113290781](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44113290781). The job has started and is downloading the Run #337 XNU kernel artifact. No output artifact exists yet; wait for the corrected shim/ramdisk/DTB identity checks and upload step.
+- Do not treat Run #1 (44110862946) as an accepted image. Its build output was not uploaded and no checksum was published.
+
 # Latest image publication attempt — verifier correction (17 November 2026)
 
 - Run #337 (44105853768), source commit `f9737461fc21f3181600a39c5ff6d71716baa045`, completed successfully and published the `xnu-kernel` input artifact. The initial dedicated repackaging run #1 (44110862946) successfully downloaded that kernel, selected the ARM64 Mach-O, verified the pinned Lavender OTA, extracted the SDM660 DTB, generated the Lavender ADT, built the XNU payload, and produced `iosboot.img`.
