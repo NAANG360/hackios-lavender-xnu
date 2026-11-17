@@ -33,6 +33,7 @@ on:
       - ".github/workflows/package-lavender.yml"
       - "tools/validate-lavender-profile.sh"
       - "tools/fix-lavender-pre-vbar.py"
+      - "tools/split-lavender-early.py"
       - "tools/prepare-lavender-applelogo.sh"
       - "tools/pack_lavender_applelogo.py"
       - "tools/verify-lavender-kernel.py"
@@ -97,7 +98,7 @@ jobs:
           new = ("    patches" + chr(10) +
                  "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
                  '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
-                 "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c xnu/osfmk/arm/arm_init.c xnu/osfmk/kern/startup.c" + chr(10) +
+                 "        touch xnu/osfmk/arm64/start.s xnu/osfmk/arm64/sweet_early.c xnu/osfmk/arm64/lavender_early.c xnu/osfmk/arm/arm_init.c xnu/osfmk/kern/startup.c" + chr(10) +
                  "        bash ../tools/prepare-lavender-applelogo.sh xnu/osfmk/arm64/lavender_applelogo.h" + chr(10) +
                  "    fi" + chr(10) +
                  "    venv")
@@ -122,7 +123,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
           restore-keys: |
             xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
@@ -227,7 +228,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           startup = Path("dxb/xnu/osfmk/kern/startup.c").read_text()
-          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
           load_marker = startup.index("sweet_early_trace_startup(33")
           load_call = startup.index("load_context(thread);", load_marker)
           thread_entry = startup.index("sweet_early_trace_startup(30", load_call)
@@ -282,7 +283,7 @@ jobs:
           if not (e41 < vm_mem < e42 < oslog < e43 < sched < e44 < mach_ipc < e45 < thread_create < e46 < e33 < load_context):
               raise SystemExit("kernel_bootstrap event 41-46 / load_context boundaries are missing or out of order")
 
-          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
           for label in (
               "ARM_INIT PE_CREATE_CONSOLE DONE", "ARM_INIT PE_INIT_PRINTF DONE",
               "ARM_INIT CPU_IDLE_INIT DONE", "ARM_INIT PE_PLATFORM BEGIN",
@@ -296,8 +297,8 @@ jobs:
           debug = Path("dxb/xnu/osfmk/kern/debug.c").read_text()
           if "#if defined(SWEET) || defined(ARM64_BOARD_CONFIG_LAVENDER)" not in debug or "sweet_early_panic(panic_format_str, panic_args);" not in debug:
               raise SystemExit("Lavender panic hook is not enabled in panic_trap_to_debugger")
-          panic_fn = early.rindex("sweet_early_panic(const char *fmt, va_list *args)")
-          if "lavender_console_string" not in early[panic_fn:] or "_doprnt(fmt, &copy, sweet_early_putc, 16)" not in early[panic_fn:]:
+          panic_fn = early.rindex("lavender_early_panic(const char *fmt, va_list *args)")
+          if "lavender_console_string" not in early[panic_fn:] or "_doprnt(fmt, &copy, lavender_early_putc, 16)" not in early[panic_fn:]:
               raise SystemExit("Lavender early panic formatter is missing")
           sleh = Path("dxb/xnu/osfmk/arm64/sleh.c").read_text()
           if "sweet_early_trace_startup(40, esr, far, get_saved_state_pc(state)" not in sleh:
@@ -310,7 +311,7 @@ jobs:
 
           startup = Path("dxb/xnu/osfmk/kern/startup.c").read_text()
           bsd = Path("dxb/xnu/bsd/kern/bsd_init.c").read_text()
-          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
 
           def require_order(source, patterns, label):
               cursor = 0
@@ -402,7 +403,7 @@ jobs:
           for value in expected:
               if value not in data:
                   raise SystemExit("generated AppleLogo header is missing pinned content: " + value)
-          source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          source = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
           if "lavender_applelogo_luma" not in source or "lavender_logo_ellipse" in source:
               raise SystemExit("Lavender logo renderer is not using only the original iBoot AppleLogo raster")
           print("PASS: exact iPhone X 20H392 AppleLogo raster is embedded in the Lavender source")
@@ -477,7 +478,7 @@ jobs:
           ret_insn = start_asm.index("ret", handoff_ret + len("// Return to arm_init()"))
           if not (handoff < stage8 < stage9 < ret_insn):
               raise SystemExit("post-assembly stages 8/9 must bracket the final arm_init return")
-          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
           guard_init = early.index("sweet_early_guard_init(uintptr_t boot_args_kva)")
           early_mark = early.index("sweet_early_mark(unsigned int stage", guard_init)
           early_end = early.index("void sweet_early_putc", early_mark)
@@ -495,7 +496,7 @@ jobs:
               raise SystemExit("ambiguous legacy C checkpoint marker encoding remains")
           if "stage + 3u" in early_body:
               raise SystemExit("ambiguous legacy C checkpoint marker encoding remains")
-          logo_source = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          logo_source = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
           logo_start = logo_source.index("sweet_early_logo(void)")
           logo_end = logo_source.index("sweet_early_guard_init(", logo_start)
           logo_body = logo_source[logo_start:logo_end]
@@ -506,7 +507,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           startup = Path("dxb/xnu/osfmk/kern/startup.c").read_text()
-          early = Path("dxb/xnu/osfmk/arm64/sweet_early.c").read_text()
+          early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
           boot = startup.index("kernel_startup_bootstrap(void)")
           enabled = startup.index("lavender_startup_trace_enabled = true", boot)
           table = startup.index("sweet_early_trace_startup(1", enabled)
@@ -683,7 +684,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
+          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
