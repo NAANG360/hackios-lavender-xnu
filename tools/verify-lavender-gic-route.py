@@ -71,6 +71,7 @@ for token in (
     "gicd_ctlr |= GICD_CTLR_ENABLEGRP1A;",
     "GICD_CTLR_ARE_NS",
     "GICD_CTLR_ENABLEGRP1",
+    "GICD_CTLR_DS",
     "gicd_ctlr |= GICD_CTLR_ARE_NS;",
     "ICC_IGRPEN1_EL1",
     "GICD_CTLR_RWP",
@@ -87,8 +88,13 @@ for forbidden in (
     require(forbidden not in fiq_branch,
             f"Lavender GIC branch still contains incompatible Group-0/legacy setup: {forbidden}")
 
+require("GICD_CTLR_DS" in fiq_branch and
+        "single-state interrupt groups are active" in fiq_branch,
+        "Lavender must distinguish the DS=1 single-security-state view")
 require("cannot enable affinity routing while legacy Group-1 NS is active" in fiq_branch,
-        "Lavender must refuse an ARE_NS transition while legacy EnableGrp1NS is active")
+        "Lavender must refuse a DS=0 ARE_NS transition while legacy EnableGrp1NS is active")
+require("GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1" in fiq_branch,
+        "Lavender DS=1 transition must require both Group 0 and Group 1 disabled")
 require("GICD_CTLR.ARE_NS did not stick" in fiq_branch,
         "Lavender must verify the ARE_NS transition before enabling Group 1")
 require(fiq_branch.index("gicd_ctlr |= GICD_CTLR_ARE_NS;") <

@@ -1,7 +1,7 @@
 diff --git a/pexpert/pexpert/arm64/LAVENDER.h b/pexpert/pexpert/arm64/LAVENDER.h
 --- a/pexpert/pexpert/arm64/LAVENDER.h
 +++ b/pexpert/pexpert/arm64/LAVENDER.h
-@@ -31,6 +31,27 @@
+@@ -31,6 +31,28 @@
  #define HAS_GIC_V3                1
  #define GIC_SPURIOUS_IRQ          1023
  #define GICR_PE_SIZE              0x20000
@@ -13,6 +13,7 @@ diff --git a/pexpert/pexpert/arm64/LAVENDER.h b/pexpert/pexpert/arm64/LAVENDER.h
 +#define GICD_CTLR_ENABLEGRP1      0x1
 +#define GICD_CTLR_ENABLEGRP1A     0x2
 +#define GICD_CTLR_ARE_NS          0x10
++#define GICD_CTLR_DS              0x40 /* visible in single-security-state view */
 +#define GICD_CTLR_RWP             0x80000000
 +
 +#define GICR_TYPER                              0x08

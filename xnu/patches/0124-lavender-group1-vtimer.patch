@@ -11,7 +11,7 @@
  #endif
  
  static vm_offset_t gicd_base;
-@@ -134,9 +142,23 @@
+@@ -134,9 +146,23 @@
  			sweet_vtimer_intid = intid;
  		}
  		kprintf("SWEET GIC: virtual timer INTID %u\n", sweet_vtimer_intid);
@@ -38,7 +38,7 @@
  		vm_offset_t soc_base_phys = pe_arm_get_soc_base_phys();
  		LAVENDER_FIQ_TRACE(83, soc_base_phys, 0);
  
-@@ -204,30 +240,45 @@
+@@ -204,30 +258,45 @@
  		gicr_write32(GICR_IPRIORITYR0 + i, 0xA0A0A0A0);
  	}
  	gicr_write32(GICR_ISENABLER0, (1U << sweet_vtimer_intid) | (1U << SWEET_IPI_SGI));
@@ -90,7 +90,7 @@
  
  	// Set EOI mode of this processor
  	uint64_t icc_ctlr = __builtin_arm_rsr64("ICC_CTLR_EL1");
-@@ -235,7 +301,7 @@
+@@ -235,7 +334,7 @@
  	__builtin_arm_wsr64("ICC_CTLR_EL1", icc_ctlr);
  
  #if defined(SWEET)
@@ -99,7 +99,7 @@
  	uint32_t gicd_ctlr = gicd_read32(GICD_CTLR);
  	gicd_ctlr |= GICD_CTLR_ARE_NS | GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1;
  	gicd_write32(GICD_CTLR, gicd_ctlr);
-@@ -244,8 +310,64 @@
+@@ -244,8 +343,73 @@
  	}
  	__builtin_arm_wsr64("ICC_IGRPEN1_EL1", 1);
  	__builtin_arm_isb(ISB_SY);
@@ -111,13 +111,22 @@
 +	uint32_t gicd_ctlr = gicd_read32(GICD_CTLR);
 +	LAVENDER_FIQ_TRACE(102, gicd_ctlr, 0);
 +	/*
-+	 * In the DS=0 Non-secure view, bit 0 is the legacy EnableGrp1NS alias.
-+	 * Arm IHI 0069G permits ARE_NS 0->1 only while that enable is clear.
++	 * Distinguish the two-security-state Non-secure view (DS=0) from the
++	 * single-security-state view (DS=1) before interpreting group-enable bits.
 +	 */
 +	if (!(gicd_ctlr & GICD_CTLR_ARE_NS)) {
-+		if (gicd_ctlr & GICD_CTLR_ENABLEGRP1) {
-+			panic("%s: cannot enable affinity routing while legacy Group-1 NS is active", __func__);
++		if (gicd_ctlr & GICD_CTLR_DS) {
++			/* DS=1: both EnableGrp0 (bit 0) and EnableGrp1 (bit 1) must be clear. */
++			if (gicd_ctlr & (GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1)) {
++				panic("%s: cannot enable affinity routing while single-state interrupt groups are active", __func__);
++			}
++		} else {
++			/* DS=0 NS view: bit 0 is the legacy EnableGrp1NS alias. */
++			if (gicd_ctlr & GICD_CTLR_ENABLEGRP1) {
++				panic("%s: cannot enable affinity routing while legacy Group-1 NS is active", __func__);
++			}
 +		}
++		/* Arm IHI 0069G requires the applicable group enables to be clear. */
 +		gicd_ctlr |= GICD_CTLR_ARE_NS;
 +		gicd_write32(GICD_CTLR, gicd_ctlr);
 +		uint64_t gicd_are_timeout = os_atomic_load(&gicd_rwp_timeout_ns, relaxed);
@@ -166,7 +175,7 @@
  	uint32_t gicd_ctlr = gicd_read32(GICD_CTLR);
  	gicd_ctlr |= GICD_CTLR_ENABLEGRP0;
  	gicd_write32(GICD_CTLR, gicd_ctlr);
-@@ -253,11 +407,18 @@
+@@ -253,11 +505,18 @@
  	__builtin_arm_wsr64("ICC_IGRPEN0_EL1", 1);
  	__builtin_arm_isb(ISB_SY);
  	LAVENDER_FIQ_TRACE(103, 0, 0);
@@ -187,7 +196,7 @@
  }
 --- a/pexpert/pexpert/arm/protos.h
 +++ b/pexpert/pexpert/arm/protos.h
-@@ -38,7 +134,9 @@
+@@ -38,7 +239,9 @@
  void pe_init_fiq(void);
  #if defined(ARM64_BOARD_CONFIG_SWEET)
  extern uint32_t sweet_vtimer_intid;
@@ -198,7 +207,7 @@
  #ifdef PRIVATE
 --- a/osfmk/arm64/sleh.c
 +++ b/osfmk/arm64/sleh.c
-@@ -1906,6 +2004,28 @@
+@@ -1906,6 +2111,28 @@
  		__builtin_arm_wsr64("ICC_EOIR1_EL1", iar);
  	}
  	__builtin_arm_isb(ISB_SY);
