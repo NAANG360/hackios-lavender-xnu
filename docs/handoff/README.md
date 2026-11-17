@@ -14,11 +14,11 @@ Do not read all chapters at session start. Do not read historical material unles
 
 ## Current state
 
-As of 17 November 2026, **Run #331** ([44075155032](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44075155032), source commit `748d7d1c75fa0af5e3c178d510167b3314c21c12`) is the latest accepted XNU build/verification and RAM-only package. Artifact `14325018991` contains `iosboot.img` (16,617,472 bytes; SHA-256 `f2b2bb70d236213f02fb8b3e25780a6b337ea8de26890c24ae11bb85a1fd806b`). The latest handset recording's last clear marker is event 87 after GICR mapping; it is not checksum-bound and gives no reset reason.
+As of 17 November 2026, Run #331 ([44075155032](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44075155032), commit `748d7d1c75fa0af5e3c178d510167b3314c21c12`) remains the latest accepted XNU build/verification and RAM-only package. Artifact `14325018991` contains `iosboot.img` (16,617,472 bytes; SHA-256 `f2b2bb70d236213f02fb8b3e25780a6b337ea8de26890c24ae11bb85a1fd806b`). The latest handset recording stops at event 87 after GICR mapping; it is not checksum-bound and no reset reason is visible.
 
-Run #332 was cancelled before the build job completed; its package job was skipped. Commit `61410e063a3dcfb3eac54c48832c677932cdb178` adds the Lavender Group-1 NS virtual-timer correction and a static source-contract guard. Run #333 ([44086398531](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44086398531)) is queued. No replacement `iosboot.img` is accepted until its complete build, Mach-O verification and separate RAM-only package pass.
+Runs #334–#336 cover DS-aware GIC comments/guards, A53/A73 topology metadata, and exact SDHC1/eMMC ADT checks. #334 and #335 are in progress, #336 is queued. No replacement `iosboot.img` is accepted until the latest source run passes the full build, Mach-O verification and separate RAM-only package.
 
-**Current route:** Chapter 03 for event-87/GIC trace and Run #333; Chapter 02 for build/GIC architecture; Chapter 05 for root-storage and Darwin userspace planning; Chapter 01 for device safety. Read only the chapter needed for the current task.
+**Current route:** Chapter 03 for event-87/GIC trace and latest CI; Chapter 02 for build/GIC/ADT contracts; Chapter 05 for eMMC root-driver planning; Chapter 01 for device safety. Do not read unrelated historical chapters.
 ## Resume prompt
 
 ```text

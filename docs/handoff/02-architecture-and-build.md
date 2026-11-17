@@ -139,3 +139,10 @@ References: [Xiaomi SDM660 device tree](https://github.com/xiaomi-sdm660/android
 - SDM660 MPIDRs `0x000–0x003` (Aff1=0) are Cortex-A53 efficiency cores; `0x100–0x103` (Aff1=1) are Cortex-A73 performance cores. The ADT now emits XNU's `cluster-type` property as ASCII `E` for cluster 0 and `P` for cluster 1.
 - XNU's `ml_parse_cpu_topology()` consumes `cluster-type`; without it Kryo CPUs fall back to generic `CLUSTER_TYPE_SMP`. The generator rejects unknown cluster IDs, self-validates the property, and host regression tests cover both the full eight-core map and A73-only first-boot profile.
 - This is topology metadata only: `cpus=1` remains mandatory. No secondary CPU start, per-core GIC init or IPI route is enabled.
+
+
+## SDHC1/eMMC ADT contract guard — 17 November 2026
+
+- The generated `/arm-io/emmc` node models SDHC1 as three 64-bit register windows: host controller, CQHCI and ICE; the register bases/lengths are stored relative to the SoC base. The descriptor also includes the two interrupt specifiers (host and power), names them, declares `iface_clk`, `core_clk` and `ice_core_clk`, and sets 8-bit/non-removable/enabled.
+- The ADT generator's `check()` now asserts the exact register windows, interrupt cells/names, clock names, bus width, non-removable property and status. `tests/test_lavender_adt.py` independently unpacks and validates the same values. Workflow CI runs the regression before the long XNU build.
+- This guards the device-tree input for the future driver; it does not implement the Qualcomm SDHCI V5 power handshake or a usable block device. CQE/ICE remain described in metadata only and must not be enabled by an unverified Lavender driver.

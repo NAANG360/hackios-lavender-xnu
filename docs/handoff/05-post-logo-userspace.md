@@ -191,3 +191,8 @@ The user has confirmed that the independent volume-key recovery/reset route work
 ## Topology metadata and GIC timer security boundary — 17 November 2026
 
 The ADT now labels the SDM660 A53 efficiency cluster as `E` and A73 performance cluster as `P`, matching XNU's topology parser. `cpus=1` remains enforced; this does not start secondary CPUs or enable SGI/IPI delivery. The virtual timer uses the Group-1 NS path, but in DS=0 mode firmware must own the redistributor wake and timer PPI group assignment. Neither DS mode nor physical timer IRQ delivery is claimed until observed. Root storage and userspace remain later, separate gates.
+
+
+## SDHC1/eMMC ADT preflight — 17 November 2026
+
+The existing ADT describes three SDHC1 register windows (host/CQHCI/ICE), host and power interrupts, three clock names, 8-bit bus width and a non-removable enabled controller. Commit `474abdc2daa0070251ac137d8571bd0f45eec4f9` adds exact self-check and host regression assertions for these fields against the extracted Build 4 FDT. This is a descriptor preflight only: no Lavender SDHC1 driver, V5 rail/pinctrl/IRQ handshake, bounded PIO read path, GPT parser, BSD block device or HFS+ mount is implemented. Do not enable CQE/ICE/DMA/write paths based on the ADT node alone.

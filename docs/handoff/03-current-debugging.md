@@ -362,3 +362,10 @@ References: [Xiaomi SDM660 device tree](https://github.com/xiaomi-sdm660/android
 - `.github/workflows/xnu.yml` requires patch 0125 and runs the ADT regression immediately after machine-profile validation, before the long XNU compile. This catches topology regressions early.
 - Commit `0fb0e5c300b393bc4b5323783c930f0a38e9b958` contains the code/test/workflow changes. The currently executing Run333 belongs to the prior source commit and does not include these changes; a fresh push-triggered run must pass all source, compile/link, Mach-O and RAM-only package gates.
 - No SMP behavior is enabled: package bootargs still require `cpus=1`. Root storage, HFS+ and Darwin userspace remain unimplemented milestones.
+
+
+## eMMC ADT preflight and Run #334–#336 hardening — 17 November 2026
+
+- Commit `474abdc2daa0070251ac137d8571bd0f45eec4f9` strengthens `tools/mkadt-lavender.py` and `tests/test_lavender_adt.py` to check exact SDHC1/eMMC host/CQHCI/ICE register windows, host/power IRQ specifiers and names, clock names, 8-bit bus width, non-removable flag and enabled status. This is a guard on existing hardware metadata; no kernel storage-driver behavior changed.
+- Run #336 ([44090184786](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44090184786)) is queued for that exact source commit; the parallel Lavender shim CI job is also running. Run #335 ([44089917704](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44089917704)) carries the verifier whitespace fix; Run #334 ([44089189096](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44089189096)) carries the first cluster/GIC hardening changes. Do not treat any as accepted until XNU build, guards, ARM64 Mach-O verification and RAM-only package are green.
+- The storage driver itself remains a later substantial task: first perform a no-write SDHC1 register/state probe, establish the Qualcomm V5 power/rail/pinctrl/IRQ sequencing, then implement bounded PIO reads only. CQE, ICE, DMA and writes stay disabled pending independent evidence. No eMMC read-only root or HFS+ mount is claimed.
