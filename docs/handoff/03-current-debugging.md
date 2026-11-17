@@ -369,3 +369,43 @@ References: [Xiaomi SDM660 device tree](https://github.com/xiaomi-sdm660/android
 - Commit `474abdc2daa0070251ac137d8571bd0f45eec4f9` strengthens `tools/mkadt-lavender.py` and `tests/test_lavender_adt.py` to check exact SDHC1/eMMC host/CQHCI/ICE register windows, host/power IRQ specifiers and names, clock names, 8-bit bus width, non-removable flag and enabled status. This is a guard on existing hardware metadata; no kernel storage-driver behavior changed.
 - Run #336 ([44090184786](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44090184786)) is queued for that exact source commit; the parallel Lavender shim CI job is also running. Run #335 ([44089917704](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44089917704)) carries the verifier whitespace fix; Run #334 ([44089189096](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44089189096)) carries the first cluster/GIC hardening changes. Do not treat any as accepted until XNU build, guards, ARM64 Mach-O verification and RAM-only package are green.
 - The storage driver itself remains a later substantial task: first perform a no-write SDHC1 register/state probe, establish the Qualcomm V5 power/rail/pinctrl/IRQ sequencing, then implement bounded PIO reads only. CQE, ICE, DMA and writes stay disabled pending independent evidence. No eMMC read-only root or HFS+ mount is claimed.
+
+
+## Engineering status snapshot — Run #336 compilation and Run #337 verification — 17 November 2026
+
+### Current state
+
+- Lavender XNU bring-up remains **in progress**. The current source head is `f9737461fc21f3181600a39c5ff6d71716baa045` on `ci/lavender-machine-profile`.
+- Latest workflow: **Run #337** ([44105853768](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44105853768)). It is currently **in progress**, with the build job at **Save XNU build cache after successful compilation**. The machine-profile and ADT checks have passed. It has not yet completed the final static verification or RAM-only packaging.
+- **Run #336** ([44090184786](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44090184786)) completed with failure after XNU 8796 compilation. Its failing step was `Verify Lavender non-secure Group-1 virtual timer contract`; the package job was skipped. The failure was identified in the verifier's comment matching, not in compilation. The verifier correction is in the Run #337 source commit. Do not classify Run #336 as a compiler failure and do not treat it as a packaged build.
+- Latest physical handset boundary remains **event 87** from the Run #331 diagnostic image. There is no checksum-bound physical evidence showing progress beyond event 87, and no accepted new boot image from Runs #336 or #337 at this snapshot.
+
+### Completed infrastructure and hardware-description work
+
+| Area | Current evidence / limitation |
+|---|---|
+| Early boot tracing | Events 72–87 are present in the accepted Run #331 diagnostic image; events 88–103 are staged in the post-map trace patch series, but require a successful later build and handset test |
+| GIC initialization | Instrumentation narrows the known physical stop to after GICR mapping; the actual event-87 failure cause is still unknown |
+| Virtual timer routing | Lavender-specific non-secure Group-1 route is implemented in patch 0124, using the ADT-selected PPI and Group-1 acknowledge/EOI path; static verification is not proof that a physical timer interrupt is delivered |
+| GIC security modes | DS=0/DS=1 access assumptions and firmware preconditions are documented and guarded; handset/firmware behavior is not yet physically demonstrated |
+| CPU topology | A53 efficiency / A73 performance metadata is emitted and ADT regression-tested for full and A73-only profiles; secondary CPU startup remains disabled |
+| eMMC description | SDHC1/eMMC register windows, IRQs, clocks, bus width and related ADT metadata have static checks; this is not an eMMC driver |
+| XNU build | XNU 8796 compilation passed in Run #336; Run #336 later failed its timer-contract static verifier |
+| RAM-only packaging | Still awaiting a later source run that passes all verification and produces a newly accepted `iosboot.img` |
+
+### Remaining bring-up gates
+
+1. Get Run #337 through all remaining static checks, ARM64 Mach-O verification, and the separate RAM-only package job. Accept an image only after the artifact is downloaded and its manifest/hash are verified.
+2. Extend the physical GIC trace beyond event 87 using the post-map checkpoints, then correlate the handset's last event with the exact image hash.
+3. Establish actual physical timer interrupt delivery; a static Group-1 configuration is insufficient.
+4. Keep `cpus=1` until secondary CPU startup and interrupt delivery are proven.
+5. Implement the SDHC1/eMMC path incrementally: read-only register/state probe, bounded PIO reads, GPT validation, then a BSD block device. CQE, ICE, DMA and writes remain out of scope until separately justified.
+6. Validate a read-only root filesystem and its dependencies before attempting launchd and SpringBoard.
+
+### Boot milestone honesty
+
+The Apple logo is not evidence of Darwin userspace. At this snapshot there is no verified read-only root mount, no demonstrated launchd startup, and no SpringBoard. Do not claim Darwin userspace or a completed iOS boot until those stages are observed directly.
+
+### Safety
+
+Use **RAM-only** `fastboot boot iosboot.img` for handset testing. Never flash, erase, repartition, or write internal Android eMMC/userdata. Preserve the confirmed volume-key recovery/reset route. The separate watchdog-first fallback remains physically unverified.
