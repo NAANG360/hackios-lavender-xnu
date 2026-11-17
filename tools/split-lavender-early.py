@@ -49,7 +49,7 @@ def main():
     body = body.replace("#include <stdint.h>\n",
                         "#include <stdint.h>\n#include <kern/misc_protos.h>\n", 1)
     body = body.replace("/* LAVENDER_XNU_GUARD_2026:",
-                        "#include <arm64/lavender_early.h>\n\n/* LAVENDER_XNU_GUARD_2026:", 1)
+                        "#include <arm64/sweet_early.h>\n\n/* LAVENDER_XNU_GUARD_2026:", 1)
     for old, new in (
         ("sweet_early_trace_startup", "lavender_early_trace_startup"),
         ("sweet_early_guard_init", "lavender_early_guard_init"),
