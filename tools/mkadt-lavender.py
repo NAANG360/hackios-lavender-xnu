@@ -140,6 +140,11 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
     for logical, mpidr in enumerate(ordered_mpidrs):
         cluster = (mpidr >> 8) & 0xff
         core = mpidr & 0xff
+        if cluster not in (0, 1):
+            raise ValueError(f'unsupported Lavender CPU cluster ID {cluster}')
+        # SDM660 cluster 0 is Cortex-A53 efficiency; cluster 1 is Cortex-A73 performance.
+        # XNU's topology parser consumes ASCII 'E'/'P' in cluster-type.
+        cluster_type = ord('P') if cluster == 1 else ord('E')
         cpu_nodes.append(node(f'cpu{logical}', [
             ph(),
             ('device_type', cstr('cpu')),
@@ -148,6 +153,7 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
             ('cpu-id', u32(logical)),
             ('logical-cpu-id', u32(logical)),
             ('cluster-id', u32(cluster)),
+            ('cluster-type', u32(cluster_type)),
             ('die-cluster-id', u32(0)),
             ('cluster-core-id', u32(core)),
             ('l2-cache-id', u32(cluster)),
@@ -281,6 +287,11 @@ def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
             for c in cpus.children]
     expected_mpidrs = ordered_cpu_mpidrs(boot_mpidr)[:cpu_count]
     assert tuple(regs) == expected_mpidrs
+    cluster_types = [struct.unpack('<I', next(v for n, _, v in c.props if n == 'cluster-type'))[0]
+                     for c in cpus.children]
+    expected_cluster_types = [ord('P') if ((mpidr >> 8) & 0xff) == 1 else ord('E')
+                              for mpidr in expected_mpidrs]
+    assert cluster_types == expected_cluster_types
     states = [next(v for n, _, v in c.props if n == 'state') for c in cpus.children]
     assert states == [cstr('running')] + [cstr('stopped')] * (cpu_count - 1)
     logical_ids = [struct.unpack('<I', next(v for n, _, v in c.props if n == 'logical-cpu-id'))[0]

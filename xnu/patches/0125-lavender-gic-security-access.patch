@@ -1,0 +1,33 @@
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -189,6 +189,15 @@
+ 	vm_offset_t gicr_pe_base = find_gicr_pe_base();
+ 	LAVENDER_FIQ_TRACE(95, gicr_pe_base, 0);
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/*
++	 * On a two-security-state GIC (DS=0), GICR_WAKER is Secure and reads
++	 * as RAZ/WI to Non-secure EL1. In that case the read below returns 0,
++	 * this conditional wake path is skipped, and secure firmware must have
++	 * left the boot PE's redistributor awake before handing off to XNU.
++	 * With DS=1, the same access is available and this path can wake it.
++	 */
++#endif
+ 	// Mark this PE to be awake
+ 	LAVENDER_FIQ_TRACE(96, gicr_pe_base + GICR_WAKER, 0);
+ 	uint32_t gicr_waker = gicr_read32(GICR_WAKER);
+@@ -223,7 +232,13 @@
+ 	}
+ 	gicr_write32(GICR_ISENABLER0, (1U << sweet_vtimer_intid) | (1U << SWEET_IPI_SGI));
+ #elif defined(ARM64_BOARD_CONFIG_LAVENDER)
+-	/* Configure only the ADT-declared virtual timer as non-secure Group 1. */
++	/*
++	 * Set only the ADT-declared timer PPI to Group 1. When GICD_CTLR.DS=0,
++	 * GICR_IGROUPR0 is Secure and RAZ/WI to Non-secure EL1, so this RMW
++	 * has no effect and secure firmware must have assigned the PPI to Group-1 NS
++	 * before handoff. With DS=1, the write configures Group 1 directly.
++	 * Do not treat an IGROUPR readback as proof of the group on DS=0.
++	 */
+ 	uint32_t igroupr = gicr_read32(GICR_IGROUPR0);
+ 	igroupr |= (1U << lavender_vtimer_intid);
+ 	gicr_write32(GICR_IGROUPR0, igroupr);

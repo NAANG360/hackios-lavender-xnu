@@ -89,6 +89,19 @@ require("non-secure affinity routing is not enabled by firmware" in fiq_branch,
         "Lavender must refuse an unsafe ARE_NS transition")
 require("non-secure Group-1 distributor enable did not stick" in fiq_branch,
         "Lavender must verify distributor Group-1 enable")
+require("GICR_IGROUPR0 is Secure and RAZ/WI to Non-secure EL1" in fiq_branch,
+        "Lavender must document the DS=0 firmware group-assignment precondition")
+require("GICR_WAKER is Secure and reads RAZ/WI to Non-secure EL1" in pe,
+        "Lavender must document the DS=0 redistributor-wake precondition")
+waker_start = pe.index("LAVENDER_FIQ_TRACE(96, gicr_pe_base + GICR_WAKER")
+waker_end = pe.index("LAVENDER_FIQ_TRACE(98", waker_start)
+waker_code = pe[waker_start:waker_end]
+require(waker_code.index("if (gicr_waker & GICR_WAKER_CHILDRENASLEEP)") <
+        waker_code.index("gicr_write32(GICR_WAKER, gicr_waker)"),
+        "Lavender WAKER write must remain conditional on ChildrenAsleep")
+require("igroupr |= (1U << lavender_vtimer_intid)" in fiq_branch and
+        "gicr_write32(GICR_IGROUPR0, igroupr)" in fiq_branch,
+        "Lavender DS=1 path must configure only the selected timer PPI")
 require("timed out waiting for GIC distributor RWP" in fiq_branch,
         "Lavender distributor write-pending wait is not bounded")
 require('"ICC_PMR_EL1", 0xFF' in pe, "Lavender must set the CPU priority mask")
@@ -132,4 +145,4 @@ require("event >= 47 && event <= 105" in
         ((repo / "tools/split-lavender-early.py").read_text()),
         "generated Lavender trace renderer does not include events 104-105")
 
-print(f"PASS: Lavender ADT timer PPI {vtimer} is configured/delivered as Group-1NS IRQ; single-core gate retained")
+print(f"PASS: Lavender timer PPI {vtimer} has a DS-aware Group-1NS route and firmware preconditions; single-core gate retained")

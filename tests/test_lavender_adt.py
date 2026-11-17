@@ -58,6 +58,8 @@ def run():
     assert len(cpu.children) == 8
     ids = [struct.unpack("<I", props(n)["reg"])[0] for n in cpu.children]
     assert len(set(ids)) == 8
+    cluster_types = [struct.unpack("<I", props(n)["cluster-type"])[0] for n in cpu.children]
+    assert cluster_types == [ord("E")] * 4 + [ord("P")] * 4
     assert tuple(ids) == mod.CPU_MPIDRS
     assert ids[0] == 0x000  # actual Build 4 FDT's cpu@0 is Linux cpu0
     assert b"qcom,sdm660" in props(parsed)["compatible"]
@@ -83,6 +85,7 @@ def run():
     assert a73_ids == [0x100, 0x101, 0x102, 0x103]
     assert [props(n)["state"] for n in a73_cpu_nodes] == [mod.cstr("running"), mod.cstr("stopped"), mod.cstr("stopped"), mod.cstr("stopped")]
     assert [struct.unpack("<I", props(n)["cluster-id"])[0] for n in a73_cpu_nodes] == [1, 1, 1, 1]
+    assert [struct.unpack("<I", props(n)["cluster-type"])[0] for n in a73_cpu_nodes] == [ord("P")] * 4
 
     # A small image fits after the kernel inside the one contiguous XNU aperture.
     kernel_end_va = 0xFFFFFFE008020000
