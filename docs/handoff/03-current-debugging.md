@@ -585,3 +585,22 @@ References: [Arm FEAT_LSE overview and ID register](https://support.arm.com/docu
 4. Only then repeat the physical test using RAM-only `fastboot boot iosboot.img`.
 
 No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash, erase, repartition or write Android eMMC/userdata; preserve the volume-key recovery route. The Run #3 image remains byte-integrity verified but is now known to panic with the FEAT_LSE undefined instruction and is not an acceptable boot-test candidate.
+
+
+## Run #345 failure and corrected Firehose build target — 17 November 2026
+
+### Exact Run #345 failure
+
+- Run #345 (workflow run ID `44145429582`, commit `3c53b34a02d57dbd9505352e62a2c935989e00ec`) failed in **Build XNU 8796**, specifically while the pinned helper rebuilt `libfirehose_kernel`. The workflow did successfully invalidate the cached archive and begin rebuilding it; the prior hypothesis that a forced rebuild was enough was incomplete.
+- The Xcode build inherited three architectures: `x86_64`, `arm64e`, and `arm64`. The injected `OTHER_CFLAGS` included `-march=armv8-a -mcpu=generic` for all slices. Clang rejected `-mcpu=` for the x86_64 target (`unsupported option '-mcpu=' for target 'x86_64-apple-macos15.0'`). It also failed the arm64e slice with `arm64e LR authentication requires ptrauth`. Exit code 65; no kernel verification or packaging ran.
+- These errors are build-configuration errors, not evidence that the Firehose C source itself is broken. Lavender links a plain arm64 kernel, so building x86_64 and arm64e Firehose slices is unnecessary.
+
+### Follow-up correction
+
+- Commit `20a3bf61f33d215b2a306d99f26cd6fa76df81ae` changes the pinned helper patch so the Firehose target builds only `ARCHS="arm64" VALID_ARCHS="arm64"` and passes `-march=armv8-a` only to that ARM64 slice.
+- The cache invalidation and FEAT_LSE disassembly guard remain in place. This is the next build candidate; it has not yet been reported green. Do not treat Run #345's uploaded raw kernel candidate as usable: the build step failed and the verification step was skipped.
+
+### Next acceptance check
+
+- Confirm a new run starts from commit `20a3bf61f33d215b2a306d99f26cd6fa76df81ae`.
+- Confirm the Firehose compile command contains only the arm64 architecture and `-march=armv8-a`; then require archive creation, XNU link, Firehose no-LSE disassembly guard, full kernel verification and package verification before another RAM-only handset test.
