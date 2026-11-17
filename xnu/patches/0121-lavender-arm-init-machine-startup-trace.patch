@@ -95,7 +95,7 @@
  
  	/*
  	 * Initialize the stack protector for all future calls
-@@ -698,7 +738,8 @@
+@@ -698,6 +738,7 @@
  	 */
  	__stack_chk_guard &= ~(0xFFULL << 8);
  #if defined(ARM64_BOARD_CONFIG_LAVENDER)
@@ -124,7 +124,7 @@
  #if defined(HAS_IPI) && (DEVELOPMENT || DEBUG)
  	if (!PE_parse_boot_argn("fastipi", &gFastIPI, sizeof(gFastIPI))) {
  		gFastIPI = 1;
-@@ -483,14 +492,27 @@
+@@ -483,12 +492,25 @@
  #endif /* defined(HAS_IPI) && (DEVELOPMENT || DEBUG)*/
  
  
@@ -150,7 +150,6 @@
  	kernel_bootstrap();
  	/* NOTREACHED */
  }
-diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 --- a/osfmk/arm/machine_routines_common.c
 +++ b/osfmk/arm/machine_routines_common.c
 @@ -74,5 +74,10 @@
@@ -164,7 +163,7 @@ diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
  #if !HAS_CONTINUOUS_HWCLOCK
  extern uint64_t mach_absolutetime_asleep;
  #else
-@@ -1411,14 +1416,26 @@ machine_conf(void)
+@@ -1411,13 +1416,25 @@ machine_conf(void)
  {
  	/*
  	 * This is known to be inaccurate. mem_size should always be capped at 2 GB
