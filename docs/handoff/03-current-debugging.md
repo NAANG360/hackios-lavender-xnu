@@ -353,3 +353,12 @@ These event numbers are a separate namespace from early Guardian stage markers 1
 - Preserve RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write internal Android eMMC/userdata.
 
 References: [Xiaomi SDM660 device tree](https://github.com/xiaomi-sdm660/android_kernel_xiaomi_sdm660/blob/11-EAS/arch/arm/boot/dts/qcom/sdm660.dtsi), [Arm GIC architecture specification, IHI 0069G](https://www.scs.stanford.edu/~zyedidia/docs/arm/gic_v3.pdf).
+
+## Patch 0125 DS-aware GIC security semantics and ADT topology guard — 17 November 2026
+
+- Patch 0125 adds comments to the exact post-0124 GIC source: when GICD_CTLR.DS=0, `GICR_WAKER` and `GICR_IGROUPR0` are Secure/RAZ-WI to Non-secure EL1. In this mode secure firmware must leave the boot redistributor awake and assign the ADT timer PPI to Group-1 NS. When DS=1, XNU's current conditional wake and targeted group assignment are available. The patch is documentation-only and changes no register writes.
+- `tools/verify-lavender-gic-route.py` now enforces those firmware preconditions and checks that the WAKER write remains conditional on an observed `ChildrenAsleep` bit; it also preserves the DS=1 targeted PPI group-write path. A successful static check does not prove firmware has configured DS=0/1 correctly or that a timer IRQ physically arrives.
+- The ADT generator now emits `cluster-type` ASCII `E` for A53 cluster0 and `P` for A73 cluster1, based on the audited SDM660 CPU MPIDRs. Unknown Aff1 cluster IDs are rejected. The ADT's own validator and `tests/test_lavender_adt.py` verify both all-eight-core and A73-only layouts.
+- `.github/workflows/xnu.yml` requires patch 0125 and runs the ADT regression immediately after machine-profile validation, before the long XNU compile. This catches topology regressions early.
+- Commit `0fb0e5c300b393bc4b5323783c930f0a38e9b958` contains the code/test/workflow changes. The currently executing Run333 belongs to the prior source commit and does not include these changes; a fresh push-triggered run must pass all source, compile/link, Mach-O and RAM-only package gates.
+- No SMP behavior is enabled: package bootargs still require `cpus=1`. Root storage, HFS+ and Darwin userspace remain unimplemented milestones.

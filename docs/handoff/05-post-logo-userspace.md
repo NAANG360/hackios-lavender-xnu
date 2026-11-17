@@ -186,3 +186,8 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 ## Recovery status correction — 16 November 2026
 
 The user has confirmed that the independent volume-key recovery/reset route works despite the broken power button. Physical kernel testing is no longer gated on proving this route. The separate A53 Guardian watchdog-first fallback remains independently unverified. Kernel tests remain RAM-only; do not flash.
+
+
+## Topology metadata and GIC timer security boundary — 17 November 2026
+
+The ADT now labels the SDM660 A53 efficiency cluster as `E` and A73 performance cluster as `P`, matching XNU's topology parser. `cpus=1` remains enforced; this does not start secondary CPUs or enable SGI/IPI delivery. The virtual timer uses the Group-1 NS path, but in DS=0 mode firmware must own the redistributor wake and timer PPI group assignment. Neither DS mode nor physical timer IRQ delivery is claimed until observed. Root storage and userspace remain later, separate gates.

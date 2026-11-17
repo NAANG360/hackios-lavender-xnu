@@ -161,3 +161,12 @@ Branch: `ci/lavender-machine-profile`
 - Run #320 (44020121980) is the validation run for commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26. At the latest inspection, runner setup, Xcode/tooling selection, machine-profile validation, cache restore, capacity detection, dependency install and legacy-cache invalidation passed; Build XNU 8796 is in progress. Step 12/13 guards, linked Mach-O verification, artifact collection and RAM-only package are still pending.
 - No new iosboot.img is accepted. Run #302 artifact 14245608682 remains the latest accepted diagnostic image (16,601,088 bytes; SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98). Raw candidates from failed runs are not bootable acceptance artifacts.
 - Next: monitor Run #320 through Step 13, linked verification and package verification. If the linker still reports the old symbol, inspect the generated lavender_early.c in the buildtree and confirm the wrapper is present exactly once and exported as a global symbol. Keep all device tests RAM-only; never flash.
+
+
+## Proactive GIC and CPU topology hardening — 17 November 2026
+
+- Latest accepted diagnostic image remains Run #331 / artifact `14325018991`, `iosboot.img` SHA-256 `f2b2bb70d236213f02fb8b3e25780a6b337ea8de26890c24ae11bb85a1fd806b`.
+- Run #332 was cancelled before build completion; do not use its candidate. Run #333 (`44086398531`) is still executing its XNU build as of last check; its job has no recorded failure, but updated timestamps are stale.
+- Commit `0fb0e5c300b393bc4b5323783c930f0a38e9b958` adds patch0125 (comments only) for GICR security banking and updates the GIC verifier so DS=0 firmware preconditions and DS=1 conditional paths are guarded. It also adds ADT `cluster-type` E/P metadata for the two Kryo260 clusters and a regression test run before XNU compilation.
+- The current physical boundary is event87 after GICR MMIO mapping. The fix for the future Group-1 timer delivery path does not explain that stop. Events88–105 remain the immediate diagnosis path.
+- Keep `cpus=1`; preserve RAM-only `fastboot boot iosboot.img`. Never flash, repartition, erase or write Android boot-critical partitions/userdata.
