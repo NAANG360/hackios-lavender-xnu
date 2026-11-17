@@ -14,6 +14,21 @@ LAVENDER_HEADER = ROOT / "osfmk/arm64/lavender_early.h"
 FILES = ROOT / "osfmk/conf/files.arm64"
 
 def main():
+    # Newer Lavender patch stacks may already provide the board-specific file
+    # and remove the historical combined SWEET source before this helper runs.
+    # Treat that state as complete only when every generated interface and
+    # the ARM64 source-list entry are present.
+    if not SOURCE.exists():
+        required = (LAVENDER_SOURCE, LAVENDER_HEADER, SWEET_HEADER, FILES)
+        if all(path.exists() for path in required):
+            lavender = LAVENDER_SOURCE.read_text()
+            files = FILES.read_text()
+            if ("lavender_early_trace_startup" in lavender and
+                    "osfmk/arm64/lavender_early.c\tstandard" in files):
+                print("Lavender early source is already split; historical SWEET source is absent")
+                return
+        raise SystemExit("sweet_early.c is absent and the Lavender split is incomplete")
+
     source = SOURCE.read_text()
     marker = "#elif defined(ARM64_BOARD_CONFIG_LAVENDER)"
     end_marker = "#endif /* SWEET || ARM64_BOARD_CONFIG_LAVENDER */"
