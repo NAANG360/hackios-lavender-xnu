@@ -30,6 +30,25 @@ COMPAT_WRAPPER = (
     "}\n"
 )
 
+def ensure_post_platform_renderer():
+    lavender = LAVENDER_SOURCE.read_text()
+    old = ('default:\\n\\t\\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\\n'
+           '\\t\\tbreak;')
+    new = ('default:\\n'
+           '\\t\\tif (event >= 47 && event <= 71) {\\n'
+           '\\t\\t\\tlavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");\\n'
+           '\\t\\t\\tlavender_trace_append_decimal(text, &length, event);\\n'
+           '\\t\\t} else {\\n'
+           '\\t\\t\\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\\n'
+           '\\t\\t}\\n'
+           '\\t\\tbreak;')
+    if "event >= 47 && event <= 71" in lavender:
+        return
+    if old not in lavender:
+        raise SystemExit("could not find Lavender trace default case for post-platform renderer")
+    LAVENDER_SOURCE.write_text(lavender.replace(old, new, 1))
+
+
 def ensure_trace_compatibility():
     lavender = LAVENDER_SOURCE.read_text()
     if "void sweet_early_trace_startup(" not in lavender:
@@ -48,6 +67,7 @@ def main():
             files = FILES.read_text()
             if ("lavender_early_trace_startup" in lavender and
                     "osfmk/arm64/lavender_early.c\tstandard" in files):
+                ensure_post_platform_renderer()
                 ensure_trace_compatibility()
                 print("Lavender early source is already split; historical SWEET source is absent")
                 return
@@ -58,6 +78,7 @@ def main():
     end_marker = "#endif /* SWEET || ARM64_BOARD_CONFIG_LAVENDER */"
     if marker not in source:
         if LAVENDER_SOURCE.exists() and "lavender_early_trace_startup" in LAVENDER_SOURCE.read_text():
+            ensure_post_platform_renderer()
             ensure_trace_compatibility()
             print("Lavender early source is already split")
             return
@@ -91,6 +112,7 @@ def main():
         + body
         + COMPAT_WRAPPER
     )
+    ensure_post_platform_renderer()
     SOURCE.write_text(source[:start] + "#endif /* SWEET */\n")
 
     LAVENDER_HEADER.write_text("""/* Lavender-only early framebuffer console and boot diagnostics. */
