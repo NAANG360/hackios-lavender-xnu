@@ -233,3 +233,33 @@ The power button is broken. Volume-up + volume-down is a reset request only, not
 - Workflow runs #307–#310 were triggered by incremental commits while the change was being wired in. #310 (44008439363, source 22590d814dc0770b2740d413b52600e0c32d622e) is the latest intended guarded validation run; inspect its actual build, source guard, linked verifier and package results before accepting it. Runs #307–#309 are intermediate snapshots, not acceptance candidates.
 - The generated source is based on the exact #306 post-patch buildtree, preserving the existing Lavender framebuffer (0x9d400000, 1080×2340, stride 1080 pixels), bootloader AppleLogo asset integration, stage markers, Guardian cell, panic output and trace events 1–46. The SWEET source remains for SWEET only.
 - No new iosboot.img is accepted yet. Run #302 artifact 14245608682 remains the latest accepted diagnostic image (SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98). Continue RAM-only fastboot boot iosboot.img; never flash.
+
+
+### Run #321 trace-event decoding
+
+The compact renderer prints the numeric event ID as `[DARWIN] POST-PLATFORM EVENT N`. Decode it as follows:
+
+| Event | Boundary |
+|---:|---|
+| 47 | Remaining `arm_init()` tail entered after `PE_init_platform()` |
+| 48 | CPU configuration invalid branch, immediately before its panic |
+| 49 | CPU configuration passed; reports `mem_size` |
+| 50 | `ml_map_cpu_pio()` returned |
+| 51–52 | Before / after `cpu_timebase_init(TRUE)` |
+| 53 | CPU timebase and optional KPERF timer block completed |
+| 54–55 | `PE_init_cpu()` / `fiq_context_init(TRUE)` returned |
+| 56 | Optional hibernation initialization block completed |
+| 57 | `/chosen` device-tree node lookup completed |
+| 58–59 | `dram-base` / `dram-size` property read; value and byte length are printed |
+| 60 | `gDramBase` and `gDramSize` assigned |
+| 61 | Stack-protector guard initialization completed |
+| 62–63 | `machine_startup()` entered / pre-fastipi checkpoint |
+| 67 | Optional fastipi configuration block completed |
+| 66 | `machine_conf()` entered |
+| 68–69 | `machine_info.memory_size` assignment before / after |
+| 70–71 | CPU-topology lookup before / after; event 71 reports `num_cpus` |
+| 64 | `machine_conf()` returned |
+| 65 | Immediately before calling `kernel_bootstrap()` |
+| 41 | First trace in `kernel_bootstrap()`; definitive bootstrap entry |
+
+These event numbers are a separate namespace from early Guardian stage markers 17–20 and post-KPRINTF scheduler/BSD events. The startup trace writes only to the framebuffer console; it must not update the Guardian progress cell.

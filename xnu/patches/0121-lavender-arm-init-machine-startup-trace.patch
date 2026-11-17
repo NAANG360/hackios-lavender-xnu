@@ -1,0 +1,206 @@
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -631,15 +631,25 @@
+ 	PE_init_platform(TRUE, &BootCpuData);
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	sweet_early_trace_startup(38, 0, 0, 0, 0, 0);
++	sweet_early_trace_startup(47, 0, 0, 0, 0, 0);
+ #endif
+ 
+ #if __arm64__
+ 	extern bool cpu_config_correct;
+ 	if (!cpu_config_correct) {
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++		sweet_early_trace_startup(48, 0, 0, 0, 0, 0);
++#endif
+ 		panic("The cpumask=N boot arg cannot be used together with cpus=N, and the boot CPU must be enabled");
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(49, mem_size, 0, 0, 0, 0);
++#endif
+ 
+ 	ml_map_cpu_pio();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(50, 0, 0, 0, 0, 0);
++#endif
+ 
+ #if APPLE_ARM64_ARCH_FAMILY
+ 	configure_late_apple_regs();
+@@ -647,20 +657,38 @@
+ 
+ #endif
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(51, 0, 0, 0, 0, 0);
++#endif
+ 	cpu_timebase_init(TRUE);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(52, 0, 0, 0, 0, 0);
++#endif
+ 
+ #if KPERF
+ 	/* kptimer_curcpu_up() must be called after cpu_timebase_init */
+ 	kptimer_curcpu_up();
+ #endif /* KPERF */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(53, 0, 0, 0, 0, 0);
++#endif
+ 
+ 	PE_init_cpu();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(54, 0, 0, 0, 0, 0);
++#endif
+ 	fiq_context_init(TRUE);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(55, 0, 0, 0, 0, 0);
++#endif
+ 
+ 
+ #if HIBERNATION
+ 	pal_hib_init();
+ #endif /* HIBERNATION */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(56, 0, 0, 0, 0, 0);
++#endif
+ 
+ 	/*
+ 	 * gPhysBase/Size only represent kernel-managed memory. These globals represent
+@@ -673,17 +701,29 @@
+ 	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess) {
+ 		panic("%s: Unable to find 'chosen' DT node", __FUNCTION__);
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(57, (uintptr_t)chosen, 0, 0, 0, 0);
++#endif
+ 
+ 	if (SecureDTGetProperty(chosen, "dram-base", (void const **)&dram_base, &dt_entry_size) != kSuccess) {
+ 		panic("%s: Unable to find 'dram-base' entry in the 'chosen' DT node", __FUNCTION__);
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(58, *dram_base, dt_entry_size, 0, 0, 0);
++#endif
+ 
+ 	if (SecureDTGetProperty(chosen, "dram-size", (void const **)&dram_size, &dt_entry_size) != kSuccess) {
+ 		panic("%s: Unable to find 'dram-size' entry in the 'chosen' DT node", __FUNCTION__);
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(59, *dram_size, dt_entry_size, 0, 0, 0);
++#endif
+ 
+ 	gDramBase = *dram_base;
+ 	gDramSize = *dram_size;
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(60, gDramBase, gDramSize, 0, 0, 0);
++#endif
+ 
+ 	/*
+ 	 * Initialize the stack protector for all future calls
+@@ -698,6 +738,7 @@
+ 	 */
+ 	__stack_chk_guard &= ~(0xFFULL << 8);
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(61, __stack_chk_guard, gDramBase, gDramSize, 0, 0);
+ 	sweet_early_trace_startup(39, 0, 0, 0, 0, 0);
+ #endif
+ 	machine_startup(args);
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -473,9 +473,18 @@
+ #endif
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
++    uintptr_t c, uintptr_t d, uintptr_t e);
++#endif
++
+ void
+ machine_startup(__unused boot_args * args)
+ {
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(62, 0, 0, 0, 0, 0);
++	sweet_early_trace_startup(63, 0, 0, 0, 0, 0);
++#endif
+ #if defined(HAS_IPI) && (DEVELOPMENT || DEBUG)
+ 	if (!PE_parse_boot_argn("fastipi", &gFastIPI, sizeof(gFastIPI))) {
+ 		gFastIPI = 1;
+@@ -483,12 +492,25 @@
+ #endif /* defined(HAS_IPI) && (DEVELOPMENT || DEBUG)*/
+ 
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(67, 0, 0, 0, 0, 0);
++#endif
++
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(66, 0, 0, 0, 0, 0);
++#endif
+ 	machine_conf();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(64, 0, 0, 0, 0, 0);
++#endif
+ 
+ 
+ 	/*
+ 	 * Kick off the kernel bootstrap.
+ 	 */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(65, 0, 0, 0, 0, 0);
++#endif
+ 	kernel_bootstrap();
+ 	/* NOTREACHED */
+ }
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -425,6 +425,11 @@
+ 	case 45: lavender_trace_append_text(text, &length, "KBOOT MACH_IPC INIT DONE"); break;
+ 	case 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;
+ 	default:
+-		lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
++		if (event >= 47 && event <= 71) {
++			lavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");
++			lavender_trace_append_decimal(text, &length, event);
++		} else {
++			lavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");
++		}
+ 		break;
+ 
+diff --git a/osfmk/arm/machine_routines_common.c b/osfmk/arm/machine_routines_common.c
+--- a/osfmk/arm/machine_routines_common.c
++++ b/osfmk/arm/machine_routines_common.c
+@@ -74,5 +74,10 @@
+ #include <mach/machine/sdt.h>
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
++    uintptr_t c, uintptr_t d, uintptr_t e);
++#endif
++
+ #if !HAS_CONTINUOUS_HWCLOCK
+ extern uint64_t mach_absolutetime_asleep;
+ #else
+@@ -1411,12 +1416,24 @@ machine_conf(void)
+ 	 * This is known to be inaccurate. mem_size should always be capped at 2 GB
+ 	 */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(68, mem_size, 0, 0, 0, 0);
++#endif
+ 	machine_info.memory_size = (uint32_t)mem_size;
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(69, machine_info.memory_size, 0, 0, 0, 0);
++#endif
+ 
+ 	// rdar://problem/58285685: Userland expects _COMM_PAGE_LOGICAL_CPUS to report
+ 	// (max_cpu_id+1) rather than a literal *count* of logical CPUs.
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(70, 0, 0, 0, 0, 0);
++#endif
+ 	unsigned int num_cpus = ml_get_topology_info()->max_cpu_id + 1;
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	sweet_early_trace_startup(71, num_cpus, 0, 0, 0, 0);
++#endif
+ 	machine_info.max_cpus = num_cpus;
+ 	machine_info.physical_cpu_max = num_cpus;
+ 	machine_info.logical_cpu_max = num_cpus;
+ }
