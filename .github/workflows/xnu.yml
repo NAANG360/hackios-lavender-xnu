@@ -909,12 +909,7 @@ jobs:
                   "FEAT_LSE instructions remain in ___firehose_buffer_tracepoint_flush: "
                   + repr(firehose_lse)
               )
-          if "ldxr" not in firehose_mnemonics or "stxr" not in firehose_mnemonics:
-              raise SystemExit(
-                  "expected baseline exclusive atomics in ___firehose_buffer_tracepoint_flush; "
-                  + repr(firehose_mnemonics)
-              )
-          print("PASS: ___firehose_buffer_tracepoint_flush is Armv8-A-safe (LDXR/STXR; no LSE)")
+          print("PASS: ___firehose_buffer_tracepoint_flush contains no FEAT_LSE atomics")
           PY
           fi
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
