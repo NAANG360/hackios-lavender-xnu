@@ -131,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/unpack_bootv2.py iosboot.img artifacts/verify
-          cmp artifacts/verify/kernel "$KERNEL_PATH"
+          cmp artifacts/verify/kernel shim/out/Image
           cmp artifacts/verify/ramdisk artifacts/lavender-payload.bin
           cmp artifacts/verify/dtb stock/unpacked/dtb
           test -s iosboot.img
