@@ -4,6 +4,14 @@
 **Latest accepted diagnostic build:** Run #302 (`43903857144`, commit `34a85dd88d13cc4b30e6ccf45a92aae9f685cce8`) completed XNU compilation, linked kernel verification and RAM-only packaging successfully. Artifact `14245608682` (`lavender-fastboot-boot-test`) contains `iosboot.img` (16,601,088 bytes); SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`. It includes the 0119 bootstrap-thread boundary instrumentation and genuine 20H392 AppleLogo. This is an accepted diagnostic kernel image, not proof of a complete Darwin userspace boot.
 **Diagnostic purpose:** stage 18 follows `PE_consistent_debug_inherit()`; stage 19 follows `serial_init()`; stage 20 remains the kprintf startup completion marker.
 
+## Latest operations — 17 November 2026
+
+- Run #314 (`44013809798`, source `e49691eaa88dca38e5b344b8981b12e10665a874`) passed setup and entered the BSD compile stage, but failed because exported `osfmk/arm64/sweet_early.h` included `<arm64/lavender_early.h>`, which the XNU exported-header set did not contain. Exact compiler error: `sweet_early.h:10:10: fatal error: 'arm64/lavender_early.h' file not found`.
+- Root cause: the splitter generated a new board header after the build's exported-header phase; that generated header was not available under `EXPORT_HDRS/osfmk/arm64`.
+- Fix committed as `d36eabe3fb4a1d9d001de0c1cfbc3a1ffc9b2183`: keep Lavender function prototypes directly in the already-exported `sweet_early.h` compatibility facade and include that existing facade from generated `lavender_early.c`. The split helper no longer requires the generated header to be exported for compilation.
+- Run #315 (`44016227221`) is testing this exact fix. It has completed checkout and is selecting Xcode; build, linked verification and RAM-only package remain pending. Do not accept or boot any raw candidate until those gates pass.
+- The previous #314 raw candidate artifact is unverified and is not an `iosboot.img` acceptance artifact.
+
 ## Latest operations — 16 November 2026
 
 - **Run #281** ([43819847178](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43819847178), source `94c2366567aee5df21435a7c4bb91041f161305e`) compiled XNU but failed the required-patch guard. The job log identifies 0115 as corrupt at EOF line 161 and 0116 at EOF line 46; linked verification and packaging were skipped.
