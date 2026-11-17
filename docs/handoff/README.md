@@ -1,6 +1,6 @@
 # Handoff chapter router
 
-Read `PROJECT_HANDOFF.md` first. Resolve the live branch HEAD and newest Actions run before acting. Then open **only** the chapter routed by its current-task section.
+Read `AGENTS.md`, resolve the live branch HEAD and newest Actions run, then open **only** the chapter routed by the current task. Use the chapters as the active engineering record; do not consult `PROJECT_HANDOFF.md` unless explicitly requested.
 
 | Chapter | Open when |
 |---|---|
@@ -14,12 +14,13 @@ Do not read all chapters at session start. Do not read historical material unles
 
 ## Current state
 
-As of 16 November 2026, Run #297 ([43853989024](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43853989024), commit `fd40a4953708f22e7df492bef699e657dade93ea`) is the latest accepted XNU build/verification and RAM-only package. Artifact `14219764264` contains `iosboot.img` (16,601,088 bytes; SHA-256 `5c71696d01283b354e20fdae111f40c9d5b41570d758977ab5f89222efd45e64`). User video `1000317779.mp4` shows four accumulated lower-edge bars strongly matching stages 17–20, likely reaching KPRINTF startup completion, but is not checksum-bound to this artifact. No BSD/root mount or Darwin userspace success is claimed.
+As of 17 November 2026, **Run #331** ([44075155032](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44075155032), source commit `748d7d1c75fa0af5e3c178d510167b3314c21c12`) is the latest accepted XNU build/verification and RAM-only package. Artifact `14325018991` contains `iosboot.img` (16,617,472 bytes; SHA-256 `f2b2bb70d236213f02fb8b3e25780a6b337ea8de26890c24ae11bb85a1fd806b`). The latest handset recording's last clear marker is event 87 after GICR mapping; it is not checksum-bound and gives no reset reason.
 
-**Current route:** Chapter 03 for the exact-image diagnostic marker and next CI/physical evidence; Chapter 05 for post-logo kernel and userspace; Chapter 01 for device-test safety. Read only the routed chapter.
- 
+Run #332 was cancelled before the build job completed; its package job was skipped. Commit `61410e063a3dcfb3eac54c48832c677932cdb178` adds the Lavender Group-1 NS virtual-timer correction and a static source-contract guard. Run #333 ([44086398531](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44086398531)) is queued. No replacement `iosboot.img` is accepted until its complete build, Mach-O verification and separate RAM-only package pass.
+
+**Current route:** Chapter 03 for event-87/GIC trace and Run #333; Chapter 02 for build/GIC architecture; Chapter 05 for root-storage and Darwin userspace planning; Chapter 01 for device safety. Read only the chapter needed for the current task.
 ## Resume prompt
 
 ```text
-Continue from latest operations in this repository. Read AGENTS.md and PROJECT_HANDOFF.md, inspect the live branch HEAD and latest relevant Actions runs, then read only the chapter selected by the current-task router. Resume the unfinished operation from actual source, CI artifacts/logs and physical evidence. Do not repeat completed investigations, ask me to restate repository context, overlap builds, weaken verification, or make destructive device changes. Update the handoff and affected chapter when a milestone is reached.
+Continue from latest operations in this repository. Read AGENTS.md, inspect the live branch HEAD and latest relevant Actions runs, then read only the chapter selected by the current-task router. Do not consult PROJECT_HANDOFF.md unless the user explicitly requests it. Resume the unfinished operation from actual source, CI artifacts/logs and physical evidence. Do not repeat completed investigations, ask me to restate repository context, overlap builds, weaken verification, or make destructive device changes. Update AGENTS.md and the affected chapter when a milestone is reached. Leave PROJECT_HANDOFF.md untouched unless explicitly requested.
 ```

@@ -121,3 +121,15 @@ Topaz's `tools/mkiosroot.sh` is a useful image-layout reference: it builds one c
 - Lavender-specific display values remain grounded in the Build 4 boot FDT: framebuffer PA 0x9d400000, 1080×2340, 4320-byte stride (1080 32-bit pixels), alias PA base 0x9c000000. The source keeps its 1080-pixel word stride and existing 20 MiB alias offset. No SWEET framebuffer base/geometry or SoC-specific GIC/timer assumptions are imported.
 - Workflow cache keys include the generator; the build touches the generated translation unit; CI checks that the SWEET source has no Lavender branch, the new source exports the expected Lavender implementation, the compatibility facade redirects symbols, and files.arm64 compiles the new source.
 - This is a source-layout/build integration change. It does not change the existing accepted Run #302 image or prove new handset behavior. Require a fresh successful XNU build, linked verification and RAM-only package before testing. Never flash.
+
+
+## Lavender GICv3 timer/IRQ contract — 17 November 2026
+
+- The generated Lavender ADT publishes `virtual-timer-intid = 19`. Xiaomi's SDM660 Linux device tree declares the architected ARMv8 timer as PPI index 3 (`<1 3 0xf08>`), i.e. INTID 16 + 3 = 19, and a GICv3 distributor/redistributor topology (GICD `0x17a00000`, GICR `0x17b00000`, redistributor stride `0x20000`). The generated boot ADT remains the runtime source for the Lavender timer PPI.
+- The shim hands control to XNU in non-secure EL1. Arm IHI 0069G specifies that in the non-secure `GICD_CTLR` view, `ARE_NS` is bit 4; when set, bit 1 (`EnableGrp1A`) aliases secure-view `EnableGrp1NS`; bit 0 is RES0. Do not set or demand readback of bit 0 in that state.
+- Patch 0124 creates a Lavender-only Group-1 NS path: read and validate the ADT timer PPI; set only that PPI's `GICR_IGROUPR0` group bit, priority and enable; configure `ICC_BPR1_EL1`; require firmware's `ARE_NS`; set/read back `GICD_CTLR_ENABLEGRP1A`; bound the distributor RWP wait; enable and verify `ICC_IGRPEN1_EL1`; and keep combined EOI mode.
+- `sleh_irq()` acknowledges Group-1 using `ICC_IAR1_EL1`, services PPI 19 through `rtclock_intr(TRUE)`, then writes `ICC_EOIR1_EL1`. No Lavender SGI/IPI route is enabled. `cpus=1` remains mandatory until secondary-core startup and GIC routing are separately verified.
+- The previous generic fallback used a Group-0/PPI-27 configuration, while the Lavender timer node advertises PPI 19; Lavender also lacked a matching IAR1/EOIR1 timer dispatcher. Patch 0124 addresses this definite later mismatch. It is **not** claimed as the cause of the current event-87 stop, which occurs before the new post-map trace reaches timer configuration.
+- CI now runs `tools/verify-lavender-gic-route.py` to enforce the ADT-to-GIC-to-XNU timer contract. This guard and a green build prove source/build consistency, not physical IRQ delivery.
+
+References: [Xiaomi SDM660 device tree](https://github.com/xiaomi-sdm660/android_kernel_xiaomi_sdm660/blob/11-EAS/arch/arm/boot/dts/qcom/sdm660.dtsi), [Arm GIC architecture specification, IHI 0069G](https://www.scs.stanford.edu/~zyedidia/docs/arm/gic_v3.pdf).

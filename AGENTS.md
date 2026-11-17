@@ -1,20 +1,21 @@
 # Lavender XNU — agent entrypoint
 
-**Start here.** Read `PROJECT_HANDOFF.md`, inspect live branch HEAD and newest Actions runs, then open only the routed chapter. Resume autonomously from live evidence.
+**Start here.** Inspect the live branch HEAD and newest Actions runs, then open only the routed chapter. Use the handoff chapters as the active engineering record; do not consult `PROJECT_HANDOFF.md` unless the user explicitly asks.
 
 ## Mission
 Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to Xiaomi Redmi Note 7/7S (`lavender`, Qualcomm SDM660 / Kryo 260, ARM64).
 
 ## Current milestone — 17 November 2026
 
-- **Latest accepted diagnostic image: Run #320** ([44020121980](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44020121980)), source commit `0abe1270618c7a5d3a303dd1c2603e107c94bf26`. Both XNU build/verification and separate RAM-only packaging jobs passed.
-- Accepted artifact `14300424325` (`lavender-fastboot-boot-test`) contains `iosboot.img`, 16,601,088 bytes, SHA-256 `4a874309211c81b7d07bb8cde8fd0c7fdd9a6c90fede8e89a833e79f0035f1ee`. This is a verified diagnostic boot image, not a complete Darwin/userspace image.
-- Runs #321–#323 are not accepted. Run #323 compiled XNU but failed the required-patch guard because patch 0121's renderer hunk targeted the obsolete combined `sweet_early.c` source; packaging was skipped. Do not boot raw candidates.
-- Patch 0121 is being repaired: the post-platform renderer now belongs in `tools/split-lavender-early.py`; the patch retains arm_init, machine_startup and machine_conf instrumentation. Its machine_conf events 68–71 have been restored, and all eight unified-diff hunk counts have been recounted and corrected.
-- Runs #324–#328 are intermediate validation snapshots. **Run #328** (`44056936593`, source `5ea46bd43798a2a719b95563074e0068de53d696`) is the preferred count-corrected acceptance candidate. Require patch application, every source guard, linked ARM64 Mach-O verification and separate RAM-only packaging to pass before accepting a new image.
-- Latest physical evidence establishes event 38, `ARM_INIT PE_PLATFORM DONE`; event 39 (`MACHINE_STARTUP BEGIN`) is not yet confirmed. The newest frame sequence later shows the Redmi / “Powered by Android” boot splash, so the handset restarted after the XNU screen, but no panic or reset reason is legible. Do not attribute the restart to the kernel, Guardian, watchdog or battery without further evidence. Do not claim `machine_startup()`, `machine_conf()`, `kernel_bootstrap()`, BSD/root mount, launchd, SpringBoard or complete Darwin userspace.
-- The routed chapter is `docs/handoff/03-current-debugging.md`. Use Chapter 05 only when interpreting later BSD/root/userspace markers.
-
+- **Latest accepted diagnostic image: Run #331** ([44075155032](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44075155032)), source commit `748d7d1c75fa0af5e3c178d510167b3314c21c12`. Artifact `14325018991` (`lavender-fastboot-boot-test`) contains `iosboot.img`, 16,617,472 bytes, SHA-256 `f2b2bb70d236213f02fb8b3e25780a6b337ea8de26890c24ae11bb85a1fd806b`. It is a verified RAM-only diagnostic package, not a complete Darwin/userspace image.
+- User recording `1000317878.mp4` shows events 47, 49–53, 72, 75 and 77–87; last clear checkpoint is **87**, immediately after GICR MMIO mapping. Events 76, 54 and 55 are absent. The phone then restarts. The recording is not checksum-bound and has no readable panic/exception/Guardian reset reason; keep the cause open.
+- Run #332 (`44082306828`) ended with build job `cancelled` and package job `skipped`; this is not evidence of a source-level compile failure. Do not use its candidate.
+- **Proactive correction pushed:** commit `61410e063a3dcfb3eac54c48832c677932cdb178` adds patch 0124 and `tools/verify-lavender-gic-route.py`. The ADT declares virtual timer INTID 19; the prior generic Lavender fallback configured PPI 27 as Group 0 without a matching Lavender IAR0 timer dispatcher. The new Lavender-only route uses ADT PPI 19 as Group-1 NS, IAR1/EOIR1 and `rtclock_intr`, preserves `cpus=1`, verifies non-secure ARE/Group-1 state and bounds distributor RWP waiting. SWEET and generic-board code paths are preserved.
+- The GIC distributor non-secure-view bit alias was checked against Arm IHI 0069G: with ARE_NS set, bit 1 (`EnableGrp1A`) aliases secure-view `EnableGrp1NS`; bit 0 is RES0. The patch sets and verifies only bit 1. References: [Arm GIC architecture specification](https://www.scs.stanford.edu/~zyedidia/docs/arm/gic_v3.pdf) and [Xiaomi SDM660 device tree](https://github.com/xiaomi-sdm660/android_kernel_xiaomi_sdm660/blob/11-EAS/arch/arm/boot/dts/qcom/sdm660.dtsi).
+- Local validation against the exact Run #331 tree passed: patch 0123 + 0124 apply in order, all eight patch-0124 hunk counts match, and the new static route verifier passes. This is source validation, not proof of physical IRQ delivery or Darwin boot.
+- **Run #333** ([44086398531](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44086398531)) is queued for commit `61410e063a3dcfb3eac54c48832c677932cdb178`. Require patch/source guards, XNU compilation/link, ARM64 Mach-O verification and separate RAM-only packaging before accepting a new image.
+- The current post-map stop at event 87 is still unresolved. Patch 0124 fixes a later, known timer-delivery mismatch but does **not** explain the event-87 stop; events 88–105 remain necessary to localize it.
+- The routed chapter is `docs/handoff/03-current-debugging.md`; open Chapter 05 only for post-logo storage/root/userspace planning. Preserve RAM-only `fastboot boot iosboot.img`; never flash.
 ## Previous accepted operations — Run #300 (superseded by Run #302)
 
 - **Run #300** ([43891112657](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/43891112657), source commit `9e7aeafa26a2512ee148bdf8cc18691e8e363eaa`) completed successfully. Both the XNU build/verification job and the separate RAM-only packaging job passed.
@@ -68,7 +69,7 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 3. Inspect exact source, FDT, CI logs/artifacts and physical evidence before edits.
 4. Make the smallest evidence-backed fix; preserve all source and linked-binary guards.
 5. Keep build, Mach-O verification, package, physical stages, genuine logo, root mount, launchd, daemons and SpringBoard as separate acceptance gates.
-6. Update this file, `PROJECT_HANDOFF.md` and the routed chapter after meaningful milestones.
+6. Update this file and the routed chapter after meaningful milestones. Leave `PROJECT_HANDOFF.md` untouched unless the user explicitly asks.
 
 ## Safety and truth
 - Preserve Android/recovery. RAM boot only (`fastboot boot iosboot.img`); never flash, erase, repartition or write boot-critical partitions.

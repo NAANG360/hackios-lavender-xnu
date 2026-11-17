@@ -145,7 +145,7 @@ Further Lavender-specific gaps:
 - **Touch:** Lavender uses Novatek `novatek,NVT-ts` on I²C address `0x62`, reset GPIO 66 and IRQ GPIO 67. Sweet patches 0060/0062 are Goodix/GENI-specific and must not be reused. No Lavender NVT driver is present in the inspected source.
 - **I²C/TLMM/PMIC:** controller, GPIO and rail sequencing must come from Lavender's FDT/vendor sources.
 - **Buttons/recovery:** power button is broken; the user confirms the volume-key reset/recovery route works. Preserve and document the exact sequence before the userdata image write.
-- **SMP:** keep `cpus=1` until secondary CPU startup and synchronization are verified stage by stage.
+- **SMP:** keep `cpus=1` until secondary CPU startup and synchronization are verified stage by stage. The Lavender GIC timer path is now explicitly single-core Group-1 NS on ADT PPI 19; no SGI/IPI or secondary-core startup is enabled. This is a kernel timer/interrupt prerequisite only, not a storage/root-mount milestone.
 - **Wireless, cellular, audio, camera, GPU and SEP-dependent functions:** unsupported until the required Lavender hardware/services are implemented.
 
 ## Acceptance ladder
