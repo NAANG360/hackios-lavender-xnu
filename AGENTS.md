@@ -7,9 +7,13 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 
 ## Current milestone — 17 November 2026
 
-Run #302 remains the latest accepted diagnostic image. The Lavender early-source split has advanced through Run #318, which exposed a final-link ABI mismatch and stale Step 13 source-guard names. Both are fixed in commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26. Run #320 (44020121980) is currently compiling XNU 8796; do not accept a candidate until the source guards, linked verification and RAM-only package gates pass. The routed chapter is docs/handoff/03-current-debugging.md.
-
-
+- **Latest accepted diagnostic image: Run #320** ([44020121980](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44020121980)), source commit `0abe1270618c7a5d3a303dd1c2603e107c94bf26`. Both XNU build/verification and separate RAM-only packaging jobs passed.
+- Accepted artifact `14300424325` (`lavender-fastboot-boot-test`) contains `iosboot.img`, 16,601,088 bytes, SHA-256 `4a874309211c81b7d07bb8cde8fd0c7fdd9a6c90fede8e89a833e79f0035f1ee`. This is a verified diagnostic boot image, not a complete Darwin/userspace image.
+- Runs #321–#323 are not accepted. Run #323 compiled XNU but failed the required-patch guard because patch 0121's renderer hunk targeted the obsolete combined `sweet_early.c` source; packaging was skipped. Do not boot raw candidates.
+- Patch 0121 is being repaired: the post-platform renderer now belongs in `tools/split-lavender-early.py`; the patch retains arm_init, machine_startup and machine_conf instrumentation. Its machine_conf events 68–71 have been restored, and all eight unified-diff hunk counts have been recounted and corrected.
+- Runs #324–#328 are intermediate validation snapshots. **Run #328** (`44056936593`, source `5ea46bd43798a2a719b95563074e0068de53d696`) is the preferred count-corrected acceptance candidate. Require patch application, every source guard, linked ARM64 Mach-O verification and separate RAM-only packaging to pass before accepting a new image.
+- Latest physical evidence establishes event 38, `ARM_INIT PE_PLATFORM DONE`; event 39 (`MACHINE_STARTUP BEGIN`) is not yet confirmed. Do not claim `machine_startup()`, `machine_conf()`, `kernel_bootstrap()`, BSD/root mount, launchd, SpringBoard or complete Darwin userspace.
+- The routed chapter is `docs/handoff/03-current-debugging.md`. Use Chapter 05 only when interpreting later BSD/root/userspace markers.
 
 ## Previous accepted operations — Run #300 (superseded by Run #302)
 
