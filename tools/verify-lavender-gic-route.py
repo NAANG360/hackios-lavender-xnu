@@ -91,7 +91,7 @@ require("non-secure Group-1 distributor enable did not stick" in fiq_branch,
         "Lavender must verify distributor Group-1 enable")
 require("GICR_IGROUPR0 is Secure and RAZ/WI to Non-secure EL1" in fiq_branch,
         "Lavender must document the DS=0 firmware group-assignment precondition")
-require("GICR_WAKER is Secure and reads RAZ/WI to Non-secure EL1" in pe,
+require("GICR_WAKER is Secure and reads as RAZ/WI to Non-secure EL1" in " ".join(pe.split()),
         "Lavender must document the DS=0 redistributor-wake precondition")
 waker_start = pe.index("LAVENDER_FIQ_TRACE(96, gicr_pe_base + GICR_WAKER")
 waker_end = pe.index("LAVENDER_FIQ_TRACE(98", waker_start)
