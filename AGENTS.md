@@ -133,3 +133,13 @@ Branch: `ci/lavender-machine-profile`
 - The final FASTBOOT frame in the latest recording is a video glitch. The handset restarts normally; reset cause is unknown.
 
 - **Patch-format correction:** commit `b457583a2e8b6d42406bf44d692c612225d0c88d` fixes 0120's `kernel_bootstrap()` hunk count. All 16 hunk counts now validate, and 0119+0120 apply cleanly to the exact Run #300 buildtree. Run #305 (`43910208977`) is the preferred acceptance run.
+
+## Lavender early-source split checkpoint — 17 November 2026
+
+- The user requested a dedicated Lavender early console implementation rather than continuing to keep Lavender code inside SWEET's source file.
+- tools/split-lavender-early.py now separates the Lavender branch from the patched XNU source after the full patch stack: generated osfmk/arm64/lavender_early.c and lavender_early.h, SWEET-only sweet_early.c, compatibility aliases in sweet_early.h, and a files.arm64 entry for lavender_early.c.
+- .github/workflows/xnu.yml invokes the splitter before compilation, invalidates the generated source in the build path, hashes the generator in the cache key, and checks the split, board routing, Lavender source symbols and source-list registration.
+- Current branch HEAD at this checkpoint: 22590d814dc0770b2740d413b52600e0c32d622e (ci/lavender-machine-profile). Runs #307–#310 were triggered by incremental workflow commits; #310 is the intended latest guarded validation candidate. They are in progress at the time of this note; do not accept an image until one complete run passes XNU build, source guards, linked Mach-O verification and RAM-only package.
+- Run #306 failed during XNU compilation; its raw kernel candidate is not accepted. Run #302 artifact 14245608682 remains the latest accepted diagnostic image, SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98.
+- The source split preserves Lavender's verified framebuffer geometry and all current logo, guard, checkpoint, panic and trace behavior. It does not import Sweet's framebuffer or GIC/timer assumptions.
+- Continue only with RAM-only fastboot boot iosboot.img. Never flash or write boot-critical partitions.
