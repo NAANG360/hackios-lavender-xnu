@@ -440,7 +440,7 @@ jobs:
           ], "machine_conf internal boundaries", mc)
 
           early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
-          if "event >= 47 && event <= 105" not in early or "POST-PLATFORM EVENT " not in early:
+          if "event >= 47 && event <= 106" not in early or "POST-PLATFORM EVENT " not in early:
               raise SystemExit("generated Lavender console is missing the extended post-platform event renderer")
 
           pe = Path("dxb/xnu/pexpert/arm/pe_identify_machine.c").read_text()

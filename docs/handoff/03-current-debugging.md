@@ -1,3 +1,16 @@
+## Physical test: GICD_CTLR affinity-routing transition — 17 November 2026
+
+- The four split user recordings are treated as one test sequence. They show successful XNU progress through `PE_CREATE_CONSOLE DONE`, `PE_INIT_PRINTF DONE`, `CPU_IDLE_INIT DONE`, and `PE_PLATFORM BEGIN/DONE`, followed by post-platform trace rows through **event 102** and a visible panic: `pe_init_fiq: GICv3 non-secure affinity routing is not enabled by firmware`.
+- The footage is not checksum-bound to the image bytes, so this is user-attributed physical evidence, not a cryptographically tied test of a particular artifact. It nevertheless supersedes the previous event-87-only physical boundary for this recording.
+- Event 102 is `LAVENDER_FIQ_TRACE(102, gicd_ctlr, 0)`. The console renderer prints event arguments only when either argument is nonzero. The event-102 row has no argument fields; the observed `GICD_CTLR` value is therefore **0x00000000**. This is consistent with the explicit panic on the next source line.
+- The Non-secure GICD_CTLR view is the two-security-state (DS=0) view. In this view, bit 4 (`0x10`) is the read/write alias of `ARE_NS`; bit 0 is the legacy `EnableGrp1NS` alias while `ARE_NS=0`; and bit 1 becomes the `EnableGrp1NS` alias after `ARE_NS=1`. The existing register constants in patch 0085 use those Non-secure-view bit positions.
+- Arm IHI 0069G §2.3.3 says the DS=0 `ARE_NS` transition 0→1 is architecturally permitted only while `EnableGrp1NS=0`; poll `GICD_CTLR.RWP` so the change is visible before proceeding. The observed initial control value is zero, so the legacy Group-1 NS enable precondition is satisfied. This is a guarded transition, not permission to write arbitrary control bits. See [Arm GIC architecture specification IHI 0069G §2.3.3](https://www.scs.stanford.edu/~zyedidia/docs/arm/gic_v3.pdf).
+- Corrected patch 0124 to: (1) refuse the transition if legacy Group-1 NS is already enabled; (2) set only `ARE_NS`; (3) wait for RWP with the existing machine timeout and verify the bit read back; (4) only then set `EnableGrp1A`, wait for RWP and verify Group-1 distribution; and (5) retain the CPU-interface readback checks. Trace IDs are now 102 = initial control read, 103 = ARE_NS readback, 104 = distributor Group-1 readback, 105 = CPU-interface Group-1 forwarding, and 106 = EOI mode.
+- `tools/verify-lavender-gic-route.py` now guards the precondition, ordering and readback. The generated console renderer and workflow source check cover event 106. This is a source-level correction; physical completion of `pe_init_fiq()`, timer interrupt delivery, storage, root mount and Darwin userspace remain unproven until a new accepted image is tested.
+- Next acceptance gates: XNU source/patch guards, compilation/link, ARM64 Mach-O verification, and separate RAM-only packaging must all pass. Keep `cpus=1`. Physical testing stays RAM-only via `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata. Preserve the confirmed volume-key recovery/reset route.
+
+---
+
 ## Accepted RAM-only Lavender boot image — Run #2 (17 November 2026)
 
 <badge>CI verified and artifact downloaded</badge>

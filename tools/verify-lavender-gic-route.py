@@ -70,6 +70,8 @@ for token in (
     "ICC_BPR1_EL1",
     "gicd_ctlr |= GICD_CTLR_ENABLEGRP1A;",
     "GICD_CTLR_ARE_NS",
+    "GICD_CTLR_ENABLEGRP1",
+    "gicd_ctlr |= GICD_CTLR_ARE_NS;",
     "ICC_IGRPEN1_EL1",
     "GICD_CTLR_RWP",
 ):
@@ -85,8 +87,13 @@ for forbidden in (
     require(forbidden not in fiq_branch,
             f"Lavender GIC branch still contains incompatible Group-0/legacy setup: {forbidden}")
 
-require("non-secure affinity routing is not enabled by firmware" in fiq_branch,
-        "Lavender must refuse an unsafe ARE_NS transition")
+require("cannot enable affinity routing while legacy Group-1 NS is active" in fiq_branch,
+        "Lavender must refuse an ARE_NS transition while legacy EnableGrp1NS is active")
+require("GICD_CTLR.ARE_NS did not stick" in fiq_branch,
+        "Lavender must verify the ARE_NS transition before enabling Group 1")
+require(fiq_branch.index("gicd_ctlr |= GICD_CTLR_ARE_NS;") <
+        fiq_branch.index("gicd_ctlr |= GICD_CTLR_ENABLEGRP1A;"),
+        "Lavender must enable affinity routing before enabling Group 1")
 require("non-secure Group-1 distributor enable did not stick" in fiq_branch,
         "Lavender must verify distributor Group-1 enable")
 require("GICR_IGROUPR0 is Secure and RAZ/WI to Non-secure EL1" in fiq_branch,
@@ -142,7 +149,7 @@ require("extern uint32_t lavender_vtimer_intid;" in protos,
 # Keep the milestone single-core until secondary startup and IPI routing are proven.
 require("cpus=1" in workflow,
         "package command line no longer constrains Lavender bring-up to one CPU")
-require("event >= 47 && event <= 105" in
+require("event >= 47 && event <= 106" in
         ((repo / "tools/split-lavender-early.py").read_text()),
         "generated Lavender trace renderer does not include events 104-105")
 
