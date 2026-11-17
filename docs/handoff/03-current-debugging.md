@@ -288,3 +288,9 @@ These event numbers are a separate namespace from early Guardian stage markers 1
 - A unified-diff audit then found stale hunk counts in three retained sections. Corrected all eight hunk headers and independently recounted every old/new line total; all eight now match their declared counts.
 - Latest patch commits: `d9bd8b41e98ea6678501d0465518be2b55878e96` (restore machine_conf section) and `5ea46bd43798a2a719b95563074e0068de53d696` (restore accurate hunk counts). Runs #327 and #328 were queued for these successive patch snapshots; #328 contains the count-corrected patch and is the preferred acceptance candidate.
 - Runs #324–#326 are intermediate snapshots. Do not accept their artifacts as the new diagnostic image. Only #328 or a later run that passes patch application, source guards, linked verification and RAM-only packaging can replace the Run #320 baseline.
+
+### Additional handset-frame review — 17 November 2026
+
+- The newly supplied frame sequence shows the red shim handoff, then the genuine AppleLogo with the XNU verbose console, followed by a Redmi / “Powered by Android” boot splash in frame `lav_110.png`. The handset therefore restarted after the XNU screen.
+- The supplied console frames are too overexposed to establish a later event number beyond the previously documented last clearly readable event 38. They do not show a legible XNU panic, Guardian reason string, or reset diagnostic.
+- Do not attribute the restart to `machine_conf()`, the A53 Guardian, a watchdog, low battery, or a particular kernel fault without a device-side marker or serial/panic evidence. Keep the reset cause open.
