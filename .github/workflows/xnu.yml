@@ -537,9 +537,9 @@ jobs:
           if not (handoff < stage8 < stage9 < ret_insn):
               raise SystemExit("post-assembly stages 8/9 must bracket the final arm_init return")
           early = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
-          guard_init = early.index("sweet_early_guard_init(uintptr_t boot_args_kva)")
-          early_mark = early.index("sweet_early_mark(unsigned int stage", guard_init)
-          early_end = early.index("void sweet_early_putc", early_mark)
+          guard_init = early.index("lavender_early_guard_init(uintptr_t boot_args_kva)")
+          early_mark = early.index("lavender_early_mark(unsigned int stage", guard_init)
+          early_end = early.index("lavender_early_putc(char c)", early_mark)
           early_body = early[early_mark:early_end]
           if "*early_guard_cell = 0x100u" not in early[guard_init:early_mark]:
               raise SystemExit("C-entry guard initialization marker is missing")
@@ -552,11 +552,9 @@ jobs:
               raise SystemExit("C checkpoint marker must be published before framebuffer text I/O")
           if "stage + 3u" in early_body:
               raise SystemExit("ambiguous legacy C checkpoint marker encoding remains")
-          if "stage + 3u" in early_body:
-              raise SystemExit("ambiguous legacy C checkpoint marker encoding remains")
           logo_source = Path("dxb/xnu/osfmk/arm64/lavender_early.c").read_text()
-          logo_start = logo_source.index("sweet_early_logo(void)")
-          logo_end = logo_source.index("sweet_early_guard_init(", logo_start)
+          logo_start = logo_source.index("lavender_early_logo(void)")
+          logo_end = logo_source.index("lavender_early_guard_init(", logo_start)
           logo_body = logo_source[logo_start:logo_end]
           if "for (unsigned int y = 0; y < LAVENDER_FB_HEIGHT; y++)" not in logo_body:
               raise SystemExit("Lavender logo must clear the full panel, not a rectangle")
@@ -590,12 +588,12 @@ jobs:
           callback = startup.index("cur->func(cur->arg);", hook)
           if hook >= callback:
               raise SystemExit("per-hook trace must run before invoking the startup callback")
-          helper = early.index("sweet_early_trace_startup(unsigned int event")
+          helper = early.index("lavender_early_trace_startup(unsigned int event")
           if "case 5:" not in early[helper:] or "case 7:" not in early[helper:]:
               raise SystemExit("startup callback/subsystem console trace cases are missing")
-          trace_end = early.index("sweet_early_logo(void)", helper)
+          trace_end = early.index("lavender_early_logo(void)", helper)
           trace_body = early[helper:trace_end]
-          if "early_guard_cell" in trace_body or "sweet_early_mark(" in trace_body:
+          if "early_guard_cell" in trace_body or "lavender_early_mark(" in trace_body:
               raise SystemExit("startup sub-trace must not modify the Guardian marker")
           print("PASS: Lavender startup trace covers table, qsort, subsystem logs and callbacks without touching Guardian state")
           PY

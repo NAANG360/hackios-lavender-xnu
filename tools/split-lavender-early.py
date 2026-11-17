@@ -16,6 +16,26 @@ LAVENDER_SOURCE = ROOT / "osfmk/arm64/lavender_early.c"
 LAVENDER_HEADER = ROOT / "osfmk/arm64/lavender_early.h"
 FILES = ROOT / "osfmk/conf/files.arm64"
 
+COMPAT_WRAPPER = (
+    "\n/* Linker compatibility wrapper for translation units that declare\n"
+    " * extern void sweet_early_trace_startup(...) without sweet_early.h. */\n"
+    "#undef sweet_early_trace_startup\n"
+    "void sweet_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,\n"
+    "    uintptr_t c, uintptr_t d, uintptr_t e);\n"
+    "void\n"
+    "sweet_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,\n"
+    "    uintptr_t c, uintptr_t d, uintptr_t e)\n"
+    "{\n"
+    "\tlavender_early_trace_startup(event, a, b, c, d, e);\n"
+    "}\n"
+)
+
+def ensure_trace_compatibility():
+    lavender = LAVENDER_SOURCE.read_text()
+    if "void sweet_early_trace_startup(" not in lavender:
+        LAVENDER_SOURCE.write_text(lavender + COMPAT_WRAPPER)
+
+
 def main():
     # Newer Lavender patch stacks may already provide the board-specific file
     # and remove the historical combined SWEET source before this helper runs.
@@ -28,6 +48,7 @@ def main():
             files = FILES.read_text()
             if ("lavender_early_trace_startup" in lavender and
                     "osfmk/arm64/lavender_early.c\tstandard" in files):
+                ensure_trace_compatibility()
                 print("Lavender early source is already split; historical SWEET source is absent")
                 return
         raise SystemExit("sweet_early.c is absent and the Lavender split is incomplete")
@@ -37,6 +58,7 @@ def main():
     end_marker = "#endif /* SWEET || ARM64_BOARD_CONFIG_LAVENDER */"
     if marker not in source:
         if LAVENDER_SOURCE.exists() and "lavender_early_trace_startup" in LAVENDER_SOURCE.read_text():
+            ensure_trace_compatibility()
             print("Lavender early source is already split")
             return
         raise SystemExit("combined sweet_early.c is missing its Lavender branch")
@@ -67,6 +89,7 @@ def main():
         " * Separate from the SWEET/SM7150 implementation.\n"
         " * Uses the verified Lavender boot framebuffer and kernel alias.\n */\n"
         + body
+        + COMPAT_WRAPPER
     )
     SOURCE.write_text(source[:start] + "#endif /* SWEET */\n")
 
