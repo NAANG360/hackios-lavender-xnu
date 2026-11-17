@@ -123,13 +123,15 @@ jobs:
           # explicitly target baseline Armv8-A; otherwise the Apple Silicon host
           # compiler can emit FEAT_LSE instructions that SDM660 cannot execute.
           arch_old = 'ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"'
-          arch_new = 'ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64" OTHER_CFLAGS=\'$(inherited) -march=armv8-a -mcpu=generic\''
+          # Only the plain arm64 slice is needed by Lavender. Avoid x86_64
+          # rejecting ARM flags and arm64e's pointer-authenticated codegen.
+          arch_new = 'ARCHS="arm64" VALID_ARCHS="arm64" OTHER_CFLAGS=\'$(inherited) -march=armv8-a\''
           if source.count(arch_old) != 1:
               raise SystemExit("pinned libfirehose_kernel xcodebuild architecture setting changed")
           source = source.replace(arch_old, arch_new, 1)
           path.write_text(source)
           PY
-          grep -F "march=armv8-a -mcpu=generic" dxb/build.sh
+          grep -F 'ARCHS="arm64" VALID_ARCHS="arm64"' dxb/build.sh
           grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
           ls dxb/patches
 
