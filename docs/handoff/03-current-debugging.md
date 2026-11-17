@@ -243,23 +243,31 @@ The compact renderer prints the numeric event ID as `[DARWIN] POST-PLATFORM EVEN
 |---:|---|
 | 47 | Remaining `arm_init()` tail entered after `PE_init_platform()` |
 | 48 | CPU configuration invalid branch, immediately before its panic |
-| 49 | CPU configuration passed; reports `mem_size` |
+| 49 | CPU configuration passed; `mem_size` is passed as an argument but the compact renderer currently prints only the event ID |
 | 50 | `ml_map_cpu_pio()` returned |
 | 51–52 | Before / after `cpu_timebase_init(TRUE)` |
 | 53 | CPU timebase and optional KPERF timer block completed |
 | 54–55 | `PE_init_cpu()` / `fiq_context_init(TRUE)` returned |
 | 56 | Optional hibernation initialization block completed |
 | 57 | `/chosen` device-tree node lookup completed |
-| 58–59 | `dram-base` / `dram-size` property read; value and byte length are printed |
+| 58–59 | `dram-base` / `dram-size` property reads completed; the values and byte lengths are passed as arguments but are not displayed by the compact renderer |
 | 60 | `gDramBase` and `gDramSize` assigned |
 | 61 | Stack-protector guard initialization completed |
 | 62–63 | `machine_startup()` entered / pre-fastipi checkpoint |
 | 67 | Optional fastipi configuration block completed |
 | 66 | `machine_conf()` entered |
 | 68–69 | `machine_info.memory_size` assignment before / after |
-| 70–71 | CPU-topology lookup before / after; event 71 reports `num_cpus` |
+| 70–71 | CPU-topology lookup before / after; `num_cpus` is passed as an argument but is not displayed by the compact renderer |
 | 64 | `machine_conf()` returned |
 | 65 | Immediately before calling `kernel_bootstrap()` |
 | 41 | First trace in `kernel_bootstrap()`; definitive bootstrap entry |
 
 These event numbers are a separate namespace from early Guardian stage markers 17–20 and post-KPRINTF scheduler/BSD events. The startup trace writes only to the framebuffer console; it must not update the Guardian progress cell.
+
+
+### Latest footage clarification — 17 November 2026
+
+- The latest clip `1000317833.mp4` has a duration of approximately 55.7 seconds. Its last clearly readable XNU console checkpoint is event 38, `ARM_INIT PE_PLATFORM DONE`. Event 39 is not legible, so `machine_startup()` entry remains unproven.
+- The clip's final frame shows a low-battery/charging glyph, not a readable Android restart, FASTBOOT screen, or XNU panic. Do not infer a reset cause or a Guardian timeout from this recording.
+- Patch 0121 passes diagnostic argument values to the trace helper for selected events, but its compact renderer currently displays only `POST-PLATFORM EVENT N`. The values are not visible on screen. Use the event ID to locate the last completed source boundary; do not claim the associated memory or CPU values were observed.
+- The recording contains no device-side image digest and is not checksum-bound to Run #320 or Run #322.
