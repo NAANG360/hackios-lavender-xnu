@@ -38,14 +38,20 @@ def ensure_post_platform_renderer():
            '\t\tif (event >= 47 && event <= 71) {\n'
            '\t\t\tlavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");\n'
            '\t\t\tlavender_trace_append_decimal(text, &length, event);\n'
+           '\t\t\tif (a != 0 || b != 0) {\n'
+           '\t\t\t\tlavender_trace_append_text(text, &length, " a=");\n'
+           '\t\t\t\tlavender_trace_append_hex(text, &length, a);\n'
+           '\t\t\t\tlavender_trace_append_text(text, &length, " b=");\n'
+           '\t\t\t\tlavender_trace_append_hex(text, &length, b);\n'
+           '\t\t\t}\n'
            '\t\t} else {\n'
            '\t\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\t}\n'
            '\t\tbreak;')
-    if "event >= 47 && event <= 71" in lavender:
+    if new in lavender:
         return
     if old not in lavender:
-        raise SystemExit("could not find Lavender trace default case for post-platform renderer")
+        raise SystemExit("could not find expected Lavender trace renderer to upgrade")
     LAVENDER_SOURCE.write_text(lavender.replace(old, new, 1))
 
 
