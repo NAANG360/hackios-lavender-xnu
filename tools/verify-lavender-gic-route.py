@@ -121,8 +121,12 @@ require("timed out waiting for GIC distributor RWP" in fiq_branch,
 require('"ICC_PMR_EL1", 0xFF' in pe, "Lavender must set the CPU priority mask")
 require("LAVENDER_FIQ_TRACE(104" in pe and "LAVENDER_FIQ_TRACE(105" in pe,
         "Lavender final GIC setup markers 104/105 are missing")
-require("GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1" not in fiq_branch,
+require("gicd_ctlr |= GICD_CTLR_ENABLEGRP1A;" in fiq_branch,
+        "Lavender must set only the ARE_NS-enabled Group-1A distributor bit")
+require("gicd_ctlr |= (GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1)" not in fiq_branch,
         "non-secure Group-1 setup must not set the RES0 Group1 bit when ARE_NS is enabled")
+require("if (gicd_ctlr & (GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1))" in fiq_branch,
+        "DS=1 precondition must reject active Group 0/1 before changing ARE_NS")
 require("Bit 0 is RES0 in this view" in pe,
         "non-secure GICD_CTLR bit aliasing is not documented")
 require("GIC system-register interface did not enable" in pe,

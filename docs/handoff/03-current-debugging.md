@@ -1,3 +1,11 @@
+## CI result: Run #341 — verifier false positive — 17 November 2026
+
+- Run [44117499917](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44117499917) completed XNU 8796 compilation successfully, then failed at step 15, `Verify Lavender non-secure Group-1 virtual timer contract`.
+- Exact failure: `FAIL: non-secure Group-1 setup must not set the RES0 Group1 bit when ARE_NS is enabled`.
+- Root cause: the static verifier rejected the token sequence `GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1` anywhere in the Lavender GIC branch. The updated DS=1 safety precondition correctly uses that combined mask to *test* whether either group is already enabled; it does not write the combined mask. The actual write remains `gicd_ctlr |= GICD_CTLR_ENABLEGRP1A;`.
+- Corrected the verifier to distinguish the DS=1 precondition read-mask from the distributor write, and to assert that only `GICD_CTLR_ENABLEGRP1A` is ORed into the write value. This is a verifier-only correction; no GIC runtime code changed in response to this CI failure.
+- Packaging was skipped because the source contract gate failed. No image from Run #341 is valid for device testing.
+
 ## Physical test: GICD_CTLR affinity-routing transition — 17 November 2026
 
 - The four split user recordings are treated as one test sequence. They show successful XNU progress through `PE_CREATE_CONSOLE DONE`, `PE_INIT_PRINTF DONE`, `CPU_IDLE_INIT DONE`, and `PE_PLATFORM BEGIN/DONE`, followed by post-platform trace rows through **event 102** and a visible panic: `pe_init_fiq: GICv3 non-secure affinity routing is not enabled by firmware`.
