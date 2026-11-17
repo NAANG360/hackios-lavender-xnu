@@ -1,3 +1,15 @@
+# Latest image publication attempt — verifier correction (17 November 2026)
+
+- Run #337 (44105853768), source commit `f9737461fc21f3181600a39c5ff6d71716baa045`, completed successfully and published the `xnu-kernel` input artifact. The initial dedicated repackaging run #1 (44110862946) successfully downloaded that kernel, selected the ARM64 Mach-O, verified the pinned Lavender OTA, extracted the SDM660 DTB, generated the Lavender ADT, built the XNU payload, and produced `iosboot.img`.
+- The image build itself completed. Verification failed at the first kernel comparison because the verifier compared the unpacked boot-header kernel to the XNU Mach-O. This image format intentionally places the ARM64 shim at the boot-header kernel slot and the XNU payload in the ramdisk. The log reports a 155,648-byte shim kernel and a 16,046,784-byte ramdisk; the XNU Mach-O is 14,368,098 bytes before payload wrapping.
+- The correct identity checks are: unpacked boot kernel equals `shim/out/Image`; unpacked ramdisk equals `artifacts/lavender-payload.bin`; unpacked DTB equals the pinned stock Lavender SDM660 DTB. The latter two checks were not reached in the failed run because the first comparison exited nonzero.
+- Corrected `.github/workflows/publish-run337-image.yml` in commit `9256d45d5d33281d082a9fa970fbb499349e0416` to compare the unpacked kernel against `shim/out/Image`. The push should trigger a fresh packaging attempt. Await that run's successful verification and uploaded `lavender-fastboot-boot-test` artifact before accepting or distributing an image.
+- No artifact was uploaded by failed run #1; it has no artifact ID, accepted image size, or SHA-256. Do not use or distribute any local runner output from that failed run.
+- Source kernel remains Run #337 / commit `f9737461fc21f3181600a39c5ff6d71716baa045`. Boot arguments remain `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`.
+- Physical testing remains RAM-only: `fastboot boot iosboot.img`. Never flash, erase, repartition, or write internal Android eMMC/userdata. Preserve the confirmed volume-key recovery/reset route.
+
+---
+
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
