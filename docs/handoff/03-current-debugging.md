@@ -1,3 +1,19 @@
+## Accepted RAM-only Lavender boot image — Run #2 (17 November 2026)
+
+<badge>CI verified and artifact downloaded</badge>
+
+- Packaging workflow: [Run #2 / 44113290781](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44113290781), publisher commit `9256d45d5d33281d082a9fa970fbb499349e0416`; all 13 package steps succeeded, including image construction, structural/payload identity verification, SHA-256 generation and artifact upload.
+- Source XNU build: Run #337 / `44105853768`, source commit `f9737461fc21f3181600a39c5ff6d71716baa045`.
+- Artifact: `lavender-fastboot-boot-test`, ID `14340728816`, uploaded 17 November 2026; artifact ZIP size 5,838,494 bytes.
+- `iosboot.img` size: **16,617,472 bytes**.
+- SHA-256: `32d286522811bee3507f41032e84202b5bc735c59added615bfb28a53cd84b5c`.
+- Downloaded artifact ZIP and extracted image were inspected locally. The manifest size and SHA-256 match the independently computed local size/hash; `file` identifies it as an Android boot image with 4 KiB pages.
+- Image composition: shim in boot-header kernel slot, XNU payload in ramdisk, pinned Lavender SDM660 DTB. Bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`.
+- **Acceptance scope:** packaging and byte identity are verified. This does not mean the image has been physically boot-tested or that Darwin userspace, launchd, or SpringBoard has been reached.
+- Physical test only: `fastboot boot iosboot.img` (RAM-only). Never use `fastboot flash`, erase, repartition, or write internal Android eMMC/userdata. Preserve the confirmed volume-key recovery/reset route.
+
+---
+
 ## Repackaging rerun status — 17 November 2026
 
 - Corrected publisher commit: `9256d45d5d33281d082a9fa970fbb499349e0416`.
