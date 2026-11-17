@@ -35,7 +35,7 @@ def ensure_post_platform_renderer():
     old = ('default:\n\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\tbreak;')
     new = ('default:\n'
-           '\t\tif (event >= 47 && event <= 103) {\n'
+           '\t\tif (event >= 47 && event <= 105) {\n'
            '\t\t\tlavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");\n'
            '\t\t\tlavender_trace_append_decimal(text, &length, event);\n'
            '\t\t\tif (a != 0 || b != 0) {\n'
