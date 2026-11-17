@@ -604,3 +604,12 @@ No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash
 
 - Confirm a new run starts from commit `20a3bf61f33d215b2a306d99f26cd6fa76df81ae`.
 - Confirm the Firehose compile command contains only the arm64 architecture and `-march=armv8-a`; then require archive creation, XNU link, Firehose no-LSE disassembly guard, full kernel verification and package verification before another RAM-only handset test.
+
+
+## Run #346 failure and Firehose guard correction — 17 November 2026
+
+- Run [#346 / 44146858623](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44146858623), source commit `20a3bf61f33d215b2a306d99f26cd6fa76df81ae`, failed in the `Fetch pinned XNU build tooling` step before any XNU compilation began. The RAM-only packaging job was skipped.
+- The Arm64-only Firehose target rewrite itself was applied and printed by the job. The actual failure was the next validation command: `grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh`. Because the old multi-architecture string was correctly absent, grep printed `0` but returned exit status 1, aborting the shell under GitHub Actions' error handling. This was an inverted/stale CI guard, not a compiler, kernel, or device failure.
+- Corrected in commit `275514ed74ffc572e9eb854afc2f6779238259b4`: the workflow now explicitly fails only if the legacy architecture setting is found, emits a PASS message when the Arm64-only configuration is retained, and then continues to the XNU build.
+- Run #346 produced no verified kernel or `iosboot.img`; its packaging job was skipped. Do not download or test any candidate from that run.
+- Next acceptance gates remain: complete XNU build; Firehose symbol disassembly contains no FEAT_LSE/LSE instructions; kernel verification passes; RAM-only `iosboot.img` is packaged and uploaded; device testing only via `fastboot boot iosboot.img`. Do not flash or write internal storage. Keep `cpus=1` and do not change GIC routing without new panic evidence.
