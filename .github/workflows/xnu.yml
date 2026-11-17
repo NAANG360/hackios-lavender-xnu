@@ -118,11 +118,18 @@ jobs:
                  "    venv")
           if old not in source:
               raise SystemExit("pinned build.sh main() patch/venv insertion point changed")
-          path.write_text(source.replace(old, new, 1))
+          source = source.replace(old, new, 1)
+          # libfirehose_kernel is built separately from XNU. The arm64 slice must
+          # explicitly target baseline Armv8-A; otherwise the Apple Silicon host
+          # compiler can emit FEAT_LSE instructions that SDM660 cannot execute.
+          arch_old = 'ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"'
+          arch_new = 'ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64" OTHER_CFLAGS=\'$(inherited) -march=armv8-a -mcpu=generic\''
+          if source.count(arch_old) != 1:
+              raise SystemExit("pinned libfirehose_kernel xcodebuild architecture setting changed")
+          source = source.replace(arch_old, arch_new, 1)
+          path.write_text(source)
           PY
-          # libfirehose_kernel is arm64e-only upstream; the reference and Lavender
-          # targets are plain arm64.
-          sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
+          grep -F "march=armv8-a -mcpu=generic" dxb/build.sh
           grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
           ls dxb/patches
 
@@ -141,7 +148,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
+          key: xnu8796-v5-armv8a-firehose-generic-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
           restore-keys: |
             xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
@@ -198,6 +205,11 @@ jobs:
             echo "Removing compiler-target-sensitive XNU objects and stale exported-header marker"
             rm -rf dxb/build/xnu.obj
             rm -f dxb/fakeroot/.xnu_headers_installed
+            # The old v4 cache also retained libfirehose_kernel.a and its object
+            # tree. Upstream build_libdispatch only rebuilds when the archive is
+            # absent, so explicitly discard both before compiling this arm64 slice.
+            rm -f dxb/fakeroot/usr/local/lib/kernel/libfirehose_kernel.a
+            rm -rf dxb/build/libfirehose_kernel.obj dxb/build/libfirehose_kernel.sym
           else
             cached_kernel="dxb/build/xnu.obj/kernel.${kernel_config}.${machine_config}"
             if [[ -f "$cached_kernel" ]]; then
@@ -866,6 +878,43 @@ jobs:
           if "ldxr" not in mnemonics or "stxr" not in mnemonics:
               raise SystemExit("expected ARMv8-A LDXR/STXR exclusive atomic sequence is missing: " + repr(mnemonics))
           print("PASS: linked _lck_grp_reference uses ARMv8-A LDXR/STXR, not LSE")
+
+          # The field report caught an LSE LDADD in this separately-built libdispatch
+          # routine. Keep a focused regression guard on the exact early-boot caller.
+          firehose_start = next((i for i, line in enumerate(lines)
+                                 if line.strip().rstrip(":") in {
+                                     "___firehose_buffer_tracepoint_flush",
+                                     "_firehose_buffer_tracepoint_flush",
+                                 }), None)
+          if firehose_start is None:
+              raise SystemExit("could not locate linked ___firehose_buffer_tracepoint_flush")
+          firehose_end = next((i for i in range(firehose_start + 1, len(lines))
+                               if re.match(r"^_?[A-Za-z0-9_.$]+:$", lines[i].strip())), len(lines))
+          firehose_mnemonics = []
+          for line in lines[firehose_start:firehose_end]:
+              if ":" not in line:
+                  continue
+              words = line.split(":", 1)[1].split()
+              if len(words) >= 5 and all(len(word) == 2 and all(ch in "0123456789abcdefABCDEF" for ch in word) for word in words[:4]):
+                  firehose_mnemonics.append(words[4].lower())
+          lse_prefixes = (
+              "ldadd", "stadd", "cas", "swp", "ldclr", "stclr",
+              "ldeor", "steor", "ldset", "stset", "ldsmax", "stsmax",
+              "ldsmin", "stsmin", "ldumax", "stumax", "ldumin", "stumin",
+          )
+          firehose_lse = sorted({m for m in firehose_mnemonics
+                                 if m.startswith(lse_prefixes)})
+          if firehose_lse:
+              raise SystemExit(
+                  "FEAT_LSE instructions remain in ___firehose_buffer_tracepoint_flush: "
+                  + repr(firehose_lse)
+              )
+          if "ldxr" not in firehose_mnemonics or "stxr" not in firehose_mnemonics:
+              raise SystemExit(
+                  "expected baseline exclusive atomics in ___firehose_buffer_tracepoint_flush; "
+                  + repr(firehose_mnemonics)
+              )
+          print("PASS: ___firehose_buffer_tracepoint_flush is Armv8-A-safe (LDXR/STXR; no LSE)")
           PY
           fi
           shasum -a 256 "$kernel" | tee out/SHA256SUMS
@@ -877,7 +926,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
+          key: xnu8796-v5-armv8a-firehose-generic-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
