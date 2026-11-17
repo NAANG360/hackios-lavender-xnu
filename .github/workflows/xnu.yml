@@ -218,6 +218,33 @@ jobs:
           done
           python3 - <<'PY'
           from pathlib import Path
+
+          root = Path("dxb/xnu/osfmk")
+          sweet = (root / "arm64/sweet_early.c").read_text()
+          lavender = (root / "arm64/lavender_early.c").read_text()
+          lavender_header = (root / "arm64/lavender_early.h").read_text()
+          compat_header = (root / "arm64/sweet_early.h").read_text()
+          files = (root / "conf/files.arm64").read_text()
+
+          if "#elif defined(ARM64_BOARD_CONFIG_LAVENDER)" in sweet:
+              raise SystemExit("SWEET translation unit still contains Lavender implementation")
+          for token in ("LAVENDER_FB_BASE 0x9d400000ULL",
+                        "LAVENDER_FB_HEIGHT 2340u",
+                        "lavender_early_trace_startup",
+                        "lavender_early_logo(void)",
+                        "lavender_early_guard_init"):
+              if token not in lavender:
+                  raise SystemExit("lavender_early.c missing target implementation: " + token)
+          if "lavender_early_trace_startup" not in lavender_header:
+              raise SystemExit("Lavender early public header is missing trace declaration")
+          if "#define sweet_early_trace_startup lavender_early_trace_startup" not in compat_header:
+              raise SystemExit("shared XNU call sites are not routed to Lavender symbols")
+          if "osfmk/arm64/lavender_early.c" not in files:
+              raise SystemExit("lavender_early.c is not compiled by files.arm64")
+          print("PASS: SWEET and Lavender early-console implementations are separate translation units")
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
           pe = source.index("\tPE_consistent_debug_inherit();")
           mark18 = source.index('sweet_early_mark(18, "PE_consistent_debug_inherit returned");', pe)
