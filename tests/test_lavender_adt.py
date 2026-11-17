@@ -72,8 +72,17 @@ def run():
     assert struct.unpack("<I", tp["lavender,irq-gpio-number"])[0] == 67
     assert struct.unpack("<I", tp["lavender,reset-gpio-number"])[0] == 66
     emmc = props(child(arm_io, "emmc"))
-    assert len(emmc["reg"]) == 48  # three 64-bit address/size windows
-    assert b"qcom,sdhci-msm-cqe" in emmc["compatible"]
+    expected_emmc = tuple(value for address, size in mod.EMMC_REGIONS
+                          for value in (address - mod.SOC_BASE, size))
+    assert struct.unpack("<6Q", emmc["reg"]) == expected_emmc
+    assert emmc["reg-names"] == mod.cstr("hc_mem") + mod.cstr("cqhci_mem") + mod.cstr("cqhci_ice")
+    assert struct.unpack("<6I", emmc["interrupts"]) == mod.EMMC_IRQ_SPEC
+    assert emmc["interrupt-names"] == mod.cstr("hc_irq") + mod.cstr("pwr_irq")
+    assert emmc["clock-names"] == mod.cstr("iface_clk") + mod.cstr("core_clk") + mod.cstr("ice_core_clk")
+    assert struct.unpack("<I", emmc["bus-width"])[0] == 8
+    assert emmc["non-removable"] == b""
+    assert emmc["status"] == mod.cstr("ok")
+    assert b"qcom,sdhci-msm-v5" in emmc["compatible"] and b"qcom,sdhci-msm-cqe" in emmc["compatible"]
 
     # Optional A73-only first-boot profile: boot MPIDR first, then only its cluster.
     a73_root = mod.build(seed=bytes(range(64)), product_tree="/nonexistent/lavender-product.adt",

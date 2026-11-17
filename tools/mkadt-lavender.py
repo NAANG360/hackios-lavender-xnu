@@ -310,8 +310,16 @@ def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
     expected_emmc = tuple(v for address, length in EMMC_REGIONS
                           for v in (address - SOC_BASE, length))
     assert emmc_reg == expected_emmc
-    emmc_compat = next(v for n, _, v in emmc.props if n == 'compatible')
+    emmc_props = {n: v for n, _, v in emmc.props}
+    emmc_compat = emmc_props['compatible']
     assert b'qcom,sdhci-msm-v5' in emmc_compat and b'qcom,sdhci-msm-cqe' in emmc_compat
+    assert emmc_props['reg-names'] == cstr('hc_mem') + cstr('cqhci_mem') + cstr('cqhci_ice')
+    assert emmc_props['interrupts'] == u32(*EMMC_IRQ_SPEC)
+    assert emmc_props['interrupt-names'] == cstr('hc_irq') + cstr('pwr_irq')
+    assert emmc_props['clock-names'] == cstr('iface_clk') + cstr('core_clk') + cstr('ice_core_clk')
+    assert emmc_props['bus-width'] == u32(8)
+    assert emmc_props['non-removable'] == b''
+    assert emmc_props['status'] == cstr('ok')
     i2c = next(c for c in arm_io.children if c.name == 'i2c0')
     i2c_reg = struct.unpack('<2Q', next(v for n, _, v in i2c.props if n == 'reg'))
     assert i2c_reg == (I2C0 - SOC_BASE, I2C0_SIZE)
