@@ -465,12 +465,12 @@ jobs:
           PY
           grep -q 'sweet_early_guard_init' dxb/xnu/osfmk/arm/arm_init.c
           grep -q 'sweet_early_map_final' dxb/xnu/osfmk/arm64/arm_vm_init.c
-          grep -q 'sweet_early_logo' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'lavender_early_logo' dxb/xnu/osfmk/arm64/lavender_early.c
           grep -q 'sweet_early_logo();' dxb/xnu/osfmk/arm/arm_init.c
           grep -q 'lavender-fbcon' dxb/xnu/pexpert/arm/pe_serial.c
           grep -q 'lavender_no_fbcon' dxb/xnu/pexpert/arm/pe_serial.c
           grep -q 'lavender_no_fbcon=1' .github/workflows/xnu.yml
-          grep -q 'if (stage < 16)' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'if (stage < 16)' dxb/xnu/osfmk/arm64/lavender_early.c
           python3 - <<'PY'
           from pathlib import Path
           source = Path("dxb/xnu/osfmk/arm/arm_init.c").read_text()
@@ -571,9 +571,9 @@ jobs:
               raise SystemExit("startup sub-trace must not modify the Guardian marker")
           print("PASS: Lavender startup trace covers table, qsort, subsystem logs and callbacks without touching Guardian state")
           PY
-          grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'base + LAVENDER_FB_ALIAS_OFFSET' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/lavender_early.c
+          grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/lavender_early.c
+          grep -q 'base + LAVENDER_FB_ALIAS_OFFSET' dxb/xnu/osfmk/arm64/lavender_early.c
           grep -q 'sweet_early_map_final();' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q '0x9c000000ULL | ARM_TTE_VALID' dxb/xnu/osfmk/arm64/arm_vm_init.c
           grep -q 'lavender_guard_mark 7' dxb/xnu/osfmk/arm64/start.s
@@ -581,11 +581,11 @@ jobs:
           grep -q 'lavender_guard_mark 9' dxb/xnu/osfmk/arm64/start.s
           grep -q 'A53 LAST MARK=0x' shim/lavender_guardian.c
           grep -q 'delay_ms(2500U, f)' shim/lavender_guardian.c
-          grep -q 'LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'lavender_console_mark(stage, label)' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -Fq 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'lavender_logo_drawn = 1' dxb/xnu/osfmk/arm64/sweet_early.c
-          grep -q 'else if (!lavender_logo_drawn)' dxb/xnu/osfmk/arm64/sweet_early.c
+          grep -q 'LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/lavender_early.c
+          grep -q 'lavender_console_mark(stage, label)' dxb/xnu/osfmk/arm64/lavender_early.c
+          grep -Fq 'lavender_console_string("LAVENDER XNU VERBOSE BOOT' dxb/xnu/osfmk/arm64/lavender_early.c
+          grep -q 'lavender_logo_drawn = 1' dxb/xnu/osfmk/arm64/lavender_early.c
+          grep -q 'else if (!lavender_logo_drawn)' dxb/xnu/osfmk/arm64/lavender_early.c
           if grep -q 'Skipping patch .*0105-lavender-verbose-boot-console.patch' xnu-build.log; then
             echo "Verbose boot console patch 0105 was skipped; refusing to package a non-verbose kernel."
             exit 1
