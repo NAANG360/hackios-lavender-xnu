@@ -125,3 +125,13 @@ The user confirms the volume-key reset/recovery route works despite the broken p
 - The user confirms the independent volume-key recovery/reset route works. The handset-test recovery gate is cleared. The Guardian watchdog-first fallback is separate and remains independently unverified.
 - The apparent FASTBOOT end-frame in the latest recording is a video glitch; the phone restarts normally. The reset cause is unknown.
 - Kernel tests remain RAM-only `fastboot boot iosboot.img`; never flash.
+
+## Lavender early-source split checkpoint — 17 November 2026
+
+- The user requested a dedicated Lavender early console implementation rather than continuing to keep Lavender code inside SWEET's source file.
+- tools/split-lavender-early.py now separates the Lavender branch from the patched XNU source after the full patch stack: generated osfmk/arm64/lavender_early.c and lavender_early.h, SWEET-only sweet_early.c, compatibility aliases in sweet_early.h, and a files.arm64 entry for lavender_early.c.
+- .github/workflows/xnu.yml invokes the splitter before compilation, invalidates the generated source in the build path, hashes the generator in the cache key, and checks the split, board routing, Lavender source symbols and source-list registration.
+- Current branch HEAD at this checkpoint: 22590d814dc0770b2740d413b52600e0c32d622e (ci/lavender-machine-profile). Runs #307–#310 were triggered by incremental workflow commits; #310 is the intended latest guarded validation candidate. They are in progress at the time of this note; do not accept an image until one complete run passes XNU build, source guards, linked Mach-O verification and RAM-only package.
+- Run #306 failed during XNU compilation; its raw kernel candidate is not accepted. Run #302 artifact 14245608682 remains the latest accepted diagnostic image, SHA-256 2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98.
+- The source split preserves Lavender's verified framebuffer geometry and all current logo, guard, checkpoint, panic and trace behavior. It does not import Sweet's framebuffer or GIC/timer assumptions.
+- Continue only with RAM-only fastboot boot iosboot.img. Never flash or write boot-critical partitions.
