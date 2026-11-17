@@ -1,3 +1,13 @@
+## CI correction: Run #343 succeeded but did not publish iosboot.img — 17 November 2026
+
+- Run [#343 / 44123579468](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44123579468), source commit `b69f4a27a78ec5c60ce882c5ab0c329e1273acbb`, completed both XNU build and RAM-only image construction jobs successfully.
+- The package job built `shim/out/shim-boot.img` (16,617,472 bytes) and copied it to `iosboot.img`. The package job's verification script is truncated: its embedded Python heredoc ends immediately after importing `re`; the runner logs a shell warning that the expected `PY` delimiter was not found. The step nevertheless exits zero because the incomplete Python snippet itself succeeds. Therefore Run #343's “success” is not evidence that the intended identity checks executed.
+- The main `xnu.yml` package job also has no `actions/upload-artifact` step for `iosboot.img`. Its artifact list contains only `xnu-build-log`, `xnu-kernel`, `xnu-kernel-candidate`, and `xnu-buildtree`. No image artifact ID, manifest, or image SHA-256 exists for Run #343.
+- Corrective action: repoint the dedicated verified image publisher to Run #343's kernel artifact and source commit. The publisher is configured to run structural and byte-identity checks for shim kernel, XNU payload and SDM660 DTB, calculate SHA-256, write a manifest, and upload `iosboot.img` as `lavender-fastboot-boot-test`.
+- Publisher run [#3 / 44138288151](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44138288151) is in progress. Its kernel download and ARM64 Mach-O selection succeeded; dependency installation is underway. No artifact is available yet.
+- Do not distribute any unverified runner-local image from Run #343. The previous downloadable image from Run #2 / artifact `14340728816` uses the older Run #337 kernel and predates the GIC affinity-routing changes; it is not the current candidate.
+- Acceptance requires publisher run #3 to pass every verification step and upload the artifact. Then independently check the downloaded image's size and SHA-256 against `BUILD-MANIFEST.txt`. Physical test only with RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition, or write Android eMMC/userdata. Keep `cpus=1` and preserve the confirmed volume-key recovery/reset route.
+
 ## CI result: Run #341 — verifier false positive — 17 November 2026
 
 - Run [44117499917](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44117499917) completed XNU 8796 compilation successfully, then failed at step 15, `Verify Lavender non-secure Group-1 virtual timer contract`.
