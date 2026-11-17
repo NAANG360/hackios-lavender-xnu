@@ -3,7 +3,7 @@ name: Repackage Run 343 Lavender boot image
 on:
   push:
     branches: [ci/lavender-machine-profile]
-    paths: [.github/workflows/publish-run343-image.yml]
+    paths: [.github/workflows/publish-run337-image.yml]
   workflow_dispatch:
 
 permissions:
