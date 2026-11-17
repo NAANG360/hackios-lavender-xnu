@@ -560,3 +560,28 @@ All physical tests must use **RAM-only** `fastboot boot iosboot.img`. Never flas
 - Any retest must use RAM-only `fastboot boot iosboot.img`. Never flash, erase, repartition, or write internal Android eMMC/userdata. Preserve the volume-key recovery route.
 
 References: [Arm FEAT_LSE overview and ID register](https://support.arm.com/documentation/ddi0487/mc/-Part-A-Arm-Architecture-Introduction-and-Overview/-Chapter-A2-A-profile-Architecture-Extensions/-A2-2-Armv8-A-architecture-extensions/-A2-2-2-The-Armv8-1-architecture-extension), [Arm LDADD instruction (FEAT_LSE)](https://documentation-service.arm.com/static/6023d5512cb3723f20208db2), [Cortex-A73 Technical Reference Manual](https://documentation-service.arm.com/static/5e7b6c837158f500bd5c03fc), [Cortex-A53 Technical Reference Manual](https://docs.arduino.cc/resources/datasheets/cortexa53.pdf), [Qualcomm Snapdragon 660 specifications](https://www.qualcomm.com/smartphones/products/6-series/snapdragon-660-mobile-platform), [Kryo 260 core composition](https://www.anandtech.com/show/11338/qualcomm-announces-snapdragon-660-630-mobile-platforms).
+
+
+## FEAT_LSE Firehose remediation and Run #344/#345 — 17 November 2026
+
+### Root cause refinement
+
+- The Run 343 build log shows the XNU source compile using `-march=armv8-a -mcpu=generic`, while the final kernel links `-lfirehose_kernel`. The physical panic PC resolves to `___firehose_buffer_tracepoint_flush` from that separately built libdispatch Firehose library; the faulting word is `0xf8280128` (`LDADD x8, x8, [x9]`), a FEAT_LSE instruction unsupported by the documented SDM660 Cortex-A73/A53 core feature set.
+- The pinned `darwin-xnu-build` helper builds `libfirehose_kernel.a` separately in `build_libdispatch()`, before building XNU, and only rebuilds it when `fakeroot/usr/local/lib/kernel/libfirehose_kernel.a` is absent. The Lavender workflow had expanded the library's valid architectures to include `arm64` but had not set a baseline Armv8-A target for that slice.
+- CI cached both `dxb/build` and `dxb/fakeroot`. The Run 343 build log contains no `Building libdispatch` / Firehose-library rebuild output, consistent with the cached archive being reused. The old invalidation step deleted `dxb/build/xnu.obj` but did not remove the Firehose archive or its object directory. This cache path is therefore a concrete way for an older/default-target Firehose archive to survive a clean XNU rebuild.
+
+### CI remediation committed
+
+- Commit `d6b8d6dbacd0cf2fb7f070fda09d6ce83a51a02f` updates `.github/workflows/xnu.yml` so the separate `libfirehose_kernel` arm64 slice is built with `OTHER_CFLAGS='$(inherited) -march=armv8-a -mcpu=generic'`.
+- The kernel cache key was bumped from v4 to `xnu8796-v5-armv8a-firehose-generic`. On a non-exact cache restore, the workflow now deletes `dxb/fakeroot/usr/local/lib/kernel/libfirehose_kernel.a`, `dxb/build/libfirehose_kernel.obj` and `dxb/build/libfirehose_kernel.sym` in addition to invalidating the XNU object tree. This forces the helper to rebuild the archive with the baseline target flags.
+- Follow-up commit `3c53b34a02d57dbd9505352e62a2c935989e00ec` makes the focused disassembly guard reject LSE atomic mnemonics in `___firehose_buffer_tracepoint_flush`. It does not assume one specific LL/SC mnemonic pair; it checks the absence of FEAT_LSE operations in the exact faulting routine. The pre-existing `_lck_grp_reference` LDXR/STXR guard remains.
+- Run **#344** ([44145280971](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44145280971)) was started from the first remediation commit and may not include the follow-up guard adjustment. Run **#345** ([44145429582](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44145429582)) is the current source revision with the focused Firehose guard. At this documentation update, both runs are still in progress; neither has yet been accepted as a new image.
+
+### Acceptance criteria and unchanged constraints
+
+1. Confirm Run #345 actually rebuilt `libfirehose_kernel.a` with the Armv8-A target after cache invalidation; do not accept a green XNU compile alone.
+2. Require the exact Firehose routine disassembly guard to pass, plus existing kernel/ADT/GIC checks and XNU link verification.
+3. Require the package job and independently verified image structure, manifest size and SHA-256 before issuing a new `iosboot.img`.
+4. Only then repeat the physical test using RAM-only `fastboot boot iosboot.img`.
+
+No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash, erase, repartition or write Android eMMC/userdata; preserve the volume-key recovery route. The Run #3 image remains byte-integrity verified but is now known to panic with the FEAT_LSE undefined instruction and is not an acceptable boot-test candidate.
