@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Split the inherited SWEET/Lavender early console into board-specific units.
 
+This helper runs from the pinned darwin-xnu-build checkout (dxb), so the
+patched XNU source tree is relative to the current directory as xnu/.
+
 The pinned XNU patch stack adds Lavender bring-up to sweet_early.c for historical
 compatibility. Run this after the complete patch stack and before compilation.
 """
 from pathlib import Path
 
-ROOT = Path("dxb/xnu")
+ROOT = Path("xnu")
 SOURCE = ROOT / "osfmk/arm64/sweet_early.c"
 SWEET_HEADER = ROOT / "osfmk/arm64/sweet_early.h"
 LAVENDER_SOURCE = ROOT / "osfmk/arm64/lavender_early.c"
