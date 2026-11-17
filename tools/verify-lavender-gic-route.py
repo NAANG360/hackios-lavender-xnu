@@ -123,7 +123,7 @@ require("LAVENDER_FIQ_TRACE(104" in pe and "LAVENDER_FIQ_TRACE(105" in pe,
         "Lavender final GIC setup markers 104/105 are missing")
 require("gicd_ctlr |= GICD_CTLR_ENABLEGRP1A;" in fiq_branch,
         "Lavender must set only the ARE_NS-enabled Group-1A distributor bit")
-require("gicd_ctlr |= (GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1)" not in fiq_branch,
+require("gicd_ctlr |= (GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1)" not in dist_branch,
         "non-secure Group-1 setup must not set the RES0 Group1 bit when ARE_NS is enabled")
 require("if (gicd_ctlr & (GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1))" in fiq_branch,
         "DS=1 precondition must reject active Group 0/1 before changing ARE_NS")
