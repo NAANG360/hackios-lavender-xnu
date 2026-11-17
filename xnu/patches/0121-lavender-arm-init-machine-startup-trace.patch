@@ -180,7 +180,7 @@ diff --git a/osfmk/arm/machine_routines_common.c b/osfmk/arm/machine_routines_co
  #if !HAS_CONTINUOUS_HWCLOCK
  extern uint64_t mach_absolutetime_asleep;
  #else
-@@ -1411,12 +1416,24 @@ machine_conf(void)
+@@ -1411,11 +1416,23 @@ machine_conf(void)
  	 * This is known to be inaccurate. mem_size should always be capped at 2 GB
  	 */
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
