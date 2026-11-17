@@ -1,9 +1,9 @@
-name: Repackage Run 337 Lavender boot image
+name: Repackage Run 343 Lavender boot image
 
 on:
   push:
     branches: [ci/lavender-machine-profile]
-    paths: [.github/workflows/publish-run337-image.yml]
+    paths: [.github/workflows/publish-run343-image.yml]
   workflow_dispatch:
 
 permissions:
@@ -15,21 +15,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      SOURCE_RUN_ID: "44105853768"
-      SOURCE_SHA: f9737461fc21f3181600a39c5ff6d71716baa045
+      SOURCE_RUN_ID: "44123579468"
+      SOURCE_SHA: b69f4a27a78ec5c60ce882c5ab0c329e1273acbb
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f9737461fc21f3181600a39c5ff6d71716baa045
+          ref: b69f4a27a78ec5c60ce882c5ab0c329e1273acbb
 
-      - name: Download Run 337 XNU kernel
+      - name: Download Run 343 XNU kernel
         uses: actions/download-artifact@v4
         with:
           name: xnu-kernel
           path: out
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: 44105853768
+          run-id: 44123579468
 
       - name: Select ARM64 Mach-O kernel
         run: |
@@ -45,7 +45,7 @@ jobs:
                       selected = p.resolve()
                       break
           if selected is None:
-              raise SystemExit("Run 337 artifact contains no ARM64 Mach-O kernel")
+              raise SystemExit("Run 343 artifact contains no ARM64 Mach-O kernel")
           with open(os.environ["GITHUB_ENV"], "a") as f:
               f.write(f"KERNEL_PATH={selected}\n")
           print(f"Selected {selected} ({selected.stat().st_size} bytes)")
