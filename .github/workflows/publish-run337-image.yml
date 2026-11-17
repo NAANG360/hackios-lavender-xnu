@@ -1,0 +1,159 @@
+name: Repackage Run 337 Lavender boot image
+
+on:
+  push:
+    branches: [ci/lavender-machine-profile]
+    paths: [.github/workflows/publish-run337-image.yml]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SOURCE_RUN_ID: "44105853768"
+      SOURCE_SHA: f9737461fc21f3181600a39c5ff6d71716baa045
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: f9737461fc21f3181600a39c5ff6d71716baa045
+
+      - name: Download Run 337 XNU kernel
+        uses: actions/download-artifact@v4
+        with:
+          name: xnu-kernel
+          path: out
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 44105853768
+
+      - name: Select ARM64 Mach-O kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, struct
+          from pathlib import Path
+          selected = None
+          for p in sorted(Path("out").rglob("*")):
+              if p.is_file() and p.stat().st_size > 100000:
+                  h = p.read_bytes()[:8]
+                  if len(h) == 8 and struct.unpack("<II", h) == (0xfeedfacf, 0x0100000c):
+                      selected = p.resolve()
+                      break
+          if selected is None:
+              raise SystemExit("Run 337 artifact contains no ARM64 Mach-O kernel")
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"KERNEL_PATH={selected}\n")
+          print(f"Selected {selected} ({selected.stat().st_size} bytes)")
+          PY
+
+      - name: Install image build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Install AOSP mkbootimg
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://android.googlesource.com/platform/system/tools/mkbootimg "$RUNNER_TEMP/aosp-mkbootimg"
+          cat > "$RUNNER_TEMP/mkbootimg" <<'EOF'
+          #!/usr/bin/env bash
+          exec python3 "$AOSP_MKBOOTIMG_DIR/mkbootimg.py" "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/mkbootimg"
+          echo "AOSP_MKBOOTIMG_DIR=$RUNNER_TEMP/aosp-mkbootimg" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Download and verify pinned Lavender OTA
+        env:
+          OTA_URL: https://github.com/NAANG360/Lucid-OS/releases/download/lucid-android15-lavender-build-4/LucidOS-Android15-lavender-build-4-experimental.zip
+          OTA_SHA256: d2b81388a57c685b82e3cb8f29da475f540dfcb9f5114003846d9337533d3219
+        run: |
+          set -euo pipefail
+          mkdir -p stock
+          curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 "$OTA_URL" -o stock/lucid-build4.zip
+          echo "$OTA_SHA256  stock/lucid-build4.zip" | sha256sum -c -
+
+      - name: Extract stock boot image and SDM660 DTB
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import shutil, zipfile
+          from pathlib import Path, PurePosixPath
+          with zipfile.ZipFile("stock/lucid-build4.zip") as z:
+              names = [n for n in z.namelist() if PurePosixPath(n).name == "boot.img"]
+              if len(names) != 1:
+                  raise SystemExit(f"Expected exactly one boot.img, found {names}")
+              z.extract(names[0], "stock/extracted")
+              shutil.copyfile(Path("stock/extracted") / names[0], "stock/boot.img")
+          PY
+          python3 tools/unpack_bootv2.py stock/boot.img stock/unpacked
+          python3 tools/extract_appended_fdt.py stock/unpacked/kernel --index 0 --compatible qcom,sdm660 --model-contains 'SDM 660' --output stock/unpacked/dtb
+          test -s stock/unpacked/dtb
+          python3 - <<'PY'
+          import os, re
+          t = open("stock/unpacked/header.txt", encoding="utf-8").read()
+          m = re.search(r"os_version: 0x([0-9a-fA-F]+)", t)
+          v = int(m.group(1), 16) if m else 0
+          major, minor, patch = (v >> 25) & 127, (v >> 18) & 127, (v >> 11) & 127
+          year, month = 2000 + ((v >> 4) & 127), v & 15
+          version, level = (f"{major}.{minor}.{patch}", f"{year}-{month:02d}") if 1 <= month <= 12 else ("15.0.0", "2025-03")
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"OS_VERSION={version}\nOS_PATCH_LEVEL={level}\n")
+          PY
+
+      - name: Generate Lavender ADT
+        run: |
+          mkdir -p artifacts
+          python3 tools/mkadt-lavender.py artifacts/lavender.adt --boot-mpidr 0x100 --check
+
+      - name: Build XNU payload
+        run: |
+          set -euo pipefail
+          file "$KERNEL_PATH"
+          python3 tools/mkpayload.py "$KERNEL_PATH" artifacts/lavender.adt artifacts/lavender-payload.bin --machine LAVENDER --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1'
+
+      - name: Build RAM-only fastboot image
+        env:
+          TARGET: lavender
+          DTB_PATH: ${{ github.workspace }}/stock/unpacked/dtb
+        run: |
+          set -euo pipefail
+          bash shim/build.sh "$GITHUB_WORKSPACE/artifacts/lavender-payload.bin"
+          test -s shim/out/shim-boot.img
+          cp shim/out/shim-boot.img iosboot.img
+
+      - name: Verify image contents and calculate SHA-256
+        run: |
+          set -euo pipefail
+          python3 tools/unpack_bootv2.py iosboot.img artifacts/verify
+          cmp artifacts/verify/kernel "$KERNEL_PATH"
+          cmp artifacts/verify/ramdisk artifacts/lavender-payload.bin
+          cmp artifacts/verify/dtb stock/unpacked/dtb
+          test -s iosboot.img
+          sha256sum iosboot.img | tee SHA256SUMS
+          {
+            echo "source_workflow_run_id=$SOURCE_RUN_ID"
+            echo "source_commit=$SOURCE_SHA"
+            echo "target=Redmi Note 7 / lavender / SDM660"
+            echo "mode=RAM-only fastboot boot; never flash"
+            echo "bootargs=debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1"
+            stat -c 'iosboot.img_size_bytes=%s' iosboot.img
+            cat SHA256SUMS
+          } > BUILD-MANIFEST.txt
+          cat BUILD-MANIFEST.txt
+
+      - name: Upload verified iosboot.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavender-fastboot-boot-test
+          path: |
+            iosboot.img
+            SHA256SUMS
+            BUILD-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 30
