@@ -85,6 +85,48 @@ def main():
     require("IOWorkLoop::workLoop()" not in root_body and "registerService()" not in root_body,
             "service matching/workloop setup must remain in the later lockdown path")
 
+    dt_support = (root / "iokit/Kernel/IODeviceTreeSupport.cpp").read_text()
+    alloc_start = dt_support.index("IODeviceTreeAlloc( void * dtTop )")
+    alloc_end = dt_support.index("\n}\n#endif", alloc_start)
+    alloc_body = dt_support[alloc_start:alloc_end]
+    ordered_numbers(
+        alloc_body, list(range(133, 147)), "IODeviceTreeAlloc",
+        macro="LAVENDER_DEVICE_TREE_TRACE"
+    )
+    require(
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(137") <
+        alloc_body.index("MakeReferenceTable((DTEntry)dtTop") <
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(138"),
+        "root DeviceTree conversion markers do not bracket MakeReferenceTable"
+    )
+    require(
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(140") <
+        alloc_body.index("SecureDTInitEntryIterator((DTEntry)dtTop") or
+        alloc_body.index("SecureDTInitEntryIterator((DTEntry)dtTop") <
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(140"),
+        "DeviceTree iterator checkpoint does not bracket iterator initialization"
+    )
+    require(
+        "if ((lavenderNodeIndex % 4) == 0 || lavenderNodeIndex >= 18)" in alloc_body and
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(141") <
+        alloc_body.index("child = MakeReferenceTable( dtChild"),
+        "bounded per-child progress checkpoint is missing or occurs after child conversion"
+    )
+    require(
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(142") <
+        alloc_body.index("parent->attachToParent( IORegistryEntry::getRegistryRoot()") <
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(143"),
+        "DeviceTree walk/registry attach checkpoints are out of order"
+    )
+    require(
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(144") <
+        alloc_body.index("while ((child = regIter->getNextObject()))") <
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(145") <
+        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(146") <
+        alloc_body.index("return parent;"),
+        "interrupt-map walk and allocator return checkpoints are out of order"
+    )
+
     early = (root / "osfmk/arm64/lavender_early.c").read_text()
     trace_start = early.index("lavender_early_trace_startup(unsigned int event")
     trace_end = early.index("lavender_early_logo(void)", trace_start)
@@ -100,7 +142,24 @@ def main():
         130: "IOKIT ROOT REGISTRY INIT RETURNED ok=",
         131: "IOKIT ROOT REGISTRY FALLBACK BEGIN",
         132: "IOKIT ROOT REGISTRY FALLBACK RETURNED ok=",
+        133: "DT ALLOC ENTER dt=",
+        134: "DT PLANE READY ptr=",
+        135: "DT SYMBOLS READY name=",
+        136: "DT GLOBALS READY resolvers=",
+        137: "DT ROOT BUILD BEGIN dt=",
+        138: "DT ROOT BUILD DONE entry=",
+        139: "DT STACK READY ptr=",
+        140: "DT ITERATOR READY root=",
+        141: "DT CHILD BUILD n=",
+        142: "DT WALK DONE nodes=",
+        143: "DT ROOT ATTACHED ptr=",
+        144: "DT INTERRUPT WALK READY iter=",
+        145: "DT INTERRUPT WALK DONE map=",
+        146: "DT ALLOC RETURN root=",
     }
+    for event in range(133, 147):
+        require(re.search(rf'case {event}:.*?"[^"\\n]+"', trace) is not None,
+                f"trace renderer case {event} is missing")
     for event, label in expected.items():
         case = re.search(rf'case {event}:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)
         require(case is not None and f'"{label}"' in case.group(1),
