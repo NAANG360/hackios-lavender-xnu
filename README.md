@@ -22,7 +22,7 @@ This repository is working toward running Apple's open-source **XNU 8796** kerne
 
 Run #358 passed the complete XNU 8796 build, Lavender source/IOKit trace verification (including patch 0127 events 126–132), linked ARM64 Mach-O verification, and downstream RAM-only fastboot-image packaging. The downloaded artifact was independently extracted; `SHA256SUMS` passed and the image hash matches `BUILD-MANIFEST.txt`. Manifest bootargs are `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. This is a verified diagnostic boot package, **not** a completed iOS installation and not proof that it has booted successfully on the handset.
 
-The supplied 18 November videos show an older image whose exact SHA-256 has not been established. The final visible marker is **`IOKIT ROOT NUB ALLOCATED`**. Do not attribute that footage to Run #357 or Run #358, or use it as proof of the current source revision's physical behavior.
+The earlier 18 November clips ending at `IOKIT ROOT NUB ALLOCATED` remain unbound to an image hash. A further recording (`1000318056.mp4`) shows a physical shim-to-XNU transition and early/platform milestones, with generic post-platform trace rows clearly readable through event 106; the later lower rows are not legible enough to establish events 126–132. The video does not show the host-side image SHA-256 or the associated `fastboot boot` invocation, so it is **not yet verified as a Run #358 physical test**. Do not infer root-nub success or failure, or attribute it to Run #358, until the host-side hash matches the accepted artifact.
 
 ## Current engineering focus
 
@@ -113,7 +113,7 @@ This loads the image temporarily; it is not a flash operation. Preserve `cpus=1`
 
 - No verified BSD init, VFS/root mount, launchd, SpringBoard, or complete Darwin userspace boot.
 - No accepted physical boot result for the Run #358 image.
-- No accepted compile/package result yet for patch 0127.
+- Patch 0127 (root-nub trace events 126–132) passed the complete Run #358 source, build, linked-kernel verification and RAM-only package gates.
 - No Lavender eMMC root driver or safe root-mount path is accepted as working.
 - Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPU acceleration, and other iPhone services are not established.
 
