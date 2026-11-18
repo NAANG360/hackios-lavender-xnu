@@ -34,8 +34,7 @@ def ensure_post_platform_renderer():
     lavender = LAVENDER_SOURCE.read_text()
     # IOKit bring-up checkpoints are injected after the historical combined
     # source has been split. Patch 0126 runs before this file exists.
-    trace_anchor = '\tcase 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;'
-    trace_labels = (
+    trace_anchor = '\tcase 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;'    trace_labels = (
         '\n\tcase 107: lavender_trace_append_text(text, &length, "PE_INIT_IOKIT ENTER"); break;'
         '\n\tcase 108: lavender_trace_append_text(text, &length, "PE_INIT_PRINTF DONE"); break;'
         '\n\tcase 109: lavender_trace_append_text(text, &length, "IBOOT VERSION PRINT DONE"); break;'
@@ -55,6 +54,9 @@ def ensure_post_platform_renderer():
         '\n\tcase 123: lavender_trace_append_text(text, &length, "IOKIT INIT DONE"); break;'
         '\n\tcase 124: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE BEGIN"); break;'
         '\n\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
+    )
+    )
+    root_init_trace_labels = (
         '\n\tcase 126: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB INIT ENTER dtRoot="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 127: lavender_trace_append_text(text, &length, "IOKIT DEVICE TREE ALLOC BEGIN dtRoot="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 128: lavender_trace_append_text(text, &length, "IOKIT DEVICE TREE ALLOC RETURNED dt="); lavender_trace_append_hex(text, &length, a); break;'
@@ -67,6 +69,15 @@ def ensure_post_platform_renderer():
         if trace_anchor not in lavender:
             raise SystemExit("could not find event 46 anchor for IOKit trace labels")
         lavender = lavender.replace(trace_anchor, trace_anchor + trace_labels, 1)
+        LAVENDER_SOURCE.write_text(lavender)
+
+    if "case 132: lavender_trace_append_text" not in lavender:
+        if "case 126: lavender_trace_append_text" in lavender:
+            raise SystemExit("partial root-nub trace labels found; refusing to duplicate them")
+        root_anchor = '\\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
+        if root_anchor not in lavender:
+            raise SystemExit("could not find event 125 anchor for root-nub trace labels")
+        lavender = lavender.replace(root_anchor, root_anchor + root_init_trace_labels, 1)
         LAVENDER_SOURCE.write_text(lavender)
     old = ('default:\n\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\tbreak;')
