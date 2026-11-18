@@ -1,0 +1,40 @@
+--- a/iokit/Kernel/IOPlatformExpert.cpp
++++ b/iokit/Kernel/IOPlatformExpert.cpp
+@@ -2034,16 +2034,36 @@
+ 	return IODTCompareNubName( this, name, matched );
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern "C" void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++#define LAVENDER_ROOT_INIT_TRACE(event, value) \
++    sweet_early_trace_startup((event), (uintptr_t)(value), 0, 0, 0, 0)
++#else
++#define LAVENDER_ROOT_INIT_TRACE(event, value) do { } while (0)
++#endif
++
+ bool
+ IOPlatformExpertDevice::init(void *dtRoot)
+ {
+ 	IORegistryEntry *   dt = NULL;
+ 	bool                ok;
+ 
+-	if ((dtRoot != NULL) && (dt = IODeviceTreeAlloc(dtRoot))) {
++	LAVENDER_ROOT_INIT_TRACE(126, dtRoot); /* root nub init entered */
++	if (dtRoot != NULL) {
++		LAVENDER_ROOT_INIT_TRACE(127, dtRoot); /* device-tree allocation begin */
++		dt = IODeviceTreeAlloc(dtRoot);
++		LAVENDER_ROOT_INIT_TRACE(128, dt); /* device-tree allocation returned */
++	}
++
++	if (dt != NULL) {
++		LAVENDER_ROOT_INIT_TRACE(129, dt); /* registry superclass init begin */
+ 		ok = super::init( dt, gIODTPlane );
++		LAVENDER_ROOT_INIT_TRACE(130, ok); /* registry superclass init returned */
+ 	} else {
++		LAVENDER_ROOT_INIT_TRACE(131, 0); /* no device-tree registry; fallback init begin */
+ 		ok = super::init();
++		LAVENDER_ROOT_INIT_TRACE(132, ok); /* fallback init returned */
+ 	}
+ 
+ 	if (!ok) {
