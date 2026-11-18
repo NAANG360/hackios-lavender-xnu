@@ -726,3 +726,14 @@ No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash
 - Require the new XNU build and linked-kernel verification to pass, then require the separate RAM-only image package and manifest/SHA-256 checks.
 - The next physical recording should show which of events 107–125 is last. Only a new successful physical run through event 20 proves that the prior IOKit boundary was crossed.
 - Keep `cpus=1`; no GIC changes; physical tests remain RAM-only via `fastboot boot iosboot.img`. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve volume-key recovery.
+
+
+## Run #355 kernel-verifier rejection and correction — 18 November 2026
+
+- Run #355 (44264884787, commit 28aed7d5165e4b121436053c827c830151da8dcd) passed profile validation, Lavender ADT validation, XNU compilation, the cache-aware build check, the Lavender entry guard, the Group-1 virtual-timer verifier, and the IOKit platform/trace verifier.
+- The linked ARM64 Mach-O candidate was produced at 16,674,456 bytes and uploaded as artifact xnu-kernel-candidate (artifact ID 14410398528). The build log shows file identifying it as “Mach-O 64-bit executable arm64”.
+- The run failed in tools/verify-lavender-kernel.py with the exact message “missing Lavender identity strings: qcom,sdm660-mtp”. Consequently, the kernel-verification step failed, the cache-save and final packaging upload were skipped, and the separate RAM-only package job was skipped. Run #355 did not produce iosboot.img.
+- Inspected the exact Run #355 kernel candidate: it contains LavenderPlatformExpert, xiaomi,lavender, and Redmi Note 7; it does not contain qcom,sdm660-mtp. The compiled kernel’s ARM64 text contains the exact stage-8 and stage-9 publication instruction sequences required by the verifier (stage 8 at file offset 0x48b8c0, stage 9 at 0x48b94c). This independent inspection isolates the observed rejection to the stale identity expectation; it does not substitute for a successful rerun of the complete verifier.
+- The mainline Lavender DTS declares compatible = "xiaomi,lavender", "qcom,sdm660"; (see upstream sdm660-xiaomi-lavender.dts). The handset match in xnu/patches/0126-lavender-iokit-bringup.patch is correctly xiaomi,lavender. The verifier was still requiring the unrelated reference-board string qcom,sdm660-mtp.
+- Corrected tools/verify-lavender-kernel.py in commit bb32ac57b972e3adb29866d6e86e05ba57124476: expected identity is now LavenderPlatformExpert, xiaomi,lavender, and Redmi Note 7. No machine-profile, timer, GIC, CPU-count, or startup behavior was changed in this correction.
+- Acceptance remains pending until the new CI run passes the full linked-kernel verifier, completes the RAM-only image packaging job, and uploads a verified iosboot.img with matching manifest and SHA-256. A successful compile or raw kernel candidate alone is not a bootable image.
