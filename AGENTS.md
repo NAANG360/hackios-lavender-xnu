@@ -4,8 +4,9 @@
 - **Artifact:** `lavender-fastboot-boot-test`, ID `14445642030`; extracted `iosboot.img` is **16,617,472 bytes**, SHA-256 `b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`. The downloaded artifact's `SHA256SUMS` passes and matches `BUILD-MANIFEST.txt`. Artifact ZIP digest: `723a50d977358f356febe994429fcaf74cfcf85d0c652e6faa3fdf8348ef3eb5`.
 - Patch 0127 root-nub events 126–132 passed patch/source guards, splitter/label checks, IOKit verifier, XNU 8796 compile, linked ARM64 Mach-O verification and image packaging.
 - Bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. Preserve `cpus=1`; the no-fbcon argument gates the ordinary `fbcon_probe()` path only, not direct early framebuffer checkpoints.
-- This is a verified RAM-only diagnostic package, not a complete Darwin/userspace image and not evidence of physical boot. No fresh physical test of this exact hash has been supplied.
-- Earlier videos remain unbound to Run #358. Do not infer physical progress from them or attribute them to this image. Require a fresh recording tied to the image SHA-256.
+- This is a verified RAM-only diagnostic package, not a complete Darwin/userspace image. A fresh physical recording `1000318056.mp4` has been reviewed, but it is not checksum-bound to this hash; do not call it an exact Run #358 test.
+- The recording shows shim-to-XNU handoff, `ARM_INIT` console/platform milestones and generic post-platform event rows clearly readable through event 106. The later lower-console rows are obscured/blurred; events 126–132 cannot be transcribed reliably. Do not infer root-nub success/failure or attribute the footage to Run #358 until the host-side `iosboot.img` SHA-256 is confirmed.
+- Physical test only via `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/`userdata`/any partition. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete iOS userspace without direct evidence.
 - Physical test only via `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/`userdata`/any partition. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete iOS userspace without direct evidence.
 
 ---
