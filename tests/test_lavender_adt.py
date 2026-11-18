@@ -23,6 +23,20 @@ def run():
     root = mod.build(seed=bytes(range(64)), product_tree="/nonexistent/lavender-product.adt")
     blob = mod.adt.serialize(root)
     mod.check(blob)
+    # Every emitted ADT property key must fit its fixed 32-byte C-string field.
+    pending = [root]
+    while pending:
+        current = pending.pop()
+        for key, _flags, _value in current.props:
+            assert 0 < len(key.encode("ascii")) < 32, key
+        pending.extend(current.children)
+    try:
+        mod.node("invalid", [("x" * 32, b"bad")])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("32-byte non-NUL-terminated ADT property name was accepted")
+
     parsed, end = mod.adt.parse(blob)
     assert end == len(blob)
     chosen = props(child(parsed, "chosen"))
@@ -73,6 +87,8 @@ def run():
     i2c = child(arm_io, "i2c0")
     touch = child(i2c, "novatek-touchscreen")
     tp = props(touch)
+    assert tp["lavender,gpio-compat"] == mod.cstr("qcom,sdm660-pinctrl")
+    assert "lavender,gpio-controller-compatible" not in tp
     assert struct.unpack("<I", tp["reg"])[0] == 0x62
     assert struct.unpack("<I", tp["lavender,irq-gpio-number"])[0] == 67
     assert struct.unpack("<I", tp["lavender,reset-gpio-number"])[0] == 66
