@@ -8,16 +8,15 @@ Read this file, inspect the live branch/Actions state, then load only the routed
 
 ## Current milestone — 18 November 2026
 
-- **Latest accepted image:** Run #349 ([44228087165](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44228087165)), source commit `d5c8979a8d660d06fe75ef2dc769a6b875c520ac`; artifact `14395081384`, `lavender-fastboot-boot-test`. The image is 16,617,472 bytes with SHA-256 `76ee03dc1b97fc3786344d543921a03758b2abefcd70f4d52c8ed35898aee38f`; downloaded and independently verified against its manifest and `SHA256SUMS`.
-- **Latest physical evidence:** recording `1000317986.mp4` (~106.2 seconds), user-attributed to the latest Run #349 test but not checksum-bound. It shows POST-PLATFORM trace through event 106 and KBOOT progress through `KBOOT SCHED DONE`, followed by `KBOOT IOKIT BEGIN`. The screen remains static for ~80 seconds and goes dark near the end; no readable panic/reset reason is captured.
-- **Current boundary:** kernel bootstrap scheduler startup visibly completed; kernel initialization has begun. No evidence yet of BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace. Next: trace event 19 (`KBOOT IOKIT BEGIN`) to event 20 (`KBOOT IOKIT DONE`) around `PE_init_iokit()`; add narrowly scoped checkpoints inside that path.
-- **GIC:** the earlier event-102 affinity-routing panic is not visible in this recording; event 106 is reached. Do not change GIC configuration without fresh panic evidence.
-- **Recovery:** retain the confirmed independent volume-key recovery/reset route.
-- **Boot safety:** RAM-only `fastboot boot iosboot.img` only. Never flash, erase, repartition or write Android eMMC/userdata. Preserve `cpus=1`.
-- Branch: `ci/lavender-machine-profile`
-- Device: Redmi Note 7/7S `lavender`, Qualcomm SDM660 / Kryo 260, ARM64
-- Kernel: XNU 8796, iOS 16 generation
-- Intended Darwin userspace reference: iPhone X iOS 16.7.16 (20H392)
+- **Active branch:** `ci/lavender-machine-profile`. Resolve the live HEAD and newest Actions run before engineering work; this file is a historical/continuity index, while the routed current debugging record is `docs/handoff/03-current-debugging.md`.
+- **Latest accepted CI image:** Run [#357 / 44271639569](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569), source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`. Artifact `lavender-fastboot-boot-test`, ID `14414465679`, contains `iosboot.img` (16,617,472 bytes), SHA-256 `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f`. The image hash matches `BUILD-MANIFEST.txt` and `SHA256SUMS`.
+- Run #357 passed the XNU build/source-verification job and separate RAM-only package job. This is a verified diagnostic package, not a completed Darwin system and not proof of a successful physical boot.
+- **Latest supplied footage:** the 18 November videos show an older, unbound image. The last readable marker is `IOKIT ROOT NUB ALLOCATED` (not ROOT MAP). Do not attribute the footage to Run #357 or to the current source revision; no tested-image SHA-256 was supplied.
+- **Source diagnosis:** in the exact Run #357 buildtree, event 120 is followed by `gRootNub->init(dtTop)`. That calls `IODeviceTreeAlloc(dtRoot)` and then the registry superclass initializer, or a fallback superclass initializer. Workloop creation and `registerService()` happen later and are not the operation at this boundary.
+- **New targeted patch:** `xnu/patches/0127-lavender-root-nub-init-trace.patch` adds events 126–132 around root-nub init, device-tree allocation, registry superclass init and fallback init. The early-source splitter, IOKit verifier and XNU workflow were updated to generate, validate and require these events. Patch application and local source-level checks passed; full CI compile, linked verification and packaging for patch 0127 are **not yet accepted**.
+- **Next acceptance gate:** run the guarded XNU workflow once; require patch application, all Lavender source guards, XNU compilation, linked Mach-O verification and kernel artifact upload. Only then run the separate manual RAM-only package workflow against that exact successful XNU run ID. Verify the image manifest and SHA-256 before any device test.
+- **Target:** Xiaomi Redmi Note 7 / Note 7S `lavender`, Qualcomm SDM660 / Kryo 260, ARM64. Kernel: XNU 8796 (iOS 16 generation). Longer-term userspace reference: iPhone X iOS 16.7.16 (20H392).
+- **Physical test constraints:** `fastboot boot iosboot.img` only; preserve `cpus=1` and the confirmed volume-key recovery route. Never flash, erase, format, repartition, or write Android eMMC or `userdata`. No BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace is established.
 
 ## Previous accepted operations — Run #300 (superseded by Run #302)
 
@@ -65,21 +64,18 @@ The user explicitly rejects the custom approximation and requires the actual App
 - **Visual status:** the genuine AppleLogo itself was physically observed earlier. The post-logo 0115/0116 trace overlay is not yet accepted in a packaged artifact or physically verified; pre-logo console replay remains a separate gap.
 
 
-## Current engineering direction
+## Historical storage/root planning — superseded; do not execute
 
-1. Accept #268 only after the AppleLogo prep guard, XNU compile, linked Mach-O verification and RAM-only package all pass.
-2. Use Lavender's **internal eMMC on SDHC1** as the iOS root target, stored in the existing `userdata` partition. Do not use removable SDHC2 as the root plan. The Build 4 FDT identifies SDHC1 at `0x0c0c4000` as an 8-bit, non-removable host with CQE/ICE resources; target-specific register, clock, rail and interrupt details still require exact audit.
-3. Borrow Topaz's proven deployment architecture: an HFS+ iOS 20H392 root on `userdata`, XNU booted from RAM, and the root selected through a BSD block-device/root hook. Topaz uses UFS 3.0; Lavender needs its own SDHCI/eMMC transport and must not inherit Topaz UFS registers, descriptors or protocol.
-4. Start with a non-destructive SDHC1 probe and read-only PIO discovery, then GPT and HFS+ reads. Add controlled writes only for the explicitly designated `userdata` root image after the read path and recovery procedure are validated. Never write other eMMC partitions.
-5. Keep Android's boot/system/vendor/recovery/modem/persist partitions intact. The iOS `userdata` image will replace Android user data; returning to Android means using recovery to wipe/format `userdata`, not restoring an SD card or reflashing Android boot partitions. This is expected to erase personal data in `userdata`.
-6. Mount the 20H392 HFS+ root and cryptex/dyld paths, then bring up launchd and essential daemons. IOMobileFramebuffer, input and SpringBoard are later. Do not append the 16 GiB root image to RAM: current ADT has only roughly 1.10 GiB left after the kernel.
+The following older notes discussed a possible HFS+ root on the existing `userdata` partition. They are retained only as project history. They are **not current implementation instructions or authorization**. Current device authorization is RAM-only kernel testing; no partition writes are permitted.
 
-**Read now:** Chapter 03 for the live build; Chapter 05 for genuine logo, post-logo kernel, SDHC1/eMMC `userdata` root and Darwin userspace.
+- Any future SDHC1/eMMC discovery, GPT/HFS+ work, root mounting, or root-image plan must first be re-audited against current hardware evidence and documented in a new proposal.
+- Do not create, flash, erase, format, repartition, or write an iOS root image to `userdata` or any other eMMC partition.
+- Any future storage-write work requires a separate explicit user decision and a reviewed data-loss/recovery plan. Preserve Android user data and all partitions in the meantime.
+- The target-specific SDHC1/eMMC transport, power sequencing, read-only discovery and root mount are not accepted as implemented.
 
 ## Safety
 
-The user confirms the volume-key reset/recovery route works despite the broken power button. Preserve that route and verify the exact recovery behavior in the device procedure before any destructive `userdata` operation. RAM-only `fastboot boot iosboot.img` remains the kernel bring-up path. A later explicit `userdata` image write is in scope; no boot-critical, recovery, modem, persist or non-userdata partition writes are authorized. Wiping/formatting `userdata` is the planned Android-return path and destroys Android user data.
-
+Use only RAM-only `fastboot boot iosboot.img` for current kernel bring-up. Never run `fastboot flash`, erase, format or repartition commands. Never write Android eMMC, `userdata`, boot, vendor_boot, recovery, modem, persist, or any other partition. Preserve `cpus=1` and the independent volume-key recovery route. A visible logo or checkpoint is not proof of Darwin userspace.
 
 ## Latest CI correction — Run #286 (16 November 2026)
 
