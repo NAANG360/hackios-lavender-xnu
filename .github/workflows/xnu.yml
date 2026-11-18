@@ -125,7 +125,7 @@ jobs:
           arch_old = 'ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"'
           # Only the plain arm64 slice is needed by Lavender. Avoid x86_64
           # rejecting ARM flags and arm64e's pointer-authenticated codegen.
-          arch_new = 'ARCHS="arm64" VALID_ARCHS="arm64" OTHER_CFLAGS=\'$(inherited) -march=armv8-a\''
+          arch_new = 'ARCHS="arm64" VALID_ARCHS="arm64" OTHER_CFLAGS=\'$(inherited) -march=armv8-a -mno-outline-atomics -Xclang -target-feature -Xclang -lse\''
           if source.count(arch_old) != 1:
               raise SystemExit("pinned libfirehose_kernel xcodebuild architecture setting changed")
           source = source.replace(arch_old, arch_new, 1)
@@ -154,7 +154,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v5-armv8a-firehose-generic-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
+          key: xnu8796-v6-armv8a-firehose-no-lse-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
           restore-keys: |
             xnu8796-v4-armv8a-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
             xnu8796-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-
@@ -214,7 +214,11 @@ jobs:
             # The old v4 cache also retained libfirehose_kernel.a and its object
             # tree. Upstream build_libdispatch only rebuilds when the archive is
             # absent, so explicitly discard both before compiling this arm64 slice.
+            # Upstream Xcode first emits liblibfirehose_kernel.a, then moves it
+            # to libfirehose_kernel.a. Remove both names so no stale intermediate
+            # archive can survive a partial or interrupted previous build.
             rm -f dxb/fakeroot/usr/local/lib/kernel/libfirehose_kernel.a
+            rm -f dxb/fakeroot/usr/local/lib/kernel/liblibfirehose_kernel.a
             rm -rf dxb/build/libfirehose_kernel.obj dxb/build/libfirehose_kernel.sym
           else
             cached_kernel="dxb/build/xnu.obj/kernel.${kernel_config}.${machine_config}"
