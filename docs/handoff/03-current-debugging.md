@@ -1,7 +1,7 @@
 # Chapter 3 — Current debugging state
 
 **Branch:** `ci/lavender-machine-profile`
-**Current branch HEAD:** `e113ba2f8f5a5815b98835ffdb90f902b97d6cd6` (documentation follow-ups after the tested source commit).
+**Branch tip:** documentation-only follow-ups are layered after the tested source commit; resolve the live branch HEAD before further engineering.
 **Latest accepted CI image:** Run [#358 / 44339488789](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789), source commit `f1f633f9ac1887736f17937c38eb6c32de489160`.
 **Run #358 result:** both `build` and `Package RAM-only Lavender fastboot image` jobs completed with `success`. The build passed machine-profile and ADT topology validation, XNU 8796 compilation, cache-aware build-path check, Lavender entry-guard check, non-secure Group-1 virtual-timer contract, IOKit platform/trace verifier, kernel artifact verification and upload. The package job passed ARM64 Mach-O selection, pinned OTA/DTB extraction, Lavender ADT generation, payload construction, boot-image construction, structural and byte-identity checks, checksum generation and artifact upload.
 **Artifact:** `lavender-fastboot-boot-test`, ID `14445642030`; artifact ZIP digest reported by GitHub: `sha256:723a50d977358f356febe994429fcaf74cfcf85d0c652e6faa3fdf8348ef3eb5`. Extracted `iosboot.img`: **16,617,472 bytes**, SHA-256 **`b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`**. Downloaded artifact's `SHA256SUMS` passes independently; the image hash equals `BUILD-MANIFEST.txt`. Image identified as Android boot image, 4096-byte pages.
@@ -851,7 +851,7 @@ The splitter was made cache-safe: cached generated `lavender_early.c` containing
 ### Validation and acceptance
 
 - Patch 0127 dry-run and application succeeded against the extracted Run #357 `xnu-buildtree` artifact. Local structural checks passed for the seven new markers and confirmed that the panic/synchronous-exception hooks already exist.
-- The updated XNU workflow requires patch 0127. **No new CI build, linked-kernel verification, or packaged image has passed yet.** Run #357 remains the latest accepted image.
+- The updated XNU workflow requires patch 0127. At the time of this historical entry, the full CI acceptance was pending; this was superseded by Run #358, which passed the full build, verifier, linked-kernel and package gates.
 - On the next accepted candidate, preserve `cpus=1` and test only with RAM-only `fastboot boot iosboot.img`. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace without direct evidence.
 
 
@@ -861,4 +861,4 @@ The splitter was made cache-safe: cached generated `lavender_early.c` containing
 - Updated `PROJECT_HANDOFF.md` current status to Run #357 and patch 0127. Older run records remain as historical notes; the previous `userdata` root-image plan is explicitly superseded and is not authorization to write the device.
 - Updated Chapter 01 to make current authorization unambiguous: RAM-only `fastboot boot iosboot.img`; no flash, erase, format, repartition, or write to eMMC/`userdata` or any other partition. Any future storage-write proposal requires separate explicit approval.
 - Corrected the case-block delimiter regex in `tools/verify-lavender-iokit.py` (commit `ebfbf9e83e3074a7e705c74ac6f5fc9407e38cb6`). A local check against the real Run #357 source layout confirms the 0127 patch dry-runs and applies cleanly, the seven trace points bracket the intended branches, and the corrected regex isolates a trace case correctly. The full workflow verifier, XNU compile, linked-kernel verification and package have not yet passed for patch 0127.
-- Documentation changes do not themselves constitute a build or physical test. Run #357 remains the latest accepted packaged image until a later complete run passes all gates.
+- Documentation changes do not themselves constitute a build or physical test. Run #357 was the latest accepted packaged image at that time; Run #358 is now the latest accepted image.
