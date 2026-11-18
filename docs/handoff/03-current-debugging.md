@@ -871,3 +871,58 @@ The splitter was made cache-safe: cached generated `lavender_early.c` containing
 - Updated Chapter 01 to make current authorization unambiguous: RAM-only `fastboot boot iosboot.img`; no flash, erase, format, repartition, or write to eMMC/`userdata` or any other partition. Any future storage-write proposal requires separate explicit approval.
 - Corrected the case-block delimiter regex in `tools/verify-lavender-iokit.py` (commit `ebfbf9e83e3074a7e705c74ac6f5fc9407e38cb6`). A local check against the real Run #357 source layout confirms the 0127 patch dry-runs and applies cleanly, the seven trace points bracket the intended branches, and the corrected regex isolates a trace case correctly. The full workflow verifier, XNU compile, linked-kernel verification and package have not yet passed for patch 0127.
 - Documentation changes do not themselves constitute a build or physical test. Run #357 was the latest accepted packaged image at that time; Run #358 is now the latest accepted image.
+
+
+## DeviceTree allocator stall — 18 November 2026
+
+### Physical boundary
+
+- The clearest extracted frame from Screenshot_20261118_225105_Video Player.png visibly ends with:
+  - IOKIT ROOT NUB INIT ENTER dtRoot=0xffffff8000018520
+  - IOKIT DEVICE TREE ALLOC BEGIN dtRoot=0xffffff8000018520
+- The user reports the handset remained on this screen and subsequently displayed the A53 Guardian's last-marker line.
+- This confirms event 127 was rendered in that recording. It does not prove that IODeviceTreeAlloc() never entered or identify the exact instruction where execution stopped. No complete, independently legible Guardian hexadecimal value or host-side image SHA-256 was supplied, so the clip remains unbound to a specific accepted image.
+
+### Run #358 ADT inspection
+
+- The exact Run #358 lavender.adt is 10,392 bytes and its parsed structure ends exactly at the declared blob end.
+- A host-side reproduction of XNU's depth-first child iteration reaches all 25 nodes with no bounds violation. This is a structural check, not execution of XNU's allocator.
+- One definite ADT-format defect was found at arm-io/i2c0/novatek-touchscreen: property key lavender,gpio-controller-compatible is longer than the fixed 32-byte property-name field. The serializer truncated it to lavender,gpio-controller-compati with no NUL inside that field. The following property-length word contains 0x14 00..., so a C-string reader can consume one byte beyond the name field before it finds a NUL. This is malformed input, but is not independently proven to be the hang cause.
+- tools/mkadt-lavender.py now uses the shorter key lavender,gpio-compat, rejects non-ASCII or 32-byte-and-longer property names at generation time, and validates the parsed serialized tree. tests/test_lavender_adt.py checks the field and rejects a 32-byte property name. The Lavender shim/ADT workflow passed on commit 040b55e2880f1b2f73de3454302f4196b374fd8b (Run #53).
+
+### Patch 0128 — allocator phase and child-walk checkpoints
+
+xnu/patches/0128-lavender-device-tree-allocator-trace.patch adds the following checkpoints inside IODeviceTreeAlloc():
+
+| Event | Label | Meaning |
+|---:|---|---|
+| 133 | DT ALLOC ENTER | Entered the allocator |
+| 134 | DT PLANE READY | Registry plane creation returned |
+| 135 | DT SYMBOLS READY | Base DeviceTree symbols initialized |
+| 136 | DT GLOBALS READY | IOKit DeviceTree globals/resolver initialized |
+| 137–138 | DT ROOT BUILD BEGIN/DONE | Root MakeReferenceTable() call |
+| 139 | DT STACK READY | Traversal stack allocation returned |
+| 140 | DT ITERATOR READY | Secure entry iterator initialized |
+| 141 | DT CHILD BUILD n=N | About to convert child N; sampled every fourth early child, then every child from 18 onward |
+| 142 | DT WALK DONE | Depth-first tree conversion completed |
+| 143 | DT ROOT ATTACHED | Converted root attached to registry root |
+| 144–145 | DT INTERRUPT WALK READY/DONE | Interrupt-sharing map pass |
+| 146 | DT ALLOC RETURN | Allocator is about to return its root registry entry |
+
+Child 20 is specifically useful because the malformed Novatek property occurs at that position in the reproduced depth-first traversal. Event 141 is emitted before MakeReferenceTable(dtChild), so a Guardian marker containing event 141 and child index 20 would identify that conversion as the in-progress operation. The bounded sampling keeps console output manageable while retaining all late child positions.
+
+### Guardian progress-marker correction
+
+- Prior Guardian behavior observed only the early-stage shared marker. Stage 20 published 0x80000114 (high bit means early-boot handoff completed; low field identifies stage 20). Later lavender_early_trace_startup() events were deliberately not published to the Guardian cell, so the A53 could report stage 20 even while XNU continued into IOKit. That stale marker was not a reliable late-startup stopping point.
+- The splitter now marks stage-20 completion and publishes subsequent event progress to the same shared cell while preserving the high-bit handoff flag. New encoding is 0x80010000 | (event << 8) | substage; for event 141, the low byte carries the child index. Example: event 141 at child 20 is 0x80018D14.
+- The early console prints only every fourth generic event in range 47–106 (plus event 106), but all events still update the Guardian cell. Empty throttled events return before consuming a framebuffer row. This preserves room for the allocator's new detailed checkpoints.
+
+### Validation status
+
+- Patch 0128 passed a local patch --dry-run against the clean Run #358 IODeviceTreeSupport.cpp.
+- The first attempt at the splitter's insertion order failed before compilation (Run #361); the helper was rewritten to inject PE events 107–125, root-nub events 126–132, then allocator events 133–146 idempotently.
+- Follow-on changes tightened tools/verify-lavender-iokit.py to check source ordering, trace labels, late Guardian marker encoding, child-index payload, and bounded generic console output. .github/workflows/xnu.yml requires patch 0128.
+- The latest head includes these changes; guarded XNU workflow Run #371 is the current validation candidate and was queued at the time of this entry. No image from Runs #359–#371 is accepted until the full XNU build, source guards, linked ARM64 Mach-O checks, and RAM-only package verification all pass.
+- Run #358 remains the latest accepted diagnostic image at this checkpoint. Do not treat it as a physical-test match without the exact host-side SHA-256.
+
+Continue with RAM-only fastboot boot iosboot.img, preserve cpus=1, and keep volume-key recovery available. Never flash, erase, format, repartition, or write Android eMMC/userdata or any other partition.
