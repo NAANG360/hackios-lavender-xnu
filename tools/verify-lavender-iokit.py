@@ -177,6 +177,10 @@ def main():
                 f"trace renderer event {event} must display {label!r}")
     require("event >= 47 && event <= 106" in trace,
             "existing POST-PLATFORM event range must remain unchanged")
+    require("((event - 47) % 4) == 0 || event == 106" in trace,
+            "generic platform console output must be throttled to preserve late IOKit rows")
+    require("if (length == 0) return;" in trace,
+            "throttled generic events must not consume blank console rows")
     print("PASS: Lavender IOKit platform match, InitIOKit boundaries, root-nub init branches, and trace labels 126–132")
     
 
