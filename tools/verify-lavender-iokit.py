@@ -126,6 +126,17 @@ def main():
     )
 
     early = (root / "osfmk/arm64/lavender_early.c").read_text()
+    require("static unsigned int lavender_guard_stage20_complete;" in early,
+            "late-progress Guardian stage-20 state is missing")
+    stage20_store = early.index("*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);")
+    stage20_done = early.index("if (stage == 20) lavender_guard_stage20_complete = 1;", stage20_store)
+    trace_publish = early.index("*early_guard_cell = 0x80010000u | (event & 0xffffu);")
+    trace_fn = early.index("lavender_early_trace_startup(unsigned int event")
+    require(stage20_store < stage20_done < trace_fn < trace_publish,
+            "late Guardian event publication must begin only after stage 20")
+    require('dc cvac, %0' in early[trace_publish:trace_publish + 220],
+            "late Guardian event marker must be cleaned to shared memory")
+
     trace_start = early.index("lavender_early_trace_startup(unsigned int event")
     trace_end = early.index("lavender_early_logo(void)", trace_start)
     trace = early[trace_start:trace_end]
