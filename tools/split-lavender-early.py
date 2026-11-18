@@ -55,6 +55,13 @@ def ensure_post_platform_renderer():
         '\n\tcase 123: lavender_trace_append_text(text, &length, "IOKIT INIT DONE"); break;'
         '\n\tcase 124: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE BEGIN"); break;'
         '\n\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
+        '\n\tcase 126: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB INIT ENTER dtRoot="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 127: lavender_trace_append_text(text, &length, "IOKIT DEVICE TREE ALLOC BEGIN dtRoot="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 128: lavender_trace_append_text(text, &length, "IOKIT DEVICE TREE ALLOC RETURNED dt="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 129: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY INIT BEGIN dt="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 130: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY INIT RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
+        '\n\tcase 131: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK BEGIN"); break;'
+        '\n\tcase 132: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
     )
     if "case 125: lavender_trace_append_text" not in lavender:
         if trace_anchor not in lavender:
