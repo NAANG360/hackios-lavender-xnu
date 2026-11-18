@@ -155,13 +155,16 @@ def ensure_post_platform_renderer():
            '\t\tbreak;')
     new = ('default:\n'
            '\t\tif (event >= 47 && event <= 106) {\n'
-           '\t\t\tlavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");\n'
-           '\t\t\tlavender_trace_append_decimal(text, &length, event);\n'
-           '\t\t\tif (a != 0 || b != 0) {\n'
-           '\t\t\t\tlavender_trace_append_text(text, &length, " a=");\n'
-           '\t\t\t\tlavender_trace_append_hex(text, &length, a);\n'
-           '\t\t\t\tlavender_trace_append_text(text, &length, " b=");\n'
-           '\t\t\t\tlavender_trace_append_hex(text, &length, b);\n'
+           '\t\t\t/* Keep console rows for late IOKit diagnostics; Guardian still records every event. */\n'
+           '\t\t\tif (((event - 47) % 4) == 0 || event == 106) {\n'
+           '\t\t\t\tlavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");\n'
+           '\t\t\t\tlavender_trace_append_decimal(text, &length, event);\n'
+           '\t\t\t\tif (a != 0 || b != 0) {\n'
+           '\t\t\t\t\tlavender_trace_append_text(text, &length, " a=");\n'
+           '\t\t\t\t\tlavender_trace_append_hex(text, &length, a);\n'
+           '\t\t\t\t\tlavender_trace_append_text(text, &length, " b=");\n'
+           '\t\t\t\t\tlavender_trace_append_hex(text, &length, b);\n'
+           '\t\t\t\t}\n'
            '\t\t\t}\n'
            '\t\t} else {\n'
            '\t\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
@@ -172,6 +175,18 @@ def ensure_post_platform_renderer():
             raise SystemExit("could not find expected Lavender trace renderer to upgrade")
         lavender = lavender.replace(old, new, 1)
         LAVENDER_SOURCE.write_text(lavender)
+
+    latest = LAVENDER_SOURCE.read_text()
+    length_marker = "\ttext[length] = '\\0';"
+    if "if (length == 0) return;" not in latest:
+        if latest.count(length_marker) != 1:
+            raise SystemExit("could not locate unique trace text terminator")
+        latest = latest.replace(
+            length_marker,
+            "\tif (length == 0) return;\n" + length_marker,
+            1
+        )
+        LAVENDER_SOURCE.write_text(latest)
 
     ensure_guardian_late_progress()
 
