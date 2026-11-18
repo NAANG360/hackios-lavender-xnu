@@ -1,3 +1,13 @@
+## Run #352 failure — patch phase precedes Lavender source split; corrected — 18 November 2026
+
+- Run [#352 / 44262063956](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44262063956), commit `6cfa604a02516d3016671d7a8526cee4f8c5283d`, again compiled XNU but failed the required entry-guard gate; packaging was skipped.
+- Inspected the exact `xnu-build-log` artifact (`14408748561`) and buildtree (`14408873436`). The exact reason was `0126-lavender-iokit-bringup.patch` skipped with `error: osfmk/arm64/lavender_early.c: No such file or directory`. The workflow applies the complete XNU patch stack first, then runs `tools/split-lavender-early.py`; therefore `lavender_early.c` does not exist when patch 0126 is applied. This is a build-phase ordering issue, not a compile/runtime failure. The buildtree confirms the split script later generated `lavender_early.c`.
+- Corrective design: keep patch 0126 limited to the pre-split XNU files (`IOStartIOKit.cpp`, `KernelConfigTables.cpp`, and `pe_init.c`); remove its direct diff against the not-yet-created Lavender early source. Move event-label insertion (107–125) into `ensure_post_platform_renderer()` in `tools/split-lavender-early.py`, which runs after the source split and is also idempotent for already-split source trees.
+- Follow-up commits: `4e742376c65a60807651180d1052ca33d52f1fd7` (patch cleanup), `b7a8ba022577e23b5dc9a97fe38100288c374af4` (post-split label injection), and `28aed7d5165e4b121436053c827c830151da8dcd` (correct Python escape sequences so the injector matches literal tab/newline source text).
+- Latest complete correction is commit `28aed7d5165e4b121436053c827c830151da8dcd`. Run [#355 / 44264884787](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44264884787) is queued from this final commit. Runs #353/#354 were triggered by intermediate commits and are not acceptance candidates.
+- Acceptance: #355 must show patch 0126 applies without skip, source split reports PASS, generated `lavender_early.c` contains event labels 107–125, required guard passes, then linked verification and separate RAM-only package/upload pass. No image from #352 or intermediate runs is accepted.
+- Keep `cpus=1`, no GIC changes, and RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata. Preserve volume-key recovery.
+
 ## Run #351 failure and patch-path correction — 18 November 2026
 
 - Run [#351 / 44252286411](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44252286411) compiled XNU 8796 successfully, then failed at the required Lavender entry-guard/source verification step. Packaging was skipped; Run #351 produced no accepted `iosboot.img`.
