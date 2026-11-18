@@ -42,52 +42,59 @@ def ensure_guardian_late_progress():
             1
         )
 
-    stage_anchor = r'''\t\t*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);
-\t\t__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
-'''
-    stage_insert = stage_anchor + "\t\tif (stage == 20) lavender_guard_stage20_complete = 1;\n"
+    stage_line = "\t\t*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);"
     if "if (stage == 20) lavender_guard_stage20_complete = 1;" not in lavender:
-        if lavender.count(stage_anchor) != 1:
-            raise SystemExit("could not locate stage-20 Guardian marker publication")
-        lavender = lavender.replace(stage_anchor, stage_insert, 1)
+        if lavender.count(stage_line) != 1:
+            raise SystemExit("could not locate unique stage-20 Guardian marker store")
+        store_pos = lavender.index(stage_line)
+        asm_pos = lavender.find("__asm__ volatile(", store_pos)
+        if asm_pos < 0:
+            raise SystemExit("stage-20 Guardian marker has no cache-clean operation")
+        asm_end = lavender.find("\n", asm_pos)
+        if asm_end < 0:
+            raise SystemExit("unterminated stage-20 cache-clean line")
+        insert_at = asm_end + 1
+        lavender = (
+            lavender[:insert_at]
+            + "\t\tif (stage == 20) lavender_guard_stage20_complete = 1;\n"
+            + lavender[insert_at:]
+        )
 
-    trace_anchor = """lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
-    uintptr_t c, uintptr_t d, uintptr_t e)
-{
-\tchar text[128];
-"""
-    trace_insert = """lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
-    uintptr_t c, uintptr_t d, uintptr_t e)
-{
-\t/* Retain stage-20's high-bit handoff flag while publishing later XNU progress. */
-\tif (early_guard_cell != 0 && lavender_guard_stage20_complete) {
-\t\t*early_guard_cell = 0x80010000u | (event & 0xffffu);
-\t\t__asm__ volatile("dc cvac, %0\\n\\tdsb sy" :: "r"(early_guard_cell) : "memory");
-\t}
-\tchar text[128];
-"""
+    trace_anchor = (
+        "lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,\n"
+        "    uintptr_t c, uintptr_t d, uintptr_t e)\n"
+        "{\n\tchar text[128];\n"
+    )
+    trace_insert = (
+        "lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,\n"
+        "    uintptr_t c, uintptr_t d, uintptr_t e)\n"
+        "{\n"
+        "\t/* Keep the stage-20 flag and publish late XNU progress to the A53 Guardian. */\n"
+        "\tif (early_guard_cell != 0 && lavender_guard_stage20_complete) {\n"
+        "\t\t*early_guard_cell = 0x80010000u | (event & 0xffffu);\n"
+        "\t\t__asm__ volatile(\"dc cvac, %0\\n\\tdsb sy\" :: \"r\"(early_guard_cell) : \"memory\");\n"
+        "\t}\n"
+        "\tchar text[128];\n"
+    )
     if "0x80010000u | (event & 0xffffu)" not in lavender:
         if lavender.count(trace_anchor) != 1:
             raise SystemExit("could not locate unique Lavender startup trace entry")
         lavender = lavender.replace(trace_anchor, trace_insert, 1)
 
-    old_comment = """ * Keep a single rolling status line below the ordinary checkpoint history.
- * Do not publish these sub-events to the Guardian cell: they must not
- * extend its 60-second no-progress deadline or collide with the stage20 high bit.
-"""
-    new_comment = """ * Keep a single rolling status line below the ordinary checkpoint history.
- * After stage 20, publish each later startup event as 0x80010000|event in
- * the Guardian cell, preserving the high-bit handoff-complete flag.
-"""
-    if old_comment in lavender:
-        lavender = lavender.replace(old_comment, new_comment, 1)
     LAVENDER_SOURCE.write_text(lavender)
 
 
 def ensure_post_platform_renderer():
     lavender = LAVENDER_SOURCE.read_text()
-    # IOKit bring-up checkpoints are injected after the historical combined
-    # source has been split. Patch 0126 runs before this file exists.
+    def inject(anchor, block, sentinel, description):
+        nonlocal lavender
+        if sentinel not in lavender:
+            if anchor not in lavender:
+                raise SystemExit("could not find " + description + " insertion anchor")
+            lavender = lavender.replace(anchor, anchor + block, 1)
+            LAVENDER_SOURCE.write_text(lavender)
+
+    # Events 107–125 bracket PE_init_iokit(), InitIOKit() and ConfigureIOKit().
     trace_anchor = '\tcase 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;'
     trace_labels = (
         '\n\tcase 107: lavender_trace_append_text(text, &length, "PE_INIT_IOKIT ENTER"); break;'
@@ -110,7 +117,10 @@ def ensure_post_platform_renderer():
         '\n\tcase 124: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE BEGIN"); break;'
         '\n\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
     )
-    root_init_trace_labels = (
+    inject(trace_anchor, trace_labels, 'case 125: lavender_trace_append_text', "event 46 / PE-IOKit")
+
+    root_anchor = '\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
+    root_labels = (
         '\n\tcase 126: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB INIT ENTER dtRoot="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 127: lavender_trace_append_text(text, &length, "IOKIT DEVICE TREE ALLOC BEGIN dtRoot="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 128: lavender_trace_append_text(text, &length, "IOKIT DEVICE TREE ALLOC RETURNED dt="); lavender_trace_append_hex(text, &length, a); break;'
@@ -119,8 +129,10 @@ def ensure_post_platform_renderer():
         '\n\tcase 131: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK BEGIN"); break;'
         '\n\tcase 132: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
     )
+    inject(root_anchor, root_labels, 'case 132: lavender_trace_append_text', "event 125 / root-nub")
 
-    allocator_trace_labels = (
+    alloc_anchor = '\tcase 132: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
+    alloc_labels = (
         '\n\tcase 133: lavender_trace_append_text(text, &length, "DT ALLOC ENTER dt="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 134: lavender_trace_append_text(text, &length, "DT PLANE READY ptr="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 135: lavender_trace_append_text(text, &length, "DT SYMBOLS READY name="); lavender_trace_append_hex(text, &length, a); lavender_trace_append_text(text, &length, " persist="); lavender_trace_append_hex(text, &length, b); break;'
@@ -136,27 +148,8 @@ def ensure_post_platform_renderer():
         '\n\tcase 145: lavender_trace_append_text(text, &length, "DT INTERRUPT WALK DONE map="); lavender_trace_append_decimal(text, &length, a); break;'
         '\n\tcase 146: lavender_trace_append_text(text, &length, "DT ALLOC RETURN root="); lavender_trace_append_hex(text, &length, a); break;'
     )
-    if "case 146: lavender_trace_append_text" not in lavender:
-        allocator_anchor = 'case 132: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
-        if allocator_anchor not in lavender:
-            raise SystemExit("could not find event 132 anchor for DeviceTree allocator labels")
-        lavender = lavender.replace(allocator_anchor, allocator_anchor + allocator_trace_labels, 1)
-        LAVENDER_SOURCE.write_text(lavender)
-    ensure_guardian_late_progress()
-    if "case 125: lavender_trace_append_text" not in lavender:
-        if trace_anchor not in lavender:
-            raise SystemExit("could not find event 46 anchor for IOKit trace labels")
-        lavender = lavender.replace(trace_anchor, trace_anchor + trace_labels, 1)
-        LAVENDER_SOURCE.write_text(lavender)
+    inject(alloc_anchor, alloc_labels, 'case 146: lavender_trace_append_text', "event 132 / DeviceTree allocator")
 
-    if "case 132: lavender_trace_append_text" not in lavender:
-        if "case 126: lavender_trace_append_text" in lavender:
-            raise SystemExit("partial root-nub trace labels found; refusing to duplicate them")
-        root_anchor = '\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
-        if root_anchor not in lavender:
-            raise SystemExit("could not find event 125 anchor for root-nub trace labels")
-        lavender = lavender.replace(root_anchor, root_anchor + root_init_trace_labels, 1)
-        LAVENDER_SOURCE.write_text(lavender)
     old = ('default:\n\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\tbreak;')
     new = ('default:\n'
@@ -173,11 +166,13 @@ def ensure_post_platform_renderer():
            '\t\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\t}\n'
            '\t\tbreak;')
-    if new in lavender:
-        return
-    if old not in lavender:
-        raise SystemExit("could not find expected Lavender trace renderer to upgrade")
-    LAVENDER_SOURCE.write_text(lavender.replace(old, new, 1))
+    if new not in lavender:
+        if old not in lavender:
+            raise SystemExit("could not find expected Lavender trace renderer to upgrade")
+        lavender = lavender.replace(old, new, 1)
+        LAVENDER_SOURCE.write_text(lavender)
+
+    ensure_guardian_late_progress()
 
 
 def ensure_trace_compatibility():
