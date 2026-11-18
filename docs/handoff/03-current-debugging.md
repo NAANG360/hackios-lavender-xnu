@@ -648,3 +648,27 @@ No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash
 - Fixed in commit `d5c8979a8d660d06fe75ef2dc769a6b875c520ac`: completed the verification script; compare the unpacked boot kernel, payload/ramdisk, and DTB byte-for-byte with their exact build inputs; write `BOOT-IMAGE-VERIFICATION.txt`, `BUILD-MANIFEST.txt`, and `SHA256SUMS`; verify the checksum; and upload `iosboot.img` plus those records as the `lavender-fastboot-boot-test` artifact (30-day retention).
 - Run [#349 / 44228087165](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44228087165) was triggered by the artifact-publication fix and is the acceptance run. It must finish the full XNU build/ISA gate and package job; the package job must show the new verification and upload steps as successful, and the artifact list must contain `lavender-fastboot-boot-test`. Then download the artifact and independently compare the image size and SHA-256 with the manifest before sharing it.
 - Until #349 produces and verifies the artifact, there is no approved downloadable replacement image. Do not reuse the old Run #3 image: it panicked on the FEAT_LSE LDADD instruction. Keep `cpus=1`; physical testing only via RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition, or write Android eMMC/userdata; preserve volume-key recovery.
+
+
+## Run #349 — published and independently verified iosboot.img — 18 November 2026
+
+### CI result
+
+- Run [#349 / 44228087165](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44228087165) completed with conclusion `success` on commit `d5c8979a8d660d06fe75ef2dc769a6b875c520ac`.
+- Both jobs completed successfully: `build` (ID `134546108566`) and `Package RAM-only Lavender fastboot image` (ID `134552741860`). The package job's steps for extracting the exact stock boot image/DTB, generating and validating the Lavender ADT, building the payload, constructing the non-flashing fastboot image, verifying image structure/payload identity, and uploading the verified image all completed successfully.
+- The package log explicitly reports: `PASS: boot image kernel, payload, and DTB exactly match their verified inputs`; `iosboot.img: OK` from `sha256sum -c SHA256SUMS`; and successful `actions/upload-artifact@v4` upload with name `lavender-fastboot-boot-test`.
+- The build job's `Verify Lavender kernel artifact` step also completed successfully. This is the build candidate after the FEAT_LSE Firehose mitigation and guard. The earlier Run #348 record documents the linked-kernel no-LSE guard passing; Run #349 rebuilt from that source revision and its kernel verification step passed again.
+
+### Published artifact and independent verification
+
+- GitHub artifact: `lavender-fastboot-boot-test`, artifact ID `14395081384`, GitHub compressed artifact size `5,839,371 bytes`, created 2026-11-18 03:24 UTC, expiry 2026-12-18 03:24 UTC. The compressed ZIP contains `iosboot.img`, `BUILD-MANIFEST.txt`, `SHA256SUMS`, and `artifacts/BOOT-IMAGE-VERIFICATION.txt`.
+- Downloaded artifact independently and extracted `iosboot.img`. Independent `stat` result: **16,617,472 bytes** (15.84 MiB). Independent `sha256sum`: `76ee03dc1b97fc3786344d543921a03758b2abefcd70f4d52c8ed35898aee38f`. Both exactly match `BUILD-MANIFEST.txt` and `SHA256SUMS`.
+- The downloaded file is recognized as an Android boot image with kernel at offset `0x8000`, ramdisk at `0x1000000`, and 4096-byte page size.
+- Manifest provenance: target `lavender`, Qualcomm Snapdragon 660 / SDM660, DEVELOPMENT kernel, source commit `d5c8979a8d660d06fe75ef2dc769a6b875c520ac`, workflow run `44228087165`. Kernel SHA-256: `5f02538d1a6133afc60287835b739b0217b4fb41f9fc8035aa92d5d589101e4f`; payload SHA-256: `42ddf23add0ba1fc3a7863283fdb4c1669dd3285466e74d4b0af2085a8838952`; DTB SHA-256: `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
+- Bootargs retain `cpus=1`; manifest mode is explicitly `RAM-only fastboot boot; no flashing`.
+
+### Disposition
+
+- **Artifact publication and byte-level integrity: PASS.** This is the first accepted downloadable image from the repaired #348/#349 pipeline. The earlier 5.8 MB figure refers to compressed ZIP size, not the uncompressed boot image.
+- **Physical Darwin boot: NOT YET VERIFIED.** The FEAT_LSE static kernel guard and build/package checks are necessary but do not prove the phone boots through the kernel. Do not describe this as a fully booting iOS port.
+- Download the artifact `lavender-fastboot-boot-test` from Run #349, or use the verified extracted `iosboot.img` provided with this handoff. The physical test, if performed, must be RAM-only: `fastboot boot iosboot.img`. Never flash, erase, repartition or write Android eMMC/userdata. Preserve volume-key recovery and keep `cpus=1`.
