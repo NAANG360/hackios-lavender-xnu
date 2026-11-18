@@ -1,3 +1,11 @@
+## Run #351 failure and patch-path correction — 18 November 2026
+
+- Run [#351 / 44252286411](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44252286411) compiled XNU 8796 successfully, then failed at the required Lavender entry-guard/source verification step. Packaging was skipped; Run #351 produced no accepted `iosboot.img`.
+- Downloaded and inspected the exact Run #351 build log artifact (`14404698719`) and buildtree (`14405226708`). The log shows the precise patch failure: `0126-lavender-iokit-bringup.patch` was skipped because its final diff targeted `osfmk/arm64/sweet_early.c` at line 288, but the early-source split had already moved the Lavender implementation to `osfmk/arm64/lavender_early.c`. The split verifier itself passed. Because patch 0126 was skipped, its PE/IOKit trace labels and the platform-expert match correction were absent from the built tree; this was a patch target/order defect, not a compiler failure and not yet a runtime IOKit fix.
+- Corrected patch 0126 by retargeting the early-trace diff paths from `sweet_early.c` to `lavender_early.c`, preserving the existing hunk context and all IOKit instrumentation/config changes. Commit: `6cfa604a02516d3016671d7a8526cee4f8c5283d`.
+- Corrective XNU workflow Run [#352 / 44262063956](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44262063956) was triggered by that commit and is queued as of 13:20 IST. Wait for the required-patch guard, build, linked-kernel verification, and packaging to finish before accepting an image.
+- Keep `cpus=1`; no GIC edits. Any resulting image remains for RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata. Preserve volume-key recovery.
+
 ## CI correction: Run #343 succeeded but did not publish iosboot.img — 17 November 2026
 
 - Run [#343 / 44123579468](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44123579468), source commit `b69f4a27a78ec5c60ce882c5ab0c329e1273acbb`, completed both XNU build and RAM-only image construction jobs successfully.
