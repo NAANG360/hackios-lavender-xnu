@@ -77,36 +77,6 @@ index 22a3279..39ff3eb 100644
      "     'IOProbeScore'    = 10000:32;"
      "   },"
  #endif
-diff --git a/osfmk/arm64/lavender_early.c b/osfmk/arm64/lavender_early.c
-index 37f6f70..96e1ad1 100644
---- a/osfmk/arm64/lavender_early.c
-+++ b/osfmk/arm64/lavender_early.c
-@@ -288,6 +288,25 @@ lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
- 	case 44: lavender_trace_append_text(text, &length, "KBOOT SCHED_INIT DONE"); break;
- 	case 45: lavender_trace_append_text(text, &length, "KBOOT MACH_IPC INIT DONE"); break;
- 	case 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;
-+	case 107: lavender_trace_append_text(text, &length, "PE_INIT_IOKIT ENTER"); break;
-+	case 108: lavender_trace_append_text(text, &length, "PE_INIT_PRINTF DONE"); break;
-+	case 109: lavender_trace_append_text(text, &length, "IBOOT VERSION PRINT DONE"); break;
-+	case 110: lavender_trace_append_text(text, &length, "PE MEMORY MAP CHECK DONE"); break;
-+	case 111: lavender_trace_append_text(text, &length, "PE PREPARE IMAGES DONE"); break;
-+	case 112: lavender_trace_append_text(text, &length, "PE PROGRESS SETUP DONE"); break;
-+	case 113: lavender_trace_append_text(text, &length, "PE IBOOT TIMING CHECK DONE"); break;
-+	case 114: lavender_trace_append_text(text, &length, "IOKIT INIT CALL BEGIN"); break;
-+	case 115: lavender_trace_append_text(text, &length, "IOKIT INIT ENTER"); break;
-+	case 116: lavender_trace_append_text(text, &length, "IOKIT IOLIB DONE"); break;
-+	case 117: lavender_trace_append_text(text, &length, "IOKIT OSLIBKERN DONE"); break;
-+	case 118: lavender_trace_append_text(text, &length, "IOKIT MACH PORTS DONE"); break;
-+	case 119: lavender_trace_append_text(text, &length, "IOKIT GLOBALS DONE"); break;
-+	case 120: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB ALLOCATED"); break;
-+	case 121: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB INIT DONE"); break;
-+	case 122: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB ATTACH DONE"); break;
-+	case 123: lavender_trace_append_text(text, &length, "IOKIT INIT DONE"); break;
-+	case 124: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE BEGIN"); break;
-+	case 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;
- 	default:
- 		if (event >= 47 && event <= 106) {
- 			lavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");
 diff --git a/pexpert/arm/pe_init.c b/pexpert/arm/pe_init.c
 index 04dda53..dd82b42 100644
 --- a/pexpert/arm/pe_init.c
