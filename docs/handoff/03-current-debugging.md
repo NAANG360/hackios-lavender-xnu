@@ -1,13 +1,61 @@
-## Latest accepted image — Run #357 (18 November 2026)
+# Chapter 3 — Current debugging state
 
-- **Run:** [#357 / 44271639569](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569), branch `ci/lavender-machine-profile`, source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`.
-- **Result:** success. The XNU build job passed the machine-profile and ADT topology checks, XNU 8796 build, Lavender entry guard, non-secure Group-1 virtual-timer contract, IOKit platform-match/early-init trace verifier, kernel artifact verification and upload. The independent `Package RAM-only Lavender fastboot image` job passed kernel/Mach-O checks, pinned OTA and DTB extraction, Lavender ADT generation, XNU payload construction, boot-image construction, structural and payload identity verification, and upload.
-- **Artifact:** `lavender-fastboot-boot-test`, ID `14414465679` (artifact ZIP SHA-256 `ea41b37e8af83fadb0dd06ea71bf3888152b32fff12e600e963a009ea5749fdb`). The extracted `iosboot.img` is **16,617,472 bytes**, SHA-256 `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f`. Independent local hash equals both `BUILD-MANIFEST.txt` and `SHA256SUMS`; `file` identifies it as an Android boot image (4 KiB pages). Kernel SHA-256 `b1c716b9c42c6982ae0319ed2a21526992cbf82ee4ebaf02e4d339baa71e53e8`; payload SHA-256 `3ae25b83c15376a2a3999900eea4c34e13804bffd692c8bb78325f65a49f2638`; DTB SHA-256 `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
-- **Exact bootargs:** `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. This disables the ordinary `fbcon_probe()` path in `pe_serial.c`; it does not disable the independent direct-framebuffer `lavender_early_trace_startup()` checkpoint renderer. A fixed `[DARWIN]` checkpoint overlay may still be visible, while normal scrolling fbcon output is suppressed. `cpus=1` remains mandatory.
-- **Physical evidence caveat:** the user clarified the newly supplied approximately four-minute sequence was filmed using an older image. It is not a Run #357 test and is not checksum-bound to Run #357. Do not use it to claim progress or regression in this candidate. A fresh RAM-boot recording is required to evaluate Run #357 physically.
-- **Prior failed candidate:** Run [#355 / 44264884787](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44264884787) failed and is superseded. Run #357 is the newest accepted CI/package artifact at this handoff.
-- **Next:** test this exact image using `fastboot boot iosboot.img` only; preserve the phone's volume-key recovery route. Capture whether the device remains powered, resets, or reaches a visible marker. The direct `[DARWIN]` checkpoint overlay remains independent of `lavender_no_fbcon=1`; do not infer a hang from missing scrolling console text or a static checkpoint alone. Correlate any recording with the image SHA-256 before interpreting it. CI acceptance is not proof of physical boot, BSD init, root mount, launchd, SpringBoard or complete Darwin userspace.
-- Never use `fastboot flash`, erase, repartition or write Android eMMC/userdata. No speculative GIC edits; preserve `cpus=1`.
+**Branch:** `ci/lavender-machine-profile`
+**Current branch HEAD:** `e113ba2f8f5a5815b98835ffdb90f902b97d6cd6` (documentation follow-ups after the tested source commit).
+**Latest accepted CI image:** Run [#358 / 44339488789](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789), source commit `f1f633f9ac1887736f17937c38eb6c32de489160`.
+**Run #358 result:** both `build` and `Package RAM-only Lavender fastboot image` jobs completed with `success`. The build passed machine-profile and ADT topology validation, XNU 8796 compilation, cache-aware build-path check, Lavender entry-guard check, non-secure Group-1 virtual-timer contract, IOKit platform/trace verifier, kernel artifact verification and upload. The package job passed ARM64 Mach-O selection, pinned OTA/DTB extraction, Lavender ADT generation, payload construction, boot-image construction, structural and byte-identity checks, checksum generation and artifact upload.
+**Artifact:** `lavender-fastboot-boot-test`, ID `14445642030`; artifact ZIP digest reported by GitHub: `sha256:723a50d977358f356febe994429fcaf74cfcf85d0c652e6faa3fdf8348ef3eb5`. Extracted `iosboot.img`: **16,617,472 bytes**, SHA-256 **`b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`**. Downloaded artifact's `SHA256SUMS` passes independently; the image hash equals `BUILD-MANIFEST.txt`. Image identified as Android boot image, 4096-byte pages.
+**Bootargs:** `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. Preserve `cpus=1`; `lavender_no_fbcon=1` gates the ordinary `fbcon_probe()` path, not the independent direct-framebuffer early checkpoint renderer.
+**Patch 0127 status:** accepted by Run #358. Events 126–132 were applied, generated, verified, compiled and packaged as part of the accepted source candidate. The seven events bracket root-nub init entry, device-tree allocation, registry superclass initialization and fallback initialization.
+**Physical status:** Run #358 has **not** yet been physically tested/confirmed. The older supplied footage remains unbound to an image checksum and must not be attributed to Run #358. CI/package success is not physical boot success and does not establish BSD init, root mount, launchd, SpringBoard or complete Darwin userspace.
+
+## Current diagnostic boundary — root-nub initialization
+
+In the exact Run #357 buildtree, event 120 is emitted after `gRootNub = new IOPlatformExpertDevice`; the next operation is `gRootNub->init(dtTop)`. A false return panics with `Failed to initialize IOKit root nub`; event 121 appears only after success. `IOPlatformExpertDevice::init(dtRoot)` calls `IODeviceTreeAlloc(dtRoot)`, then `super::init(dt, gIODTPlane)` if a registry entry is returned, or fallback `super::init()` if not. Workloop creation and `registerService()` occur later in `startIOServiceMatching()`, not inside this init boundary.
+
+Patch `0127-lavender-root-nub-init-trace.patch` adds:
+
+| Event | Marker | Diagnostic meaning |
+|---:|---|---|
+| 126 | `IOKIT ROOT NUB INIT ENTER dtRoot=` | Root-nub init entered; DT root pointer |
+| 127 | `IOKIT DEVICE TREE ALLOC BEGIN dtRoot=` | About to call `IODeviceTreeAlloc()` |
+| 128 | `IOKIT DEVICE TREE ALLOC RETURNED dt=` | Allocator returned; tree pointer |
+| 129 | `IOKIT ROOT REGISTRY INIT BEGIN dt=` | About to call registry superclass init |
+| 130 | `IOKIT ROOT REGISTRY INIT RETURNED ok=` | Registry superclass result |
+| 131 | `IOKIT ROOT REGISTRY FALLBACK BEGIN` | Device-tree path unavailable; fallback begins |
+| 132 | `IOKIT ROOT REGISTRY FALLBACK RETURNED ok=` | Fallback superclass result |
+
+Run #358 is the first complete CI acceptance of this patch: source patch application/guards, splitter-generated labels, IOKit verifier, XNU build, linked Mach-O verification and image package all passed. This is a diagnostic instrumentation milestone; it does not itself prove that the handset has crossed event 121.
+
+## Next physical test and interpretation
+
+1. Verify the downloaded file before testing: `sha256sum iosboot.img` must equal `b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`.
+2. Use **RAM-only** `fastboot boot iosboot.img`. Never flash, erase, format, repartition, or write any Android partition. Preserve the volume-key recovery route.
+3. Capture a fresh recording from this exact image and retain the image hash with the recording.
+4. Read the final event carefully: 126 only = init entry; 127 = allocator entered; 128 includes returned tree pointer; 129/130 bracket registry init; 131/132 bracket fallback. A null tree pointer at 128 is not itself a failure because the fallback path is expected. A false return at 130 or 132 should be followed by the existing panic reporting.
+5. Do not change GIC, CPU topology, storage layout, or boot arguments based solely on a static screen. Preserve `cpus=1`; no partition writes.
+
+## Run #358 artifact verification record
+
+- Workflow: [Run #358](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789), run ID `44339488789`, source commit `f1f633f9ac1887736f17937c38eb6c32de489160`.
+- GitHub artifact ID: `14445642030`, name `lavender-fastboot-boot-test`.
+- Artifact ZIP digest: `723a50d977358f356febe994429fcaf74cfcf85d0c652e6faa3fdf8348ef3eb5`.
+- Image size: `16617472` bytes.
+- Image SHA-256: `b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`.
+- Manifest kernel SHA-256: `39ac6727204fe0d3a896ca7da43f454d5a35428fd7e796b7e4451818e503072f`.
+- Manifest payload SHA-256: `03ff498e09a3ff0c1b44d45f7582963c17d7f54a5dae8797e8c5563dd32888b5`.
+- Manifest DTB SHA-256: `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
+- Manifest bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`.
+- Local extraction verified `sha256sum -c SHA256SUMS` and `file iosboot.img`; both match the manifest's Android boot image structure and hash.
+
+---
+
+## Documentation follow-up — Run #358 accepted
+
+- Updated the project README to replace Run #357/pending-0127 status with Run #358's complete build and package acceptance, the new artifact ID/hash, and the automatic downstream packaging flow.
+- This Chapter 03 entry records the new image identity and physical-test procedure. The older Run #357 and earlier diagnostics below are retained as historical records, not current acceptance state.
+- `PROJECT_HANDOFF.md` and `AGENTS.md` current-status summaries are being synchronized with this record.
+- No physical handset result has yet been supplied for Run #358.
 
 ---
 
