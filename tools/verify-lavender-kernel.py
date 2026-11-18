@@ -229,7 +229,10 @@ def main() -> int:
         raise SystemExit(f"usage: {Path(sys.argv[0]).name} KERNEL")
     path = Path(sys.argv[1])
     data = path.read_bytes()
-    # Mainline lavender DTS advertises `xiaomi,lavender` as its first/root\n    # compatible and `qcom,sdm660` as the SoC fallback. `qcom,sdm660-mtp` is\n    # the reference MTP board, not this handset, and must not gate its kernel.\n    required = (b"LavenderPlatformExpert", b"xiaomi,lavender", b"Redmi Note 7")
+    # Mainline lavender DTS advertises `xiaomi,lavender` as its first/root
+    # compatible and `qcom,sdm660` as the SoC fallback. `qcom,sdm660-mtp` is
+    # the reference MTP board, not this handset, and must not gate its kernel.
+    required = (b"LavenderPlatformExpert", b"xiaomi,lavender", b"Redmi Note 7")
     missing = [item.decode("ascii") for item in required if item not in data]
     if missing:
         raise SystemExit("missing Lavender identity strings: " + ", ".join(missing))
