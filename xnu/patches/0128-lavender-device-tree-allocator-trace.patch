@@ -1,0 +1,115 @@
+diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSupport.cpp
+--- a/iokit/Kernel/IODeviceTreeSupport.cpp
++++ b/iokit/Kernel/IODeviceTreeSupport.cpp
+@@ -56,6 +56,16 @@
+ 
+ #define IODTSUPPORTDEBUG 0
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern "C" void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++#define LAVENDER_DEVICE_TREE_TRACE(event, a, b) \
++    sweet_early_trace_startup((event), (uintptr_t)(a), (uintptr_t)(b), 0, 0, 0)
++#else
++#define LAVENDER_DEVICE_TREE_TRACE(event, a, b) \
++    do { (void)(event); (void)(a); (void)(b); } while (0)
++#endif
++
+ struct IODTPersistent {
+ 	IODTCompareAddressCellFunc  compareFunc;
+ };
+@@ -124,8 +134,11 @@
+ 	bool                        intMap;
+ 	bool                        foundDTNode;
+ 	bool                        freeDT;
++	unsigned int                lavenderNodeIndex = 0;
+ 
++	LAVENDER_DEVICE_TREE_TRACE(133, dtTop, 0); /* allocator entered */
+ 	gIODTPlane = IORegistryEntry::makePlane( kIODeviceTreePlane );
++	LAVENDER_DEVICE_TREE_TRACE(134, gIODTPlane, 0); /* registry plane ready */
+ 
+ 	gIODTNameKey                = OSSymbol::withCStringNoCopy( "name" );
+ 	gIODTUnitKey                = OSSymbol::withCStringNoCopy( "AAPL,unit-string" );
+@@ -143,6 +156,7 @@
+ 	    && gIODTTypeKey && gIODTModelKey
+ 	    && gIODTSizeCellKey && gIODTAddressCellKey && gIODTRangeKey
+ 	    && gIODTPersistKey );
++	LAVENDER_DEVICE_TREE_TRACE(135, gIODTCompatibleKey, gIODTPersistKey); /* symbols ready */
+ 
+ 	gIODTDefaultInterruptController
+ 	        = OSSymbol::withCStringNoCopy("IOPrimaryInterruptController");
+@@ -175,6 +189,7 @@
+ 	    && gIODTPHandles && gIODTPHandleMap && gIODTInterruptCellKey
+ 	    && gIODTResolvers && gIODTResolvers->lock && gIODTResolvers->resolvers
+ 	    );
++	LAVENDER_DEVICE_TREE_TRACE(136, gIODTResolvers, gIODTPHandles); /* globals ready */
+ 
+ 	foundDTNode = (kSuccess == SecureDTLookupEntry( NULL, "/chosen/memory-map", &mapEntry ))
+ 	    && (kSuccess == SecureDTGetProperty( mapEntry,
+@@ -183,10 +198,14 @@
+ 
+ 	freeDT = foundDTNode && !SecureDTIsLockedDown();
+ 
++	LAVENDER_DEVICE_TREE_TRACE(137, dtTop, freeDT); /* root node conversion begins */
+ 	parent = MakeReferenceTable((DTEntry)dtTop, freeDT );
++	LAVENDER_DEVICE_TREE_TRACE(138, parent, 0); /* root node conversion returned */
+ 
+ 	stack = OSArray::withObjects((const OSObject **) &parent, 1, 10 );
++	LAVENDER_DEVICE_TREE_TRACE(139, stack, 0); /* traversal stack allocated */
+ 	SecureDTInitEntryIterator((DTEntry)dtTop, &iter );
++	LAVENDER_DEVICE_TREE_TRACE(140, dtTop, 0); /* traversal iterator initialized */
+ 
+ 	do {
+ 		parent = (IORegistryEntry *)stack->getObject( stack->getCount() - 1);
+@@ -194,6 +213,11 @@
+ 		stack->removeObject( stack->getCount() - 1);
+ 
+ 		while (kSuccess == SecureDTIterateEntries( &iter, &dtChild)) {
++			++lavenderNodeIndex;
++			/* Keep the console bounded: every fourth early child, then each late child. */
++			if ((lavenderNodeIndex % 4) == 0 || lavenderNodeIndex >= 18) {
++				LAVENDER_DEVICE_TREE_TRACE(141, lavenderNodeIndex, dtChild); /* current child node conversion */
++			}
+ 			child = MakeReferenceTable( dtChild, freeDT );
+ 			child->attachToParent( parent, gIODTPlane);
+ 
+@@ -211,6 +235,7 @@
+ 
+ 	stack->release();
+ 	assert(kSuccess != SecureDTExitEntry(&iter, &dtChild));
++	LAVENDER_DEVICE_TREE_TRACE(142, lavenderNodeIndex, parent); /* full device-tree walk returned */
+ 
+ 	// parent is now root of the created tree
+ 
+@@ -223,6 +248,7 @@
+ 	// attach tree to meta root
+ 	parent->attachToParent( IORegistryEntry::getRegistryRoot(), gIODTPlane);
+ 	parent->release();
++	LAVENDER_DEVICE_TREE_TRACE(143, parent, 0); /* root attached to registry */
+ 
+ 	if (freeDT) {
+ 		// free original device tree
+@@ -239,6 +265,7 @@
+ 	regIter = IORegistryIterator::iterateOver( gIODTPlane,
+ 	    kIORegistryIterateRecursively );
+ 	assert( regIter && allInts && gIODTSharedInterrupts );
++	LAVENDER_DEVICE_TREE_TRACE(144, regIter, allInts); /* interrupt-map traversal ready */
+ 	if (regIter && allInts && gIODTSharedInterrupts) {
+ 		while ((child = regIter->getNextObject())) {
+ 			IODTMapInterruptsSharing( child, allInts );
+@@ -254,6 +281,7 @@
+ 		}
+ 		regIter->release();
+ 	}
++	LAVENDER_DEVICE_TREE_TRACE(145, intMap, 0); /* interrupt-map traversal returned */
+ 
+ #if IODTSUPPORTDEBUG
+ 	parent->setProperty("allInts", allInts);
+@@ -285,6 +313,7 @@
+ 		    (OSObject *) gIODTNWInterruptMappingKey );
+ 	}
+ 
++	LAVENDER_DEVICE_TREE_TRACE(146, parent, 0); /* allocator returning root registry */
+ 	return parent;
+ }
+ #endif
