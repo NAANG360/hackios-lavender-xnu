@@ -74,7 +74,7 @@ def ensure_post_platform_renderer():
     if "case 132: lavender_trace_append_text" not in lavender:
         if "case 126: lavender_trace_append_text" in lavender:
             raise SystemExit("partial root-nub trace labels found; refusing to duplicate them")
-        root_anchor = '\\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
+        root_anchor = '\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
         if root_anchor not in lavender:
             raise SystemExit("could not find event 125 anchor for root-nub trace labels")
         lavender = lavender.replace(root_anchor, root_anchor + root_init_trace_labels, 1)
