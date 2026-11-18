@@ -1,3 +1,16 @@
+## Latest accepted image — Run #357 (18 November 2026)
+
+- **Run:** [#357 / 44271639569](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569), branch `ci/lavender-machine-profile`, source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`.
+- **Result:** success. The XNU build job passed the machine-profile and ADT topology checks, XNU 8796 build, Lavender entry guard, non-secure Group-1 virtual-timer contract, IOKit platform-match/early-init trace verifier, kernel artifact verification and upload. The independent `Package RAM-only Lavender fastboot image` job passed kernel/Mach-O checks, pinned OTA and DTB extraction, Lavender ADT generation, XNU payload construction, boot-image construction, structural and payload identity verification, and upload.
+- **Artifact:** `lavender-fastboot-boot-test`, ID `14414465679` (artifact ZIP SHA-256 `ea41b37e8af83fadb0dd06ea71bf3888152b32fff12e600e963a009ea5749fdb`). The extracted `iosboot.img` is **16,617,472 bytes**, SHA-256 `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f`. Independent local hash equals both `BUILD-MANIFEST.txt` and `SHA256SUMS`; `file` identifies it as an Android boot image (4 KiB pages). Kernel SHA-256 `b1c716b9c42c6982ae0319ed2a21526992cbf82ee4ebaf02e4d339baa71e53e8`; payload SHA-256 `3ae25b83c15376a2a3999900eea4c34e13804bffd692c8bb78325f65a49f2638`; DTB SHA-256 `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
+- **Exact bootargs:** `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. The framebuffer console is disabled in this image; do not expect the KBOOT text console output used in the earlier recording. `cpus=1` remains mandatory.
+- **Physical evidence caveat:** the user clarified the newly supplied approximately four-minute sequence was filmed using an older image. It is not a Run #357 test and is not checksum-bound to Run #357. Do not use it to claim progress or regression in this candidate. A fresh RAM-boot recording is required to evaluate Run #357 physically.
+- **Prior failed candidate:** Run [#355 / 44264884787](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44264884787) failed and is superseded. Run #357 is the newest accepted CI/package artifact at this handoff.
+- **Next:** test this exact image using `fastboot boot iosboot.img` only; preserve the phone's volume-key recovery route. Capture whether the device remains powered, resets, or reaches a visible marker. Since `lavender_no_fbcon=1`, use independent serial/other existing diagnostic output if available; do not infer a hang from a blank display alone. Correlate any recording with the image SHA-256 before interpreting it. CI acceptance is not proof of physical boot, BSD init, root mount, launchd, SpringBoard or complete Darwin userspace.
+- Never use `fastboot flash`, erase, repartition or write Android eMMC/userdata. No speculative GIC edits; preserve `cpus=1`.
+
+---
+
 ## Run #352 failure — patch phase precedes Lavender source split; corrected — 18 November 2026
 
 - Run [#352 / 44262063956](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44262063956), commit `6cfa604a02516d3016671d7a8526cee4f8c5283d`, again compiled XNU but failed the required entry-guard gate; packaging was skipped.
