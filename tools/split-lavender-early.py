@@ -32,6 +32,35 @@ COMPAT_WRAPPER = (
 
 def ensure_post_platform_renderer():
     lavender = LAVENDER_SOURCE.read_text()
+    # IOKit bring-up checkpoints are injected after the historical combined
+    # source has been split. Patch 0126 runs before this file exists.
+    trace_anchor = '\\tcase 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;'
+    trace_labels = (
+        '\\n\\tcase 107: lavender_trace_append_text(text, &length, "PE_INIT_IOKIT ENTER"); break;'
+        '\\n\\tcase 108: lavender_trace_append_text(text, &length, "PE_INIT_PRINTF DONE"); break;'
+        '\\n\\tcase 109: lavender_trace_append_text(text, &length, "IBOOT VERSION PRINT DONE"); break;'
+        '\\n\\tcase 110: lavender_trace_append_text(text, &length, "PE MEMORY MAP CHECK DONE"); break;'
+        '\\n\\tcase 111: lavender_trace_append_text(text, &length, "PE PREPARE IMAGES DONE"); break;'
+        '\\n\\tcase 112: lavender_trace_append_text(text, &length, "PE PROGRESS SETUP DONE"); break;'
+        '\\n\\tcase 113: lavender_trace_append_text(text, &length, "PE IBOOT TIMING CHECK DONE"); break;'
+        '\\n\\tcase 114: lavender_trace_append_text(text, &length, "IOKIT INIT CALL BEGIN"); break;'
+        '\\n\\tcase 115: lavender_trace_append_text(text, &length, "IOKIT INIT ENTER"); break;'
+        '\\n\\tcase 116: lavender_trace_append_text(text, &length, "IOKIT IOLIB DONE"); break;'
+        '\\n\\tcase 117: lavender_trace_append_text(text, &length, "IOKIT OSLIBKERN DONE"); break;'
+        '\\n\\tcase 118: lavender_trace_append_text(text, &length, "IOKIT MACH PORTS DONE"); break;'
+        '\\n\\tcase 119: lavender_trace_append_text(text, &length, "IOKIT GLOBALS DONE"); break;'
+        '\\n\\tcase 120: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB ALLOCATED"); break;'
+        '\\n\\tcase 121: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB INIT DONE"); break;'
+        '\\n\\tcase 122: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB ATTACH DONE"); break;'
+        '\\n\\tcase 123: lavender_trace_append_text(text, &length, "IOKIT INIT DONE"); break;'
+        '\\n\\tcase 124: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE BEGIN"); break;'
+        '\\n\\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
+    )
+    if "case 125: lavender_trace_append_text" not in lavender:
+        if trace_anchor not in lavender:
+            raise SystemExit("could not find event 46 anchor for IOKit trace labels")
+        lavender = lavender.replace(trace_anchor, trace_anchor + trace_labels, 1)
+        LAVENDER_SOURCE.write_text(lavender)
     old = ('default:\n\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\tbreak;')
     new = ('default:\n'
