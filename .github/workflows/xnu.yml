@@ -749,9 +749,15 @@ jobs:
               raise SystemExit("startup callback/subsystem console trace cases are missing")
           trace_end = early.index("lavender_early_logo(void)", helper)
           trace_body = early[helper:trace_end]
-          if "early_guard_cell" in trace_body or "lavender_early_mark(" in trace_body:
-              raise SystemExit("startup sub-trace must not modify the Guardian marker")
-          print("PASS: Lavender startup trace covers table, qsort, subsystem logs and callbacks without touching Guardian state")
+          if "*early_guard_cell = 0x80010000u | ((event & 0xffu) << 8);" not in trace_body:
+              raise SystemExit("late startup trace must publish its event to the Guardian marker")
+          if "if (event == 141) *early_guard_cell |= (uint32_t)(a & 0xffu);" not in trace_body:
+              raise SystemExit("DeviceTree child index must be preserved in the Guardian marker")
+          if 'dc cvac, %0' not in trace_body or 'dsb sy' not in trace_body:
+              raise SystemExit("late Guardian marker publication must clean the shared cache line")
+          if "case 5:" not in trace_body or "case 7:" not in trace_body:
+              raise SystemExit("startup callback/subsystem trace cases are missing")
+          print("PASS: Lavender startup trace covers table, qsort, subsystem logs and callbacks with late Guardian progress")
           PY
           grep -q 'LAVENDER_FB_ALIAS_PA_BASE 0x9c000000ULL' dxb/xnu/osfmk/arm64/lavender_early.c
           grep -q 'LAVENDER_FB_ALIAS_OFFSET (LAVENDER_FB_BASE - LAVENDER_FB_ALIAS_PA_BASE)' dxb/xnu/osfmk/arm64/lavender_early.c
