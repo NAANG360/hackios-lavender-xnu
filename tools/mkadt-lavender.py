@@ -95,7 +95,17 @@ cstr = lambda s: s.encode() + bytes([0])
 
 def node(name, props=(), children=()):
     n = adt.Node()
-    n.props = [('name', 0, cstr(name))] + [(k, 0, v) for k, v in props]
+    entries = [('name', cstr(name))] + list(props)
+    for key, value in entries:
+        try:
+            key_bytes = key.encode('ascii')
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"ADT property name must be ASCII: {key!r}") from exc
+        if not key_bytes or len(key_bytes) >= 32:
+            raise ValueError(
+                f"ADT property name must fit in 31 ASCII bytes plus NUL: {key!r}"
+            )
+    n.props = [(key, 0, value) for key, value in entries]
     n.children = list(children)
     return n
 
@@ -212,7 +222,7 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
                 ('compatible', cstr('novatek,NVT-ts')),
                 ('reg', u32(NVT_I2C_ADDRESS)),
                 ('interrupts', u32(NVT_IRQ_GPIO, 0x2008)),
-                ('lavender,gpio-controller-compatible', cstr('qcom,sdm660-pinctrl')),
+                ('lavender,gpio-compat', cstr('qcom,sdm660-pinctrl')),
                 ('lavender,irq-gpio-number', u32(NVT_IRQ_GPIO)),
                 ('lavender,irq-gpio-flags', u32(0x2001)),
                 ('lavender,reset-gpio-number', u32(NVT_RESET_GPIO)),
@@ -272,6 +282,22 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
 def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
     root, end = adt.parse(blob)
     assert end == len(blob)
+
+    # Apple ADT property names occupy a fixed 32-byte C string field.
+    # Reject a full-width name: XNU's SecureDT APIs and OSSymbol routines
+    # treat this field as NUL-terminated while walking IODeviceTreeAlloc().
+    pending = [root]
+    while pending:
+        current = pending.pop()
+        for key, _flags, _value in current.props:
+            try:
+                key_bytes = key.encode('ascii')
+            except UnicodeEncodeError as exc:
+                raise ValueError(f"non-ASCII ADT property name: {key!r}") from exc
+            assert 0 < len(key_bytes) < 32, (
+                f"ADT property name is not NUL-terminated within 32 bytes: {key!r}"
+            )
+        pending.extend(current.children)
     chosen = next(c for c in root.children if c.name == 'chosen')
     get = lambda name: next(v for n, _, v in chosen.props if n == name)
     base = struct.unpack('<Q', get('dram-base'))[0]
