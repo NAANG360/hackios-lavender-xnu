@@ -752,39 +752,56 @@ No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash
 - Acceptance remains pending until the new CI run passes the full linked-kernel verifier, completes the RAM-only image packaging job, and uploads a verified iosboot.img with matching manifest and SHA-256. A successful compile or raw kernel candidate alone is not a bootable image.
 
 
-## Physical footage review — IOKit initialization advances to root-map allocation (18 November 2026)
+## Physical footage review — root-nub allocation boundary and source-verified follow-up (18 November 2026)
 
 ### Source material and attribution
 
-- Reviewed `VID-20261118-WA0004.mp4` (98.38 seconds) and `VID-20261118-WA0002.mp4` (5.78 seconds), supplied by the user on 18 November 2026.
-- The longer recording visibly contains the XNU framebuffer diagnostic console with an Apple logo overlay. The screen is rotated in the source video; the readable milestone sequence was inspected from sampled frames.
-- **Image provenance is unresolved.** The footage does not include a verifiable image hash or bootargs capture. It must not be represented as a physical test of Run #357. Run #357's accepted bootargs contain `lavender_no_fbcon=1`, whereas the submitted clip visibly displays the framebuffer console. Until the exact tested image is identified, this is an unbound physical observation, not a Run #357 validation.
+- Reviewed `VID-20261118-WA0004.mp4` (98.345 seconds) and `VID-20261118-WA0002.mp4` (5.775 seconds), supplied on 18 November 2026. Gemini's independent comparison reports that they show the same handset boot session, based on matching pointers, screen artifact, and continuous audio.
+- The final visible token in checkpoint [0084] is **NUB**, giving the exact marker `IOKIT ROOT NUB ALLOCATED`; the earlier `ROOT MAP` transcription was incorrect.
+- The recording is not checksum-bound to Run #357. Treat it as an unbound physical observation until the exact tested `iosboot.img` is identified. Do not infer a source revision from the marker text alone.
 
-### Readable progress in the recording
+### Source-correlated meaning
 
-The lower console visibly advances beyond the earlier `KBOOT IOKIT BEGIN` boundary. Readable milestones include:
+The actual XNU buildtree artifact from Run #357 (artifact `14414095564`, source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`) establishes the following sequence:
 
-- `PE_INIT_IOKIT DONE`
-- `PE PREPARE IMAGES DONE`
-- `PE PROGRESS SETUP DONE`
-- `PE ROOT TIMER DONE`
-- `IOKIT INIT CALL BEGIN`
-- `IOKIT SYMBOLS DONE`
-- `IOKIT GLOBALS DONE`
-- `IOKIT MACH PORTS DONE`
-- `IOKIT GROUPS DONE`
-- `IOKIT ROOT MAP ALLOCATED`
+- `IOStartIOKit.cpp`: event 120 (`IOKIT ROOT NUB ALLOCATED`) is emitted after `gRootNub = new IOPlatformExpertDevice` and the null check.
+- The very next operation is `gRootNub->init(dtTop)`. If it returns false, the code calls `panic("Failed to initialize IOKit root nub")`. Event 121 (`IOKIT ROOT NUB INIT DONE`) appears only after successful return.
+- Event 122 follows `gRootNub->attach(NULL)`; event 123 marks `InitIOKit()` completion; event 124 marks `ConfigureIOKit()` entry; event 125 is emitted by `PE_init_iokit()` after `ConfigureIOKit()` returns.
+- `IOPlatformExpertDevice::init(dtRoot)` in `IOPlatformExpert.cpp` calls `IODeviceTreeAlloc(dtRoot)` when `dtRoot` is non-null, then calls `super::init(dt, gIODTPlane)` if allocation returned a tree. If no tree is available, it calls fallback `super::init()`. These are the operations between events 120 and 121.
+- Workloop creation and `registerService()` are not in this init function. They occur later in `startIOServiceMatching()`, invoked through `PE_lockdown_iokit()` / `StartIOKitMatching()` after machine lockdown. The `initWithArgs()` / `registerService()` theory in the Gemini response does not match this exact source tree.
 
-The last clearly readable IOKit milestone in the reviewed frame is **`IOKIT ROOT MAP ALLOCATED`**. Do not infer subsequent initialization completion from this marker alone. The recording does not establish that `InitIOKit()`, `ConfigureIOKit()`, or `PE_init_iokit()` returned. It also does not establish BSD init, VFS/root mount, launchd, SpringBoard, or complete Darwin userspace.
+### Console and failure visibility
 
-### Interpretation and next evidence
+- Run #357 bootargs include `lavender_no_fbcon=1`. In the exact buildtree this argument gates only `fbcon_probe()` in `pe_serial.c`. The [DARWIN] early checkpoint renderer writes directly to the framebuffer and is independent of that argument. A visible fixed checkpoint overlay is therefore not, by itself, evidence against the Run #357 bootarg; it still does not establish image provenance.
+- Panic output is already routed through `panic_trap_to_debugger()` to `sweet_early_panic()`, which resolves to Lavender's `lavender_early_panic()`. ARM64 synchronous exceptions already emit event 40 with ESR/FAR/ELR/SPSR. Do not add redundant panic markers without showing that these existing paths fail.
+- The uploaded video transcription includes labels such as `PE_INIT_IOKIT DONE`, `PE ROOT TIMER DONE`, `IOKIT SYMBOLS DONE`, and `IOKIT GROUPS DONE`. Those exact strings do not match the current Run #357 renderer's event 107–125 map. This is another reason not to treat the recording as a matched Run #357 trace.
 
-- This is meaningful physical-screen progress beyond the older event-19 / `KBOOT IOKIT BEGIN` boundary. It narrows the next observation to the IOKit initialization work after root-map allocation; it does not identify a faulting function or component.
-- No readable panic, exception, or reset reason is established by the supplied frames. Do not diagnose a hang or change GIC routing based on the final static screen.
-- Before correlating this footage with an accepted CI image, identify the exact image used. Capture the extracted `iosboot.img` SHA-256 and confirm the bootargs. In particular, do not associate the visible framebuffer console with Run #357 unless its `lavender_no_fbcon=1` configuration is reconciled by direct evidence.
-- For the next test, retain the complete console output and capture the first marker after `IOKIT ROOT MAP ALLOCATED`, plus any explicit panic/reset output. Use only RAM-only `fastboot boot iosboot.img`.
+### New targeted instrumentation — patch 0127
 
-### Acceptance and safety
+Patch `xnu/patches/0127-lavender-root-nub-init-trace.patch` adds seven source checkpoints in `IOPlatformExpertDevice::init()`:
 
-- This footage is not an image-integrity check and does not change the accepted CI baseline: Run #357 remains the latest accepted packaged image, with its existing independently verified size and SHA-256.
-- Preserve `cpus=1`; do not make speculative GIC changes. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve volume-key recovery. Keep CI build/package success, exact-image physical testing, and later Darwin milestones as separate acceptance gates.
+| Event | Label | Meaning |
+|---:|---|---|
+| 126 | `IOKIT ROOT NUB INIT ENTER dtRoot=` | Entered root-nub init; records DT root pointer |
+| 127 | `IOKIT DEVICE TREE ALLOC BEGIN dtRoot=` | About to call `IODeviceTreeAlloc()` |
+| 128 | `IOKIT DEVICE TREE ALLOC RETURNED dt=` | Allocator returned; records returned tree pointer |
+| 129 | `IOKIT ROOT REGISTRY INIT BEGIN dt=` | About to call `super::init(dt, gIODTPlane)` |
+| 130 | `IOKIT ROOT REGISTRY INIT RETURNED ok=` | That superclass init returned; records boolean |
+| 131 | `IOKIT ROOT REGISTRY FALLBACK BEGIN` | Device-tree path was unavailable; fallback init begins |
+| 132 | `IOKIT ROOT REGISTRY FALLBACK RETURNED ok=` | Fallback superclass init returned; records boolean |
+
+Interpretation for the next physical trace:
+- Last marker 126: the function was entered; investigate the branch condition immediately after it.
+- Last marker 127: execution did not return from `IODeviceTreeAlloc()` (or output stopped there); inspect allocator internals and exception/panic evidence.
+- Event 128 with a zero pointer: allocator returned null; the code should take fallback init (131/132).
+- Last marker 129: execution did not return from the registry superclass init (or output stopped there).
+- Event 130/132 with `ok=0`: the init function returns false and the caller should panic; the existing panic renderer should report it.
+- Event 130/132 with `ok=1`: successful superclass init; the next caller-side checkpoint should be event 121.
+
+The splitter was made cache-safe: cached generated `lavender_early.c` containing events 107–125 receives 126–132 exactly once, while a fresh split receives both groups. The IOKit verifier now checks the source brackets, renderer labels, and that workloop/service matching remain outside `IOPlatformExpertDevice::init()`.
+
+### Validation and acceptance
+
+- Patch 0127 dry-run and application succeeded against the extracted Run #357 `xnu-buildtree` artifact. Local structural checks passed for the seven new markers and confirmed that the panic/synchronous-exception hooks already exist.
+- The updated XNU workflow requires patch 0127. **No new CI build, linked-kernel verification, or packaged image has passed yet.** Run #357 remains the latest accepted image.
+- On the next accepted candidate, preserve `cpus=1` and test only with RAM-only `fastboot boot iosboot.img`. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace without direct evidence.
