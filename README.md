@@ -45,8 +45,13 @@ Patch **0127** adds trace events 126–132 around those operations, including po
 | 126–128 | Root-nub init entered; device-tree allocation began and returned |
 | 129–130 | Device-tree registry superclass init began and returned |
 | 131–132 | Fallback superclass init began and returned |
+| 133–146 | DeviceTree allocator setup, root/child conversion, registry attachment, interrupt-map pass and return |
 
 Patch 0127 has now passed the complete Run #358 CI gates: patch/source guards, XNU 8796 compilation, IOKit trace verifier, linked ARM64 Mach-O verification, and RAM-only image construction plus identity/checksum verification. The image is ready for a controlled physical RAM-boot test; no physical result is yet established.
+
+The clearest later physical frame reaches event 127, immediately before the DeviceTree allocator call, then remains on that screen before the A53 Guardian reports its last marker. A Run #358 ADT audit found one overlong touchscreen-node property key in the fixed 32-byte ADT name field; the generator now shortens it and rejects invalid property names. This is a confirmed malformed field, not a proven sole cause of the stall.
+
+Patch 0128 adds allocator-internal events 133–146, including sampled child-conversion indices, root attachment, interrupt-map traversal and allocator return. The Guardian now tracks post-stage-20 XNU events in its shared progress cell, and generic console events are throttled so late IOKit diagnostics retain screen space. See Chapter 03 for the event map and current validation state.
 
 ## Device and hardware notes
 
