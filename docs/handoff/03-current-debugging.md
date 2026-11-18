@@ -750,3 +750,41 @@ No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash
 - The mainline Lavender DTS declares compatible = "xiaomi,lavender", "qcom,sdm660"; (see upstream sdm660-xiaomi-lavender.dts). The handset match in xnu/patches/0126-lavender-iokit-bringup.patch is correctly xiaomi,lavender. The verifier was still requiring the unrelated reference-board string qcom,sdm660-mtp.
 - Corrected tools/verify-lavender-kernel.py in commit bb32ac57b972e3adb29866d6e86e05ba57124476: expected identity is now LavenderPlatformExpert, xiaomi,lavender, and Redmi Note 7. No machine-profile, timer, GIC, CPU-count, or startup behavior was changed in this correction.
 - Acceptance remains pending until the new CI run passes the full linked-kernel verifier, completes the RAM-only image packaging job, and uploads a verified iosboot.img with matching manifest and SHA-256. A successful compile or raw kernel candidate alone is not a bootable image.
+
+
+## Physical footage review — IOKit initialization advances to root-map allocation (18 November 2026)
+
+### Source material and attribution
+
+- Reviewed `VID-20261118-WA0004.mp4` (98.38 seconds) and `VID-20261118-WA0002.mp4` (5.78 seconds), supplied by the user on 18 November 2026.
+- The longer recording visibly contains the XNU framebuffer diagnostic console with an Apple logo overlay. The screen is rotated in the source video; the readable milestone sequence was inspected from sampled frames.
+- **Image provenance is unresolved.** The footage does not include a verifiable image hash or bootargs capture. It must not be represented as a physical test of Run #357. Run #357's accepted bootargs contain `lavender_no_fbcon=1`, whereas the submitted clip visibly displays the framebuffer console. Until the exact tested image is identified, this is an unbound physical observation, not a Run #357 validation.
+
+### Readable progress in the recording
+
+The lower console visibly advances beyond the earlier `KBOOT IOKIT BEGIN` boundary. Readable milestones include:
+
+- `PE_INIT_IOKIT DONE`
+- `PE PREPARE IMAGES DONE`
+- `PE PROGRESS SETUP DONE`
+- `PE ROOT TIMER DONE`
+- `IOKIT INIT CALL BEGIN`
+- `IOKIT SYMBOLS DONE`
+- `IOKIT GLOBALS DONE`
+- `IOKIT MACH PORTS DONE`
+- `IOKIT GROUPS DONE`
+- `IOKIT ROOT MAP ALLOCATED`
+
+The last clearly readable IOKit milestone in the reviewed frame is **`IOKIT ROOT MAP ALLOCATED`**. Do not infer subsequent initialization completion from this marker alone. The recording does not establish that `InitIOKit()`, `ConfigureIOKit()`, or `PE_init_iokit()` returned. It also does not establish BSD init, VFS/root mount, launchd, SpringBoard, or complete Darwin userspace.
+
+### Interpretation and next evidence
+
+- This is meaningful physical-screen progress beyond the older event-19 / `KBOOT IOKIT BEGIN` boundary. It narrows the next observation to the IOKit initialization work after root-map allocation; it does not identify a faulting function or component.
+- No readable panic, exception, or reset reason is established by the supplied frames. Do not diagnose a hang or change GIC routing based on the final static screen.
+- Before correlating this footage with an accepted CI image, identify the exact image used. Capture the extracted `iosboot.img` SHA-256 and confirm the bootargs. In particular, do not associate the visible framebuffer console with Run #357 unless its `lavender_no_fbcon=1` configuration is reconciled by direct evidence.
+- For the next test, retain the complete console output and capture the first marker after `IOKIT ROOT MAP ALLOCATED`, plus any explicit panic/reset output. Use only RAM-only `fastboot boot iosboot.img`.
+
+### Acceptance and safety
+
+- This footage is not an image-integrity check and does not change the accepted CI baseline: Run #357 remains the latest accepted packaged image, with its existing independently verified size and SHA-256.
+- Preserve `cpus=1`; do not make speculative GIC changes. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve volume-key recovery. Keep CI build/package success, exact-image physical testing, and later Darwin milestones as separate acceptance gates.
