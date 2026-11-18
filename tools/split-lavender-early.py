@@ -34,7 +34,8 @@ def ensure_post_platform_renderer():
     lavender = LAVENDER_SOURCE.read_text()
     # IOKit bring-up checkpoints are injected after the historical combined
     # source has been split. Patch 0126 runs before this file exists.
-    trace_anchor = '\tcase 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;'    trace_labels = (
+    trace_anchor = '\tcase 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;'
+    trace_labels = (
         '\n\tcase 107: lavender_trace_append_text(text, &length, "PE_INIT_IOKIT ENTER"); break;'
         '\n\tcase 108: lavender_trace_append_text(text, &length, "PE_INIT_PRINTF DONE"); break;'
         '\n\tcase 109: lavender_trace_append_text(text, &length, "IBOOT VERSION PRINT DONE"); break;'
@@ -54,7 +55,6 @@ def ensure_post_platform_renderer():
         '\n\tcase 123: lavender_trace_append_text(text, &length, "IOKIT INIT DONE"); break;'
         '\n\tcase 124: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE BEGIN"); break;'
         '\n\tcase 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;'
-    )
     )
     root_init_trace_labels = (
         '\n\tcase 126: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB INIT ENTER dtRoot="); lavender_trace_append_hex(text, &length, a); break;'
