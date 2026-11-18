@@ -128,14 +128,15 @@ def main():
     early = (root / "osfmk/arm64/lavender_early.c").read_text()
     require("static unsigned int lavender_guard_stage20_complete;" in early,
             "late-progress Guardian stage-20 state is missing")
-    stage20_store = early.index("*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);")
+    mark_fn = early.index("lavender_early_mark(unsigned int stage")
+    stage20_store = early.index("*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);", mark_fn)
     stage20_done = early.index("if (stage == 20) lavender_guard_stage20_complete = 1;", stage20_store)
-    trace_publish = early.index("*early_guard_cell = 0x80010000u | ((event & 0xffu) << 8);")
+    trace_fn = early.index("lavender_early_trace_startup(unsigned int event")
+    trace_publish = early.index("*early_guard_cell = 0x80010000u | ((event & 0xffu) << 8);", trace_fn)
     require("if (event == 141) *early_guard_cell |= (uint32_t)(a & 0xffu);" in early,
             "late Guardian marker must preserve the DeviceTree child index for event 141")
-    trace_fn = early.index("lavender_early_trace_startup(unsigned int event")
-    require(stage20_store < stage20_done < trace_fn < trace_publish,
-            "late Guardian event publication must begin only after stage 20")
+    require(mark_fn < stage20_store < stage20_done and trace_fn < trace_publish,
+            "stage-20 and late-event Guardian marker stores are not in their respective functions")
     require('dc cvac, %0' in early[trace_publish:trace_publish + 220],
             "late Guardian event marker must be cleaned to shared memory")
 
