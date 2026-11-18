@@ -6,10 +6,9 @@
 - Not an Android theme, generic ARM64 kernel, emulator demo or iOS-lookalike launcher.
 
 ## Hard safety constraints
-- Preserve Android boot/recovery and all non-userdata partitions. The user explicitly selected the existing `userdata` partition for the future iOS HFS+ root, accepting that Android user data will be erased.
-- Kernel bring-up remains temporary RAM-only `fastboot boot iosboot.img`; the later root image is a separate, deliberate write to `userdata` only. Never write boot, vendor_boot, recovery, modem, persist or other eMMC partitions.
-- The power button is broken. The user confirms the independent volume-key recovery/reset route works; the handset-test recovery gate is cleared. Keep the confirmed key route available during all tests. The Guardian watchdog-first reset fallback is a separate mechanism and remains independently unverified.
-- Returning to Android is expected to require recovery to wipe/format `userdata`; this does not restore personal data.
+- **Current authorization is RAM-only kernel testing.** Use `fastboot boot iosboot.img` only. Do not flash, erase, format, repartition, or write Android eMMC, `userdata`, boot, vendor_boot, recovery, modem, persist, or any other device partition.
+- Earlier project notes discussed a possible future HFS+ root on `userdata`. That is historical planning only, is not part of the current bring-up authorization, and must not be treated as permission to write or wipe the partition. Any future storage write requires a separate, explicit user decision after a reviewed recovery/data-loss plan.
+- Preserve Android boot/recovery and all user data. Keep the confirmed volume-key recovery/reset route available during every physical test. The power button is broken; the Guardian watchdog-first reset fallback remains independently unverified.
 - QEMU is allowed only for narrow isolated tests; never as proof of Lavender compatibility.
 - Keep raw dumps, serials, calibration/private data and firmware blobs out of Git.
 - Exact delivered image filename: `iosboot.img`, no date/build suffix.
