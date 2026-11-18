@@ -2,21 +2,21 @@
 
 **Resume command:** “Continue from latest operations.”
 
-Read this file, inspect the live branch/Actions state, then load only the routed chapter.
+Read `AGENTS.md`, inspect the live branch HEAD and newest Actions runs, then load only the routed chapter `docs/handoff/03-current-debugging.md`.
 
 - Repository: https://github.com/NAANG360/hackios-lavender-xnu
 
 ## Current milestone — 18 November 2026
 
-- **Active branch:** `ci/lavender-machine-profile`. Resolve the live HEAD and newest Actions run before engineering work; this file is a historical/continuity index, while the routed current debugging record is `docs/handoff/03-current-debugging.md`.
-- **Latest accepted CI image:** Run [#357 / 44271639569](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569), source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`. Artifact `lavender-fastboot-boot-test`, ID `14414465679`, contains `iosboot.img` (16,617,472 bytes), SHA-256 `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f`. The image hash matches `BUILD-MANIFEST.txt` and `SHA256SUMS`.
-- Run #357 passed the XNU build/source-verification job and separate RAM-only package job. This is a verified diagnostic package, not a completed Darwin system and not proof of a successful physical boot.
-- **Latest supplied footage:** the 18 November videos show an older, unbound image. The last readable marker is `IOKIT ROOT NUB ALLOCATED` (not ROOT MAP). Do not attribute the footage to Run #357 or to the current source revision; no tested-image SHA-256 was supplied.
-- **Source diagnosis:** in the exact Run #357 buildtree, event 120 is followed by `gRootNub->init(dtTop)`. That calls `IODeviceTreeAlloc(dtRoot)` and then the registry superclass initializer, or a fallback superclass initializer. Workloop creation and `registerService()` happen later and are not the operation at this boundary.
-- **New targeted patch:** `xnu/patches/0127-lavender-root-nub-init-trace.patch` adds events 126–132 around root-nub init, device-tree allocation, registry superclass init and fallback init. The early-source splitter, IOKit verifier and XNU workflow were updated to generate, validate and require these events. Patch application and local source-level checks passed; full CI compile, linked verification and packaging for patch 0127 are **not yet accepted**.
-- **Next acceptance gate:** run the guarded XNU workflow once; require patch application, all Lavender source guards, XNU compilation, linked Mach-O verification and kernel artifact upload. Only then run the separate manual RAM-only package workflow against that exact successful XNU run ID. Verify the image manifest and SHA-256 before any device test.
-- **Target:** Xiaomi Redmi Note 7 / Note 7S `lavender`, Qualcomm SDM660 / Kryo 260, ARM64. Kernel: XNU 8796 (iOS 16 generation). Longer-term userspace reference: iPhone X iOS 16.7.16 (20H392).
-- **Physical test constraints:** `fastboot boot iosboot.img` only; preserve `cpus=1` and the confirmed volume-key recovery route. Never flash, erase, format, repartition, or write Android eMMC or `userdata`. No BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace is established.
+- **Active branch:** `ci/lavender-machine-profile`; current branch HEAD after documentation refresh: `e113ba2f8f5a5815b98835ffdb90f902b97d6cd6`.
+- **Latest accepted CI image:** Run [#358 / 44339488789](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789), built from source commit `f1f633f9ac1887736f17937c38eb6c32de489160`. Both XNU build/verification and downstream RAM-only package jobs passed.
+- **Image artifact:** `lavender-fastboot-boot-test`, artifact ID `14445642030`; `iosboot.img` size **16,617,472 bytes**, SHA-256 **`b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`**. The downloaded artifact was extracted locally; `sha256sum -c SHA256SUMS` passed and the hash matches `BUILD-MANIFEST.txt`. Artifact ZIP digest: `723a50d977358f356febe994429fcaf74cfcf85d0c652e6faa3fdf8348ef3eb5`.
+- **Patch 0127:** full CI acceptance achieved. Root-nub trace events 126–132 passed patch/source guards, generated-label checks, IOKit verifier, XNU 8796 compilation, linked ARM64 Mach-O verification and image packaging.
+- **Bootargs:** `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. Preserve `cpus=1`; the no-fbcon argument gates the ordinary fbcon path but not the independent direct-framebuffer checkpoint renderer.
+- **Physical status:** Run #358 has not yet been tested/confirmed on the handset. Earlier videos are not checksum-bound to this image and must not be attributed to it. CI success is not physical boot success; no BSD init, root mount, launchd, SpringBoard or complete Darwin userspace is established.
+- **Next action:** user should verify the exact image SHA-256 and test only with `fastboot boot iosboot.img`, then provide a fresh recording tied to that hash. Interpret events 126–132 using Chapter 03 before changing source.
+- **Target:** Xiaomi Redmi Note 7 / Note 7S `lavender`, Qualcomm SDM660 / Kryo 260, ARM64. Kernel XNU 8796 (iOS 16 generation); longer-term userspace reference iPhone X iOS 16.7.16 (20H392).
+- **Physical test constraints:** RAM-only `fastboot boot iosboot.img` only; preserve volume-key recovery. Never flash, erase, format, repartition, or write Android eMMC, `userdata`, or any other partition.
 
 ## Previous accepted operations — Run #300 (superseded by Run #302)
 
