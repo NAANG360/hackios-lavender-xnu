@@ -805,3 +805,12 @@ The splitter was made cache-safe: cached generated `lavender_early.c` containing
 - Patch 0127 dry-run and application succeeded against the extracted Run #357 `xnu-buildtree` artifact. Local structural checks passed for the seven new markers and confirmed that the panic/synchronous-exception hooks already exist.
 - The updated XNU workflow requires patch 0127. **No new CI build, linked-kernel verification, or packaged image has passed yet.** Run #357 remains the latest accepted image.
 - On the next accepted candidate, preserve `cpus=1` and test only with RAM-only `fastboot boot iosboot.img`. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace without direct evidence.
+
+
+## Documentation and verifier follow-up — 18 November 2026
+
+- Replaced the inherited SWEET/Redmi Note 10 Pro README with a Lavender-specific project guide. It now states the target, current Run #357 accepted-image identity, the unbound older footage caveat, the exact root-nub diagnostic boundary, the separate XNU/package workflows, repository map, known non-milestones, and RAM-only physical-test rules.
+- Updated `PROJECT_HANDOFF.md` current status to Run #357 and patch 0127. Older run records remain as historical notes; the previous `userdata` root-image plan is explicitly superseded and is not authorization to write the device.
+- Updated Chapter 01 to make current authorization unambiguous: RAM-only `fastboot boot iosboot.img`; no flash, erase, format, repartition, or write to eMMC/`userdata` or any other partition. Any future storage-write proposal requires separate explicit approval.
+- Corrected the case-block delimiter regex in `tools/verify-lavender-iokit.py` (commit `ebfbf9e83e3074a7e705c74ac6f5fc9407e38cb6`). A local check against the real Run #357 source layout confirms the 0127 patch dry-runs and applies cleanly, the seven trace points bracket the intended branches, and the corrected regex isolates a trace case correctly. The full workflow verifier, XNU compile, linked-kernel verification and package have not yet passed for patch 0127.
+- Documentation changes do not themselves constitute a build or physical test. Run #357 remains the latest accepted packaged image until a later complete run passes all gates.
