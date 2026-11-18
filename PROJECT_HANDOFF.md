@@ -6,20 +6,18 @@ Read this file, inspect the live branch/Actions state, then load only the routed
 
 - Repository: https://github.com/NAANG360/hackios-lavender-xnu
 
-## Current milestone — 16 November 2026
+## Current milestone — 18 November 2026
 
-- **Latest accepted image:** Run #302 (`43903857144`), artifact `14245608682`, SHA-256 `2fa85c8381efe026a092a40275b6298c13a3eff473d9a5be5990627a0b4c0f98`; both XNU build and RAM-only package jobs passed.
-- **Latest source fix:** commit 0abe1270618c7a5d3a303dd1c2603e107c94bf26 fixes the Run #318 final-link trace ABI mismatch and Step 13 stale source guards.
-- **Current acceptance run:** Run #320 (44020121980) is compiling XNU 8796 for that commit. Source guards, linked verification and RAM-only packaging remain required; no new image is accepted yet.
-- **Recovery:** the user confirms the independent volume-key recovery/reset route works despite the broken power button. The handset-test recovery gate is cleared.
-- **Video correction:** the apparent final FASTBOOT frame is a recording glitch; the phone restarts normally. Reset cause remains unknown.
-- **Boot safety:** RAM-only `fastboot boot iosboot.img` only. Never flash or write non-`userdata` partitions.
-
+- **Latest accepted image:** Run #349 ([44228087165](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44228087165)), source commit `d5c8979a8d660d06fe75ef2dc769a6b875c520ac`; artifact `14395081384`, `lavender-fastboot-boot-test`. The image is 16,617,472 bytes with SHA-256 `76ee03dc1b97fc3786344d543921a03758b2abefcd70f4d52c8ed35898aee38f`; downloaded and independently verified against its manifest and `SHA256SUMS`.
+- **Latest physical evidence:** recording `1000317986.mp4` (~106.2 seconds), user-attributed to the latest Run #349 test but not checksum-bound. It shows POST-PLATFORM trace through event 106 and KBOOT progress through `KBOOT SCHED DONE`, followed by `KBOOT INIT BEGIN`. The screen remains static for ~80 seconds and goes dark near the end; no readable panic/reset reason is captured.
+- **Current boundary:** kernel bootstrap scheduler startup visibly completed; kernel initialization has begun. No evidence yet of BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace. Next: identify the exact `KBOOT INIT BEGIN` emitter/call site and instrument the immediately following initialization boundaries.
+- **GIC:** the earlier event-102 affinity-routing panic is not visible in this recording; event 106 is reached. Do not change GIC configuration without fresh panic evidence.
+- **Recovery:** retain the confirmed independent volume-key recovery/reset route.
+- **Boot safety:** RAM-only `fastboot boot iosboot.img` only. Never flash, erase, repartition or write Android eMMC/userdata. Preserve `cpus=1`.
 - Branch: `ci/lavender-machine-profile`
 - Device: Redmi Note 7/7S `lavender`, Qualcomm SDM660 / Kryo 260, ARM64
 - Kernel: XNU 8796, iOS 16 generation
 - Intended Darwin userspace reference: iPhone X iOS 16.7.16 (20H392)
-
 
 ## Previous accepted operations — Run #300 (superseded by Run #302)
 
