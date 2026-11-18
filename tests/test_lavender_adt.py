@@ -64,6 +64,11 @@ def run():
     assert ids[0] == 0x000  # actual Build 4 FDT's cpu@0 is Linux cpu0
     assert b"qcom,sdm660" in props(parsed)["compatible"]
     assert b"xiaomi,lavender" in props(parsed)["compatible"]
+
+    # The IOKit platform expert must match an actual compatible on this generated root.
+    iokit_patch = (ROOT / "xnu/patches/0126-lavender-iokit-bringup.patch").read_text()
+    assert "+    \"     'IONameMatch'     = 'xiaomi,lavender';\"" in iokit_patch
+    assert "+    \"     'IONameMatch'     = 'qcom,sdm660-mtp';\"" not in iokit_patch
     arm_io = child(parsed, "arm-io")
     i2c = child(arm_io, "i2c0")
     touch = child(i2c, "novatek-touchscreen")

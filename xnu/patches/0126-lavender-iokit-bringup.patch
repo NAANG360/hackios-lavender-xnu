@@ -1,0 +1,177 @@
+diff --git a/iokit/Kernel/IOStartIOKit.cpp b/iokit/Kernel/IOStartIOKit.cpp
+index d74c063..d3f80c4 100644
+--- a/iokit/Kernel/IOStartIOKit.cpp
++++ b/iokit/Kernel/IOStartIOKit.cpp
+@@ -61,6 +61,14 @@ void IORegistrySetOSBuildVersion(char * build_version);
+ void IORecordProgressBackbuffer(void * buffer, size_t size, uint32_t theme);
+ 
+ extern void OSlibkernInit(void);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++#define LAVENDER_IOKIT_TRACE(event) \
++    sweet_early_trace_startup((event), 0, 0, 0, 0, 0)
++#else
++#define LAVENDER_IOKIT_TRACE(event) do { } while (0)
++#endif
+ 
+ void iokit_post_constructor_init(void);
+ 
+@@ -143,24 +151,32 @@ InitIOKit(void *dtTop)
+ 	// of iokit basic service initialisation, or better we have IOLib stuff
+ 	// initialise as basic OS services.
+ 	//
++	LAVENDER_IOKIT_TRACE(115); /* InitIOKit entered */
+ 	IOLibInit();
++	LAVENDER_IOKIT_TRACE(116); /* IOLibInit returned */
+ 	OSlibkernInit();
++	LAVENDER_IOKIT_TRACE(117); /* OSlibkernInit returned */
+ 	IOMachPortInitialize();
++	LAVENDER_IOKIT_TRACE(118); /* Mach port initialization returned */
+ 
+ 	gIOProgressBackbufferKey  = OSSymbol::withCStringNoCopy(kIOProgressBackbufferKey);
+ 	gIORemoveOnReadProperties = OSSet::withObjects((const OSObject **) &gIOProgressBackbufferKey, 1);
+ 
+ 	interruptAccountingInit();
++	LAVENDER_IOKIT_TRACE(119); /* IOKit globals and interrupt accounting ready */
+ 
+ 	gRootNub = new IOPlatformExpertDevice;
+ 	if (__improbable(gRootNub == NULL)) {
+ 		panic("Failed to allocate IOKit root nub");
+ 	}
++	LAVENDER_IOKIT_TRACE(120); /* IOKit root nub allocated */
+ 	bool ok = gRootNub->init(dtTop);
+ 	if (__improbable(!ok)) {
+ 		panic("Failed to initialize IOKit root nub");
+ 	}
++	LAVENDER_IOKIT_TRACE(121); /* IOKit root nub initialized */
+ 	gRootNub->attach(NULL);
++	LAVENDER_IOKIT_TRACE(122); /* IOKit root nub attached */
+ 
+ 	/* If the bootstrap segment set up a function to record startup
+ 	 * extensions, call it now.
+@@ -168,11 +184,13 @@ InitIOKit(void *dtTop)
+ 	if (record_startup_extensions_function) {
+ 		record_startup_extensions_function();
+ 	}
++	LAVENDER_IOKIT_TRACE(123); /* InitIOKit returned */
+ }
+ 
+ void
+ ConfigureIOKit(void)
+ {
++	LAVENDER_IOKIT_TRACE(124); /* ConfigureIOKit entered */
+ 	assert(gRootNub != NULL);
+ 	gRootNub->configureDefaults();
+ }
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 22a3279..39ff3eb 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -87,7 +87,7 @@ const char * gIOKernelConfigTables =
+     "   {"
+     "     'IOClass'         = LavenderPlatformExpert;"
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+-    "     'IONameMatch'     = 'qcom,sdm660-mtp';"
++    "     'IONameMatch'     = 'xiaomi,lavender';"
+     "     'IOProbeScore'    = 10000:32;"
+     "   },"
+ #endif
+diff --git a/osfmk/arm64/lavender_early.c b/osfmk/arm64/lavender_early.c
+index 37f6f70..96e1ad1 100644
+--- a/osfmk/arm64/lavender_early.c
++++ b/osfmk/arm64/lavender_early.c
+@@ -288,6 +288,25 @@ lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
+ 	case 44: lavender_trace_append_text(text, &length, "KBOOT SCHED_INIT DONE"); break;
+ 	case 45: lavender_trace_append_text(text, &length, "KBOOT MACH_IPC INIT DONE"); break;
+ 	case 46: lavender_trace_append_text(text, &length, "KBOOT KERNEL_THREAD_CREATE DONE"); break;
++	case 107: lavender_trace_append_text(text, &length, "PE_INIT_IOKIT ENTER"); break;
++	case 108: lavender_trace_append_text(text, &length, "PE_INIT_PRINTF DONE"); break;
++	case 109: lavender_trace_append_text(text, &length, "IBOOT VERSION PRINT DONE"); break;
++	case 110: lavender_trace_append_text(text, &length, "PE MEMORY MAP CHECK DONE"); break;
++	case 111: lavender_trace_append_text(text, &length, "PE PREPARE IMAGES DONE"); break;
++	case 112: lavender_trace_append_text(text, &length, "PE PROGRESS SETUP DONE"); break;
++	case 113: lavender_trace_append_text(text, &length, "PE IBOOT TIMING CHECK DONE"); break;
++	case 114: lavender_trace_append_text(text, &length, "IOKIT INIT CALL BEGIN"); break;
++	case 115: lavender_trace_append_text(text, &length, "IOKIT INIT ENTER"); break;
++	case 116: lavender_trace_append_text(text, &length, "IOKIT IOLIB DONE"); break;
++	case 117: lavender_trace_append_text(text, &length, "IOKIT OSLIBKERN DONE"); break;
++	case 118: lavender_trace_append_text(text, &length, "IOKIT MACH PORTS DONE"); break;
++	case 119: lavender_trace_append_text(text, &length, "IOKIT GLOBALS DONE"); break;
++	case 120: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB ALLOCATED"); break;
++	case 121: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB INIT DONE"); break;
++	case 122: lavender_trace_append_text(text, &length, "IOKIT ROOT NUB ATTACH DONE"); break;
++	case 123: lavender_trace_append_text(text, &length, "IOKIT INIT DONE"); break;
++	case 124: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE BEGIN"); break;
++	case 125: lavender_trace_append_text(text, &length, "IOKIT CONFIGURE RETURNED"); break;
+ 	default:
+ 		if (event >= 47 && event <= 106) {
+ 			lavender_trace_append_text(text, &length, "POST-PLATFORM EVENT ");
+diff --git a/pexpert/arm/pe_init.c b/pexpert/arm/pe_init.c
+index 04dda53..dd82b42 100644
+--- a/pexpert/arm/pe_init.c
++++ b/pexpert/arm/pe_init.c
+@@ -22,6 +22,15 @@
+ 
+ #include <pexpert/arm64/board_config.h>
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++#define LAVENDER_IOKIT_TRACE(event) \
++    sweet_early_trace_startup((event), 0, 0, 0, 0, 0)
++#else
++#define LAVENDER_IOKIT_TRACE(event) do { } while (0)
++#endif
++
+ 
+ /* extern references */
+ extern void     pe_identify_machine(boot_args *bootArgs);
+@@ -246,12 +255,15 @@ PE_init_iokit(void)
+ 	uint32_t        load_kernel_start_value = 0;
+ 	uint32_t        populate_registry_time_value = 0;
+ 
++	LAVENDER_IOKIT_TRACE(107); /* PE_init_iokit entered */
+ 	PE_init_printf(TRUE);
++	LAVENDER_IOKIT_TRACE(108); /* early printf initialized */
+ 
+ 	printf("iBoot version: %s\n", iBoot_version);
+ #if defined(TARGET_OS_OSX) && defined(__arm64__)
+ 	printf("iBoot Stage 2 version: %s\n", iBoot_Stage_2_version);
+ #endif /* defined(TARGET_OS_OSX) && defined(__arm64__) */
++	LAVENDER_IOKIT_TRACE(109); /* boot-version output complete */
+ 
+ 	if (kSuccess == SecureDTLookupEntry(0, "/chosen/memory-map", &entry)) {
+ 		boot_progress_element const *bootPict;
+@@ -269,8 +281,10 @@ PE_init_iokit(void)
+ 			default_noroot_data = &bootPict->data[0];
+ 		}
+ 	}
++	LAVENDER_IOKIT_TRACE(110); /* optional memory-map image properties checked */
+ 
+ 	pe_prepare_images();
++	LAVENDER_IOKIT_TRACE(111); /* boot images prepared */
+ 
+ 	scale = PE_state.video.v_scale;
+ 	flip = 1;
+@@ -325,6 +339,7 @@ PE_init_iokit(void)
+ 		    (unsigned char *) appleClut8);
+ 		vc_progress_initialized = TRUE;
+ 	}
++	LAVENDER_IOKIT_TRACE(112); /* progress setup complete */
+ 
+ 	if (kdebug_enable && kdebug_debugid_enabled(IOKDBG_CODE(DBG_BOOTER, 0))) {
+ 		/* Trace iBoot-provided timing information. */
+@@ -358,9 +373,12 @@ PE_init_iokit(void)
+ 
+ 		KDBG_RELEASE(IOKDBG_CODE(DBG_BOOTER, 0), start_time_value, debug_wait_start_value, load_kernel_start_value, populate_registry_time_value);
+ 	}
++	LAVENDER_IOKIT_TRACE(113); /* optional iBoot timing properties checked */
+ 
++	LAVENDER_IOKIT_TRACE(114); /* InitIOKit call begin */
+ 	InitIOKit(PE_state.deviceTreeHead);
+ 	ConfigureIOKit();
++	LAVENDER_IOKIT_TRACE(125); /* ConfigureIOKit returned */
+ }
+ 
+ void

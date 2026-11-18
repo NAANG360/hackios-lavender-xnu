@@ -685,3 +685,26 @@ No GIC configuration was changed in this remediation. Keep `cpus=1`; never flash
 - This is not evidence of BSD init, VFS/root mount, launchd, SpringBoard, or a complete iOS userspace boot. The displayed AppleLogo and kernel console are diagnostic milestones only.
 - Run #349 artifact verification remains independently confirmed: artifact `14395081384`, `iosboot.img` size 16,617,472 bytes, SHA-256 `76ee03dc1b97fc3786344d543921a03758b2abefcd70f4d52c8ed35898aee38f`; manifest and `SHA256SUMS` match the independently downloaded image. Bootargs retain `cpus=1`; mode is RAM-only fastboot boot.
 - Safety unchanged: only `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata. Preserve volume-key recovery. No GIC changes without new, explicit panic evidence.
+
+
+## IOKit boundary investigation and patch 0126 — 18 November 2026
+
+### Exact-source findings
+
+- Retrieved and inspected the XNU buildtree artifact from Run #349 rather than relying on an upstream-source guess. `PE_init_iokit()` performs console setup, boot-version output, optional `/chosen/memory-map` reads, `pe_prepare_images()`, optional progress setup and optional iBoot timing reads before calling `InitIOKit()` and `ConfigureIOKit()`.
+- `InitIOKit()` runs `IOLibInit()`, `OSlibkernInit()`, `IOMachPortInitialize()`, allocates the global IOKit symbols/sets, initializes interrupt accounting, allocates and initializes `IOPlatformExpertDevice`, attaches the root nub, and optionally records startup extensions. `ConfigureIOKit()` asserts the root nub and calls `configureDefaults()`.
+- Found a separate deterministic platform-matching defect in the same exact buildtree: the Lavender personality in `iokit/KernelConfigTables.cpp` used `IONameMatch = qcom,sdm660-mtp`, but `tools/mkadt-lavender.py` builds the root `compatible` property from `D22AP`, `iPhone10,3`, `xiaomi,lavender`, `qcom,sdm660`, and `AppleARM`. The actual root therefore cannot match the MTP-only string. The fallback `IOPanicPlatform` explicitly panics when no real platform expert matches.
+- This name mismatch is a confirmed IOKit configuration bug, but it is not proven to explain the recording's missing event 20: that recording does not expose a panic or exact failure point inside `PE_init_iokit()`. Keep those two findings distinct.
+
+### Patch 0126 candidate
+
+- `xnu/patches/0126-lavender-iokit-bringup.patch` changes the Lavender platform expert match to the generated root compatible `xiaomi,lavender`.
+- It adds checkpoints 107–125: PE initialization milestones, entry/exit around `InitIOKit()`, completion of IOLib / OSlibkern / Mach-port initialization, root-nub allocation/init/attach, entry to `ConfigureIOKit()`, and return from configuration.
+- `tools/verify-lavender-iokit.py` checks the actual post-patch XNU tree for the platform-expert match and checkpoint ordering. The workflow requires patch 0126 and runs this verifier. The ADT host test also checks that the patched match is represented by the generated root-compatible string.
+- Local validation against the exact Run #349 buildtree: patch dry-run succeeded; patch application succeeded; `verify-lavender-iokit.py` passed. This is source-level validation only, not an XNU compile or physical boot result.
+
+### Acceptance
+
+- Require the new XNU build and linked-kernel verification to pass, then require the separate RAM-only image package and manifest/SHA-256 checks.
+- The next physical recording should show which of events 107–125 is last. Only a new successful physical run through event 20 proves that the prior IOKit boundary was crossed.
+- Keep `cpus=1`; no GIC changes; physical tests remain RAM-only via `fastboot boot iosboot.img`. Never flash, erase, repartition, or write Android eMMC/userdata. Preserve volume-key recovery.
