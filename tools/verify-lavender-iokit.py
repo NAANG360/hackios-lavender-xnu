@@ -100,11 +100,9 @@ def main():
         "root DeviceTree conversion markers do not bracket MakeReferenceTable"
     )
     require(
-        alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(140") <
-        alloc_body.index("SecureDTInitEntryIterator((DTEntry)dtTop") or
         alloc_body.index("SecureDTInitEntryIterator((DTEntry)dtTop") <
         alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(140"),
-        "DeviceTree iterator checkpoint does not bracket iterator initialization"
+        "DeviceTree iterator-ready checkpoint must follow iterator initialization"
     )
     require(
         "if ((lavenderNodeIndex % 4) == 0 || lavenderNodeIndex >= 18)" in alloc_body and
