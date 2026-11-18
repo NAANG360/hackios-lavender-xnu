@@ -77,10 +77,10 @@ index 22a3279..39ff3eb 100644
      "     'IOProbeScore'    = 10000:32;"
      "   },"
  #endif
-diff --git a/osfmk/arm64/lavender_early.c b/osfmk/arm64/lavender_early.c
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
 index 37f6f70..96e1ad1 100644
---- a/osfmk/arm64/lavender_early.c
-+++ b/osfmk/arm64/lavender_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
 @@ -288,6 +288,25 @@ lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
  	case 44: lavender_trace_append_text(text, &length, "KBOOT SCHED_INIT DONE"); break;
  	case 45: lavender_trace_append_text(text, &length, "KBOOT MACH_IPC INIT DONE"); break;
