@@ -1,32 +1,14 @@
-## Latest accepted diagnostic image — Run #357 (18 November 2026)
+## Latest accepted diagnostic image — Run #358 (18 November 2026)
 
-- **Latest accepted image:** [Run #357 / 44271639569](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569), source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`. Both jobs passed: XNU build/source verification and separate RAM-only fastboot packaging.
-- The build job passed the Lavender machine profile, ADT memory/CPU topology, entry-guard, non-secure Group-1 virtual timer, IOKit platform-match/early-init trace, linked kernel artifact verification and upload gates. The package job passed kernel retrieval, Mach-O presence, OTA/DTB verification, Lavender ADT generation, payload construction, boot-image construction, structural/payload identity checks and image upload.
-- **Artifact:** `lavender-fastboot-boot-test`, ID `14414465679`, uploaded 18 November 2026. Extracted `iosboot.img`: **16,617,472 bytes**; independently computed SHA-256: `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f`. The artifact `BUILD-MANIFEST.txt` and `SHA256SUMS` agree. Android boot-image structure was independently identified (`file`); manifest records kernel, payload and DTB hashes.
-- Bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. This suppresses the ordinary `fbcon_probe()` path in `pe_serial.c`; it does **not** disable the separate direct-framebuffer `lavender_early_trace_startup()` checkpoint renderer. A fixed [DARWIN] checkpoint overlay may still appear; normal scrolling fbcon output is a separate path. Preserve `cpus=1`.
-- This is a verified **RAM-only diagnostic boot package**, not a complete Darwin/userspace image and not evidence of a physical boot. CI success is not handset success.
-- User clarified that the newly supplied ~four-minute recording was filmed using an older image. It is therefore not evidence for Run #357 and must not be checksum-attributed to it. Keep footage/image attribution explicit; request a fresh recording after testing this exact image if physical progress is to be assessed.
-- **Previous run #355** ([44264884787](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44264884787)) failed and produced no accepted image. Run #357 is the succeeding green build after the subsequent verifier identity-check correction.
-- Physical test only with `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete iOS boot without direct evidence.
+- **Latest accepted image:** [Run #358 / 44339488789](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789), built from source commit `f1f633f9ac1887736f17937c38eb6c32de489160`. XNU build/verification and downstream RAM-only package jobs both passed.
+- **Artifact:** `lavender-fastboot-boot-test`, ID `14445642030`; extracted `iosboot.img` is **16,617,472 bytes**, SHA-256 `b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`. The downloaded artifact's `SHA256SUMS` passes and matches `BUILD-MANIFEST.txt`. Artifact ZIP digest: `723a50d977358f356febe994429fcaf74cfcf85d0c652e6faa3fdf8348ef3eb5`.
+- Patch 0127 root-nub events 126–132 passed patch/source guards, splitter/label checks, IOKit verifier, XNU 8796 compile, linked ARM64 Mach-O verification and image packaging.
+- Bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. Preserve `cpus=1`; the no-fbcon argument gates the ordinary `fbcon_probe()` path only, not direct early framebuffer checkpoints.
+- This is a verified RAM-only diagnostic package, not a complete Darwin/userspace image and not evidence of physical boot. No fresh physical test of this exact hash has been supplied.
+- Earlier videos remain unbound to Run #358. Do not infer physical progress from them or attribute them to this image. Require a fresh recording tied to the image SHA-256.
+- Physical test only via `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/`userdata`/any partition. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete iOS userspace without direct evidence.
 
-
-## Root-nub IOKit boundary — exact Run #357 source and next diagnostic patch (18 November 2026)
-
-- Downloaded and inspected the actual `xnu-buildtree` artifact from Run #357 (`14414095564`, source `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`). In the built `IOStartIOKit.cpp`, event 120 is emitted after `gRootNub = new IOPlatformExpertDevice`; the next operation is `gRootNub->init(dtTop)`. A false return calls `panic("Failed to initialize IOKit root nub")`; event 121 follows only after a successful return; event 122 follows `attach(NULL)`; event 123 marks `InitIOKit()` completion.
-- Exact `IOPlatformExpertDevice::init(dtRoot)` implementation in the same buildtree: with non-null `dtRoot`, it calls `IODeviceTreeAlloc(dtRoot)`; when that returns a non-null registry entry it calls `super::init(dt, gIODTPlane)`; otherwise it takes the fallback `super::init()` path. It does not create an `IOWorkLoop` or call `registerService()`.
-- Workloop creation and `registerService()` occur later in `IOPlatformExpertDevice::startIOServiceMatching()`, which is reached through `PE_lockdown_iokit()` / `StartIOKitMatching()` after machine lockdown. Gemini's proposed `initWithArgs()`, `registerService()`, and wait-for-platform-expert diagnosis do not describe this source revision.
-- Panic and synchronous-exception visibility hooks already exist in this buildtree: `panic_trap_to_debugger()` calls `sweet_early_panic()` (Lavender maps this to `lavender_early_panic()`), and the ARM64 synchronous exception path emits trace event 40 with ESR/FAR/ELR/SPSR. Do not add duplicate panic instrumentation without evidence that these hooks fail.
-- The submitted footage's final marker is corrected to **`IOKIT ROOT NUB ALLOCATED`**, not ROOT MAP. It is not checksum-bound to Run #357. Also, do not treat visible direct checkpoints as proof that `lavender_no_fbcon=1` was absent: that argument gates `fbcon_probe()`, not the independent early checkpoint renderer.
-- Patch `0127-lavender-root-nub-init-trace.patch` adds events 126–132 around `IOPlatformExpertDevice::init()`: entry, device-tree allocation begin/return (including returned pointer), registry superclass init begin/return (including boolean), and fallback init begin/return. The splitter emits these labels on both fresh and cached-source paths; the verifier checks their source ordering and label text; the workflow requires patch 0127.
-- Local exact-Run-#357 buildtree validation: patch 0127 dry-run and application succeeded; local structural checks passed for all seven event brackets and existing panic/synchronous-exception hooks. The case-block delimiter regex in `tools/verify-lavender-iokit.py` was corrected in commit `ebfbf9e83e3074a7e705c74ac6f5fc9407e38cb6` and its matching behavior was locally checked against the trace format. **Full workflow verifier, CI compile, linked-kernel verification, and image packaging for 0127 are still pending.** Do not distribute a candidate until all gates pass.
-
-
-## Public and safety documentation refresh — 18 November 2026
-
-- `README.md` is now the Lavender project overview. Do not restore the inherited IOS-Sweet/Redmi Note 10 Pro instructions or copy their hardware facts into Lavender documentation.
-- `PROJECT_HANDOFF.md` now has a Run #357 current-status summary; older entries remain historical. Its previous `userdata` root-image proposal is explicitly superseded.
-- `docs/handoff/01-device-and-safety.md` is the authority for current device-test safety: RAM-only `fastboot boot iosboot.img` only; no flash, erase, format, repartition or write to eMMC/`userdata` or any other partition.
-- `docs/handoff/03-current-debugging.md` remains the routed live diagnostic record. README and historical handoff text must not override it or the live Actions state.
+---
 
 # Lavender XNU — agent entrypoint
 
@@ -37,13 +19,12 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 
 ## Current milestone — 18 November 2026
 
-- **Latest accepted diagnostic image: Run #357** ([44271639569](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569)), source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`. Artifact `14414465679` (`lavender-fastboot-boot-test`) contains `iosboot.img`, 16,617,472 bytes, SHA-256 `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f`. The extracted image was independently hashed; its hash matches both `BUILD-MANIFEST.txt` and `SHA256SUMS`.
-- Run #357 passed the XNU build/source-verification job and the separate RAM-only packaging/upload job. The IOKit platform-match/early-init trace verifier, linked kernel verification, boot-image structure and kernel/payload/DTB identity checks all passed.
-- Exact bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. The bootarg disables the normal `fbcon_probe()` path only; direct early checkpoint rendering is independent and may remain visible. Preserve `cpus=1`.
-- This is a verified RAM-only diagnostic package, not a complete Darwin/userspace image and not evidence of a physical boot.
-- User clarified the approximately four-minute recording was filmed with an older image. It is not evidence for Run #357 and is not checksum-bound to it. Require a fresh test recording of this exact image before making physical-progress claims.
-- Run #355 ([44264884787](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44264884787)) failed and produced no accepted image; Run #357 is the succeeding accepted build.
-- Physical test only via `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete iOS userspace without direct evidence.
+- **Latest accepted diagnostic image: Run #358** ([44339488789](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789)), source commit `f1f633f9ac1887736f17937c38eb6c32de489160`. Artifact `14445642030` (`lavender-fastboot-boot-test`) contains `iosboot.img`, 16,617,472 bytes, SHA-256 `b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`. Downloaded artifact hash matches `BUILD-MANIFEST.txt` and `SHA256SUMS`.
+- Run #358 passed the XNU build/source-verification job and downstream RAM-only packaging/upload job. Patch 0127 events 126–132 passed source/label checks and the IOKit verifier; linked ARM64 Mach-O verification and kernel/payload/DTB/boot-image identity checks passed.
+- Exact bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. This disables normal `fbcon_probe()` only; direct early checkpoint rendering is independent. Preserve `cpus=1`.
+- This is a verified RAM-only diagnostic package, not a complete Darwin/userspace image and not evidence of a physical boot. No physical test of this exact hash has yet been provided.
+- Earlier footage is not checksum-bound to Run #358; require a fresh recording of this exact image before making physical-progress claims.
+- Physical test only via `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata/any partition. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete iOS userspace without direct evidence.
 
 ## Previous accepted operations — Run #300 (superseded by Run #302)
 
