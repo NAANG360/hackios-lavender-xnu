@@ -18,7 +18,6 @@ This repository is working toward running Apple's open-source **XNU 8796** kerne
 | Image | `iosboot.img`, 16,617,472 bytes |
 | SHA-256 | `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f` |
 | Run #357 source | `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad` |
-| Current diagnostic source | [`f1f633f`](https://github.com/NAANG360/hackios-lavender-xnu/commit/f1f633f9ac1887736f17937c38eb6c32de489160) |
 | New root-nub trace patch | `0127-lavender-root-nub-init-trace.patch`; compile/package acceptance pending |
 
 Run #357 passed the XNU build and linked-kernel verification job, followed by the separate RAM-only fastboot-image packaging job. The image hash above was independently checked against the artifact manifest and `SHA256SUMS`. It is a diagnostic boot package, **not** a completed iOS installation and not proof that it has booted successfully on the handset.
