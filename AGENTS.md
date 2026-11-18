@@ -1,3 +1,14 @@
+## Latest accepted diagnostic image — Run #357 (18 November 2026)
+
+- **Latest accepted image:** [Run #357 / 44271639569](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569), source commit `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad`. Both jobs passed: XNU build/source verification and separate RAM-only fastboot packaging.
+- The build job passed the Lavender machine profile, ADT memory/CPU topology, entry-guard, non-secure Group-1 virtual timer, IOKit platform-match/early-init trace, linked kernel artifact verification and upload gates. The package job passed kernel retrieval, Mach-O presence, OTA/DTB verification, Lavender ADT generation, payload construction, boot-image construction, structural/payload identity checks and image upload.
+- **Artifact:** `lavender-fastboot-boot-test`, ID `14414465679`, uploaded 18 November 2026. Extracted `iosboot.img`: **16,617,472 bytes**; independently computed SHA-256: `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f`. The artifact `BUILD-MANIFEST.txt` and `SHA256SUMS` agree. Android boot-image structure was independently identified (`file`); manifest records kernel, payload and DTB hashes.
+- Bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. **Framebuffer console is explicitly disabled**; do not expect the earlier on-screen KBOOT console trace from this image. Preserve `cpus=1`.
+- This is a verified **RAM-only diagnostic boot package**, not a complete Darwin/userspace image and not evidence of a physical boot. CI success is not handset success.
+- User clarified that the newly supplied ~four-minute recording was filmed using an older image. It is therefore not evidence for Run #357 and must not be checksum-attributed to it. Keep footage/image attribution explicit; request a fresh recording after testing this exact image if physical progress is to be assessed.
+- **Previous run #355** ([44264884787](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44264884787)) failed and produced no accepted image. Run #357 is the succeeding green build after the subsequent verifier identity-check correction.
+- Physical test only with `fastboot boot iosboot.img`; never flash, erase, repartition or write Android eMMC/userdata. Preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete iOS boot without direct evidence.
+
 # Lavender XNU — agent entrypoint
 
 **Start here.** Inspect the live branch HEAD and newest Actions runs, then open only the routed chapter. Use the handoff chapters as the active engineering record; do not consult `PROJECT_HANDOFF.md` unless the user explicitly asks.
