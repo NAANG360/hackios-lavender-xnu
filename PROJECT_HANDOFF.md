@@ -8,7 +8,7 @@ Read `AGENTS.md`, inspect the live branch HEAD and newest Actions runs, then loa
 
 ## Current milestone — 18 November 2026
 
-- **Active branch:** `ci/lavender-machine-profile`; current branch HEAD after documentation refresh: `e113ba2f8f5a5815b98835ffdb90f902b97d6cd6`.
+- **Active branch:** `ci/lavender-machine-profile`; resolve the live branch HEAD before further engineering. Documentation-only follow-ups are layered after the Run #358 tested source commit.
 - **Latest accepted CI image:** Run [#358 / 44339488789](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789), built from source commit `f1f633f9ac1887736f17937c38eb6c32de489160`. Both XNU build/verification and downstream RAM-only package jobs passed.
 - **Image artifact:** `lavender-fastboot-boot-test`, artifact ID `14445642030`; `iosboot.img` size **16,617,472 bytes**, SHA-256 **`b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f`**. The downloaded artifact was extracted locally; `sha256sum -c SHA256SUMS` passed and the hash matches `BUILD-MANIFEST.txt`. Artifact ZIP digest: `723a50d977358f356febe994429fcaf74cfcf85d0c652e6faa3fdf8348ef3eb5`.
 - **Patch 0127:** full CI acceptance achieved. Root-nub trace events 126–132 passed patch/source guards, generated-label checks, IOKit verifier, XNU 8796 compilation, linked ARM64 Mach-O verification and image packaging.
