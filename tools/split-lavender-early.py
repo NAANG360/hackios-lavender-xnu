@@ -30,6 +30,60 @@ COMPAT_WRAPPER = (
     "}\n"
 )
 
+def ensure_guardian_late_progress():
+    lavender = LAVENDER_SOURCE.read_text()
+    declaration = "static volatile uint32_t *early_guard_cell;"
+    if "lavender_guard_stage20_complete" not in lavender:
+        if lavender.count(declaration) != 1:
+            raise SystemExit("could not locate unique Lavender Guardian marker declaration")
+        lavender = lavender.replace(
+            declaration,
+            declaration + "\nstatic unsigned int lavender_guard_stage20_complete;",
+            1
+        )
+
+    stage_anchor = r'''\t\t*early_guard_cell = (stage == 20) ? (0x80000100u | stage) : (0x100u | stage);
+\t\t__asm__ volatile("dc cvac, %0\n\tdsb sy" :: "r"(early_guard_cell) : "memory");
+'''
+    stage_insert = stage_anchor + "\t\tif (stage == 20) lavender_guard_stage20_complete = 1;\n"
+    if "if (stage == 20) lavender_guard_stage20_complete = 1;" not in lavender:
+        if lavender.count(stage_anchor) != 1:
+            raise SystemExit("could not locate stage-20 Guardian marker publication")
+        lavender = lavender.replace(stage_anchor, stage_insert, 1)
+
+    trace_anchor = """lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
+    uintptr_t c, uintptr_t d, uintptr_t e)
+{
+\tchar text[128];
+"""
+    trace_insert = """lavender_early_trace_startup(unsigned int event, uintptr_t a, uintptr_t b,
+    uintptr_t c, uintptr_t d, uintptr_t e)
+{
+\t/* Retain stage-20's high-bit handoff flag while publishing later XNU progress. */
+\tif (early_guard_cell != 0 && lavender_guard_stage20_complete) {
+\t\t*early_guard_cell = 0x80010000u | (event & 0xffffu);
+\t\t__asm__ volatile("dc cvac, %0\\n\\tdsb sy" :: "r"(early_guard_cell) : "memory");
+\t}
+\tchar text[128];
+"""
+    if "0x80010000u | (event & 0xffffu)" not in lavender:
+        if lavender.count(trace_anchor) != 1:
+            raise SystemExit("could not locate unique Lavender startup trace entry")
+        lavender = lavender.replace(trace_anchor, trace_insert, 1)
+
+    old_comment = """ * Keep a single rolling status line below the ordinary checkpoint history.
+ * Do not publish these sub-events to the Guardian cell: they must not
+ * extend its 60-second no-progress deadline or collide with the stage20 high bit.
+"""
+    new_comment = """ * Keep a single rolling status line below the ordinary checkpoint history.
+ * After stage 20, publish each later startup event as 0x80010000|event in
+ * the Guardian cell, preserving the high-bit handoff-complete flag.
+"""
+    if old_comment in lavender:
+        lavender = lavender.replace(old_comment, new_comment, 1)
+    LAVENDER_SOURCE.write_text(lavender)
+
+
 def ensure_post_platform_renderer():
     lavender = LAVENDER_SOURCE.read_text()
     # IOKit bring-up checkpoints are injected after the historical combined
@@ -65,6 +119,30 @@ def ensure_post_platform_renderer():
         '\n\tcase 131: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK BEGIN"); break;'
         '\n\tcase 132: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
     )
+
+    allocator_trace_labels = (
+        '\n\tcase 133: lavender_trace_append_text(text, &length, "DT ALLOC ENTER dt="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 134: lavender_trace_append_text(text, &length, "DT PLANE READY ptr="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 135: lavender_trace_append_text(text, &length, "DT SYMBOLS READY name="); lavender_trace_append_hex(text, &length, a); lavender_trace_append_text(text, &length, " persist="); lavender_trace_append_hex(text, &length, b); break;'
+        '\n\tcase 136: lavender_trace_append_text(text, &length, "DT GLOBALS READY resolvers="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 137: lavender_trace_append_text(text, &length, "DT ROOT BUILD BEGIN dt="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 138: lavender_trace_append_text(text, &length, "DT ROOT BUILD DONE entry="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 139: lavender_trace_append_text(text, &length, "DT STACK READY ptr="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 140: lavender_trace_append_text(text, &length, "DT ITERATOR READY root="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 141: lavender_trace_append_text(text, &length, "DT CHILD BUILD n="); lavender_trace_append_decimal(text, &length, a); lavender_trace_append_text(text, &length, " ptr="); lavender_trace_append_hex(text, &length, b); break;'
+        '\n\tcase 142: lavender_trace_append_text(text, &length, "DT WALK DONE nodes="); lavender_trace_append_decimal(text, &length, a); break;'
+        '\n\tcase 143: lavender_trace_append_text(text, &length, "DT ROOT ATTACHED ptr="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 144: lavender_trace_append_text(text, &length, "DT INTERRUPT WALK READY iter="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 145: lavender_trace_append_text(text, &length, "DT INTERRUPT WALK DONE map="); lavender_trace_append_decimal(text, &length, a); break;'
+        '\n\tcase 146: lavender_trace_append_text(text, &length, "DT ALLOC RETURN root="); lavender_trace_append_hex(text, &length, a); break;'
+    )
+    if "case 146: lavender_trace_append_text" not in lavender:
+        allocator_anchor = 'case 132: lavender_trace_append_text(text, &length, "IOKIT ROOT REGISTRY FALLBACK RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
+        if allocator_anchor not in lavender:
+            raise SystemExit("could not find event 132 anchor for DeviceTree allocator labels")
+        lavender = lavender.replace(allocator_anchor, allocator_anchor + allocator_trace_labels, 1)
+        LAVENDER_SOURCE.write_text(lavender)
+    ensure_guardian_late_progress()
     if "case 125: lavender_trace_append_text" not in lavender:
         if trace_anchor not in lavender:
             raise SystemExit("could not find event 46 anchor for IOKit trace labels")
