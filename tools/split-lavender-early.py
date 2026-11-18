@@ -82,6 +82,17 @@ def ensure_guardian_late_progress():
             raise SystemExit("could not locate unique Lavender startup trace entry")
         lavender = lavender.replace(trace_anchor, trace_insert, 1)
 
+    old_comment = """ * Keep a single rolling status line below the ordinary checkpoint history.
+ * Do not publish these sub-events to the Guardian cell: they must not extend
+ * its 60-second no-progress deadline or collide with the stage-20 high bit.
+"""
+    new_comment = """ * Keep a single rolling status line below the ordinary checkpoint history.
+ * Publish post-stage-20 progress to the Guardian cell while preserving its
+ * high-bit handoff flag; the cell now carries late event/substage information.
+"""
+    if old_comment in lavender:
+        lavender = lavender.replace(old_comment, new_comment, 1)
+
     LAVENDER_SOURCE.write_text(lavender)
 
 
