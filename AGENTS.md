@@ -18,7 +18,15 @@
 - Panic and synchronous-exception visibility hooks already exist in this buildtree: `panic_trap_to_debugger()` calls `sweet_early_panic()` (Lavender maps this to `lavender_early_panic()`), and the ARM64 synchronous exception path emits trace event 40 with ESR/FAR/ELR/SPSR. Do not add duplicate panic instrumentation without evidence that these hooks fail.
 - The submitted footage's final marker is corrected to **`IOKIT ROOT NUB ALLOCATED`**, not ROOT MAP. It is not checksum-bound to Run #357. Also, do not treat visible direct checkpoints as proof that `lavender_no_fbcon=1` was absent: that argument gates `fbcon_probe()`, not the independent early checkpoint renderer.
 - Patch `0127-lavender-root-nub-init-trace.patch` adds events 126–132 around `IOPlatformExpertDevice::init()`: entry, device-tree allocation begin/return (including returned pointer), registry superclass init begin/return (including boolean), and fallback init begin/return. The splitter emits these labels on both fresh and cached-source paths; the verifier checks their source ordering and label text; the workflow requires patch 0127.
-- Local exact-Run-#357 buildtree validation: patch 0127 dry-run and application succeeded; local structural checks passed for all seven event brackets and existing panic/synchronous-exception hooks. **CI compile, linked-kernel verification, and image packaging are still pending.** Do not distribute a candidate until all gates pass.
+- Local exact-Run-#357 buildtree validation: patch 0127 dry-run and application succeeded; local structural checks passed for all seven event brackets and existing panic/synchronous-exception hooks. The case-block delimiter regex in `tools/verify-lavender-iokit.py` was corrected in commit `ebfbf9e83e3074a7e705c74ac6f5fc9407e38cb6` and its matching behavior was locally checked against the trace format. **Full workflow verifier, CI compile, linked-kernel verification, and image packaging for 0127 are still pending.** Do not distribute a candidate until all gates pass.
+
+
+## Public and safety documentation refresh — 18 November 2026
+
+- `README.md` is now the Lavender project overview. Do not restore the inherited IOS-Sweet/Redmi Note 10 Pro instructions or copy their hardware facts into Lavender documentation.
+- `PROJECT_HANDOFF.md` now has a Run #357 current-status summary; older entries remain historical. Its previous `userdata` root-image proposal is explicitly superseded.
+- `docs/handoff/01-device-and-safety.md` is the authority for current device-test safety: RAM-only `fastboot boot iosboot.img` only; no flash, erase, format, repartition or write to eMMC/`userdata` or any other partition.
+- `docs/handoff/03-current-debugging.md` remains the routed live diagnostic record. README and historical handoff text must not override it or the live Actions state.
 
 # Lavender XNU — agent entrypoint
 
