@@ -22,7 +22,7 @@ This repository is working toward running Apple's open-source **XNU 8796** kerne
 
 Run #358 passed the complete XNU 8796 build, Lavender source/IOKit trace verification (including patch 0127 events 126–132), linked ARM64 Mach-O verification, and downstream RAM-only fastboot-image packaging. The downloaded artifact was independently extracted; `SHA256SUMS` passed and the image hash matches `BUILD-MANIFEST.txt`. Manifest bootargs are `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. This is a verified diagnostic boot package, **not** a completed iOS installation and not proof that it has booted successfully on the handset.
 
-The supplied 18 November videos show an older image whose exact SHA-256 has not been established. The final visible marker is **`IOKIT ROOT NUB ALLOCATED`**. Do not attribute that footage to Run #357 or use it as proof of the current source revision's physical behavior.
+The supplied 18 November videos show an older image whose exact SHA-256 has not been established. The final visible marker is **`IOKIT ROOT NUB ALLOCATED`**. Do not attribute that footage to Run #357 or Run #358, or use it as proof of the current source revision's physical behavior.
 
 ## Current engineering focus
 
@@ -112,7 +112,7 @@ This loads the image temporarily; it is not a flash operation. Preserve `cpus=1`
 ## What is not implemented or proven
 
 - No verified BSD init, VFS/root mount, launchd, SpringBoard, or complete Darwin userspace boot.
-- No accepted physical boot result for the Run #357 image.
+- No accepted physical boot result for the Run #358 image.
 - No accepted compile/package result yet for patch 0127.
 - No Lavender eMMC root driver or safe root-mount path is accepted as working.
 - Wi-Fi, Bluetooth, cellular, audio, camera, sensors, GPU acceleration, and other iPhone services are not established.
