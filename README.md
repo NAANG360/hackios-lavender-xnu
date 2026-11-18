@@ -13,14 +13,14 @@ This repository is working toward running Apple's open-source **XNU 8796** kerne
 | Target | Redmi Note 7 / Note 7S, `lavender`, Snapdragon 660 / SDM660, ARM64 |
 | Kernel | XNU 8796, iOS 16 generation |
 | Active branch | `ci/lavender-machine-profile` |
-| Latest accepted CI image | [Run #357](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44271639569) |
-| Accepted image artifact | `lavender-fastboot-boot-test`, artifact ID `14414465679` |
+| Latest accepted CI image | [Run #358](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789) |
+| Accepted image artifact | `lavender-fastboot-boot-test`, artifact ID `14445642030` |
 | Image | `iosboot.img`, 16,617,472 bytes |
-| SHA-256 | `97d2fb54ea8367b6236f3e41d13a43ac1cdcce4c28bb26632e020cb89dc5ad7f` |
-| Run #357 source | `fc9da9a76444fafc2a2a2d40bd1fd71c2104a1ad` |
-| New root-nub trace patch | `0127-lavender-root-nub-init-trace.patch`; compile/package acceptance pending |
+| SHA-256 | `b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f` |
+| Run #358 source | `f1f633f9ac1887736f17937c38eb6c32de489160` |
+| Root-nub trace patch | `0127-lavender-root-nub-init-trace.patch`; full build, verifier, linked-kernel and package gates passed |
 
-Run #357 passed the XNU build and linked-kernel verification job, followed by the separate RAM-only fastboot-image packaging job. The image hash above was independently checked against the artifact manifest and `SHA256SUMS`. It is a diagnostic boot package, **not** a completed iOS installation and not proof that it has booted successfully on the handset.
+Run #358 passed the complete XNU 8796 build, Lavender source/IOKit trace verification (including patch 0127 events 126–132), linked ARM64 Mach-O verification, and downstream RAM-only fastboot-image packaging. The downloaded artifact was independently extracted; `SHA256SUMS` passed and the image hash matches `BUILD-MANIFEST.txt`. Manifest bootargs are `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. This is a verified diagnostic boot package, **not** a completed iOS installation and not proof that it has booted successfully on the handset.
 
 The supplied 18 November videos show an older image whose exact SHA-256 has not been established. The final visible marker is **`IOKIT ROOT NUB ALLOCATED`**. Do not attribute that footage to Run #357 or use it as proof of the current source revision's physical behavior.
 
@@ -46,7 +46,7 @@ Patch **0127** adds trace events 126–132 around those operations, including po
 | 129–130 | Device-tree registry superclass init began and returned |
 | 131–132 | Fallback superclass init began and returned |
 
-The next acceptance gate is a complete XNU build with patch 0127, all source guards, linked Mach-O verification, and a separately verified RAM-only package. **Patch 0127 has not yet passed those full CI gates.** Do not distribute a candidate from a compile-only or failed run.
+Patch 0127 has now passed the complete Run #358 CI gates: patch/source guards, XNU 8796 compilation, IOKit trace verifier, linked ARM64 Mach-O verification, and RAM-only image construction plus identity/checksum verification. The image is ready for a controlled physical RAM-boot test; no physical result is yet established.
 
 ## Device and hardware notes
 
@@ -63,8 +63,8 @@ The build is automated with GitHub Actions; no local macOS XNU toolchain is requ
 1. Open the repository's **Actions** tab and select the **xnu** workflow.
 2. Run the workflow on `ci/lavender-machine-profile`, selecting machine profile **LAVENDER**. The default XNU configuration is DEVELOPMENT.
 3. Wait for the complete build job, including patch application, Lavender source guards, XNU compilation, linked Mach-O verification, and kernel artifact upload.
-4. Only after a successful XNU run, open **Package Lavender fastboot test image** and provide that successful XNU workflow run ID.
-5. Accept the package only if the package job verifies the matching source revision, kernel/payload/DTB identity, Android boot-image structure, manifest and SHA-256, and uploads `iosboot.img`.
+4. The XNU workflow's downstream package job runs automatically after the build succeeds. Wait for both jobs to complete.
+5. Accept the image only if the package job verifies the matching source revision, kernel/payload/DTB identity, Android boot-image structure, manifest and SHA-256, and uploads `iosboot.img`.
 
 The packaging workflow is intentionally separate and manual. It refuses unsuccessful XNU runs and unexpected source branches.
 
