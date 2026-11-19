@@ -926,3 +926,14 @@ Child 20 is specifically useful because the malformed Novatek property occurs at
 - Run #358 remains the latest accepted diagnostic image at this checkpoint. Do not treat it as a physical-test match without the exact host-side SHA-256.
 
 Continue with RAM-only fastboot boot iosboot.img, preserve cpus=1, and keep volume-key recovery available. Never flash, erase, format, repartition, or write Android eMMC/userdata or any other partition.
+
+
+## Run #376 failure — allocator trace renderer repair
+
+- Run #376 (44449132010, commit 47461799297c69ab0bbd9779972c70d93b64e950) completed the XNU 8796 build successfully. The machine-profile, ADT memory/CPU topology, cache-aware build-path, entry-guard and GIC timer checks all passed.
+- The run failed only at tools/verify-lavender-iokit.py: FAIL: trace renderer case 138 is missing. The RAM-only package job was skipped as expected because the IOKit verifier failed. This is a generated trace-renderer/source-guard failure, not a compiler failure and not a new physical boot result.
+- Root cause: the splitter's allocator-label insertion had relied on a single late sentinel (case 146). Earlier partial injections could leave that sentinel present while an intermediate label such as event 138 was absent. The verifier correctly caught the missing DT ROOT BUILD DONE entry= label.
+- Fix committed in tools/split-lavender-early.py: allocator trace cases are now checked individually by event number; missing cases 133–146 are inserted at the correct numeric position before the next higher case, rather than treating case 146 as proof that the entire block exists. This repairs partial prior injections and preserves renderer ordering.
+- The required 0128 allocator patch and verifier expectations remain enabled. The next XNU run must prove the complete renderer 133–146, pass the IOKit verifier, then proceed through linked ARM64 artifact checks and RAM-only package verification. Do not use an intermediate or failed-run artifact for physical testing.
+- Latest repair commit: 21b05e98275fb15671050aef1519399abc73f6de (splitter order repair). Follow the next Actions run on ci/lavender-machine-profile and record its run number, head SHA, verifier result, and artifact SHA-256 before calling it accepted.
+
