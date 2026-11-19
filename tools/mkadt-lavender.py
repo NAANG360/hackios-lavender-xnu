@@ -299,10 +299,15 @@ def walk_nodes_with_paths(root):
 
 def check_iokit_interrupt_contract(root):
     """Validate the exact phandle/cell contract used by XNU's IODTMapOneInterrupt()."""
+    # adt.Node intentionally remains a minimal parsed-tree structure, so read
+    # properties from its tuple list rather than relying on an instance method.
+    def get_prop(current, name):
+        return next((value for key, _flags, value in current.props if key == name), None)
+
     entries = list(walk_nodes_with_paths(root))
     by_phandle = {}
     for path, current in entries:
-        handle = current.prop("AAPL,phandle")
+        handle = get_prop(current, "AAPL,phandle")
         if handle is None:
             continue
         if len(handle) != 4:
@@ -314,10 +319,10 @@ def check_iokit_interrupt_contract(root):
 
     interrupt_nodes = []
     for path, current in entries:
-        interrupts = current.prop("interrupts")
+        interrupts = get_prop(current, "interrupts")
         if interrupts is None:
             continue
-        parent_data = current.prop("interrupt-parent")
+        parent_data = get_prop(current, "interrupt-parent")
         if parent_data is None or len(parent_data) != 4:
             raise ValueError(f"{path}: interrupts requires a direct 4-byte interrupt-parent")
         parent_handle = struct.unpack("<I", parent_data)[0]
@@ -325,13 +330,13 @@ def check_iokit_interrupt_contract(root):
         if resolved is None:
             raise ValueError(f"{path}: interrupt-parent {parent_handle:#x} is not registered by AddPHandle")
         parent_path, parent = resolved
-        cells = parent.prop("#interrupt-cells")
+        cells = get_prop(parent, "#interrupt-cells")
         if cells is None or len(cells) != 4:
             raise ValueError(f"{parent_path}: interrupt parent must expose a 4-byte #interrupt-cells")
         cell_count = struct.unpack("<I", cells)[0]
         if cell_count == 0:
             raise ValueError(f"{parent_path}: #interrupt-cells must be non-zero")
-        if parent.prop("interrupt-controller") is None and parent.prop("interrupt-map") is None:
+        if get_prop(parent, "interrupt-controller") is None and get_prop(parent, "interrupt-map") is None:
             raise ValueError(f"{parent_path}: interrupt parent is neither controller nor interrupt-map")
         if not interrupts or len(interrupts) % (cell_count * 4):
             raise ValueError(
@@ -365,7 +370,7 @@ def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
     if interrupt_nodes != ["/arm-io/i2c0", "/arm-io/emmc"]:
         raise ValueError(f"unexpected Lavender interrupt-bearing nodes: {interrupt_nodes}")
     gic = next(n for path, n in walk_nodes_with_paths(root) if path == "/arm-io/gic")
-    if gic.prop("interrupt-controller") is None or struct.unpack("<I", gic.prop("#interrupt-cells"))[0] != 3:
+    if get_prop(gic, "interrupt-controller") is None or struct.unpack("<I", get_prop(gic, "#interrupt-cells"))[0] != 3:
         raise ValueError("Lavender GIC must be a three-cell interrupt controller")
     chosen = next(c for c in root.children if c.name == 'chosen')
     get = lambda name: next(v for n, _, v in chosen.props if n == name)
