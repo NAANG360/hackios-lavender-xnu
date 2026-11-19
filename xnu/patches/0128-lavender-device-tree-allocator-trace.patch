@@ -66,10 +66,8 @@ diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSup
  
  		while (kSuccess == SecureDTIterateEntries( &iter, &dtChild)) {
 +			++lavenderNodeIndex;
-+			/* Keep the console bounded: every fourth early child, then each late child. */
-+			if ((lavenderNodeIndex % 4) == 0 || lavenderNodeIndex >= 18) {
-+				LAVENDER_DEVICE_TREE_TRACE(141, lavenderNodeIndex, dtChild); /* current child node conversion */
-+			}
++			/* Guardian records every child; the framebuffer renderer throttles text. */
++			LAVENDER_DEVICE_TREE_TRACE(141, lavenderNodeIndex, dtChild); /* current child node conversion */
  			child = MakeReferenceTable( dtChild, freeDT );
  			child->attachToParent( parent, gIODTPlane);
  
