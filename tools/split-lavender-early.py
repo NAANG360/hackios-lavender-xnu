@@ -170,19 +170,20 @@ def ensure_post_platform_renderer():
     # 146 as a single sentinel, which allowed a partial 133–146 block to pass.
     missing_alloc = []
     for line in alloc_labels.splitlines():
-        match = re.match(r"\\s*case (\\d+):", line)
-        if match and not re.search(rf"\\bcase {match.group(1)}:", lavender):
+        match = re.match(r"\s*case (\d+):", line)
+        if match and not re.search(rf"\bcase {match.group(1)}:", lavender):
             missing_alloc.append(line)
     if missing_alloc:
-        default_anchor = "\\tdefault:"
+        default_anchor = "\tdefault:"
         if lavender.count(default_anchor) != 1:
             raise SystemExit("could not locate unique default trace-renderer case")
         lavender = lavender.replace(
             default_anchor,
-            "\\n".join(missing_alloc) + "\\n" + default_anchor,
+            "\n".join(missing_alloc) + "\n" + default_anchor,
             1
         )
         LAVENDER_SOURCE.write_text(lavender)
+
 
     old = ('default:\n\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\tbreak;')
