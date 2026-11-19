@@ -78,7 +78,7 @@ def ensure_guardian_late_progress():
         "\t}\n"
         "\tchar text[128];\n"
     )
-    if "0x80010000u | (event & 0xffffu)" not in lavender:
+    if "0x80010000u | ((event & 0xffu) << 8)" not in lavender:
         if lavender.count(trace_anchor) != 1:
             raise SystemExit("could not locate unique Lavender startup trace entry")
         lavender = lavender.replace(trace_anchor, trace_insert, 1)

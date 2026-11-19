@@ -170,7 +170,7 @@ def main():
         146: "DT ALLOC RETURN root=",
     }
     for event in range(133, 147):
-        require(re.search(rf'case {event}:.*?"[^"\\n]+"', trace) is not None,
+        require(re.search(rf'case {event}:.*?"[^"\n]+"', trace) is not None,
                 f"trace renderer case {event} is missing")
     for event, label in expected.items():
         case = re.search(rf'case {event}:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)

@@ -942,7 +942,7 @@ jobs:
           path: |
             dxb/build
             dxb/fakeroot
-          key: xnu8796-v5-armv8a-firehose-generic-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
+          key: xnu8796-v6-armv8a-firehose-no-lse-${{ inputs.macos_version || '13.5' }}-${{ inputs.kernel_config || 'DEVELOPMENT' }}-${{ inputs.machine_config || 'LAVENDER' }}-macos15-xcode16-dxb-663906528d1cd5ea8fde7de6f16de73db9511549-${{ hashFiles('xnu/patches/*.patch', 'xnu/patches/*.sh', 'tools/fix-lavender-pre-vbar.py', 'tools/split-lavender-early.py', 'tools/prepare-lavender-applelogo.sh', 'tools/pack_lavender_applelogo.py') }}
 
       - uses: actions/upload-artifact@v4
         if: success()
