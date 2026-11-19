@@ -100,10 +100,16 @@ def ensure_post_platform_renderer():
     lavender = LAVENDER_SOURCE.read_text()
     def inject(anchor, block, sentinel, description):
         nonlocal lavender
-        if sentinel not in lavender:
+        # Repair partial prior injections line-by-line. A single sentinel such
+        # as case 146 is insufficient: it can exist while an earlier case
+        # (for example 138) is missing, which made the source guard fail.
+        lines = [line for line in block.splitlines() if line.strip()]
+        missing = [line for line in lines if line not in lavender]
+        if missing:
             if anchor not in lavender:
                 raise SystemExit("could not find " + description + " insertion anchor")
-            lavender = lavender.replace(anchor, anchor + block, 1)
+            addition = "\\n" + "\\n".join(missing)
+            lavender = lavender.replace(anchor, anchor + addition, 1)
             LAVENDER_SOURCE.write_text(lavender)
 
     # Events 107–125 bracket PE_init_iokit(), InitIOKit() and ConfigureIOKit().
