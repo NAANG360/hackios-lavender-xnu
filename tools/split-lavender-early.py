@@ -172,16 +172,21 @@ def ensure_post_platform_renderer():
     for line in alloc_labels.splitlines():
         match = re.match(r"\s*case (\d+):", line)
         if match and not re.search(rf"\bcase {match.group(1)}:", lavender):
-            missing_alloc.append(line)
+            missing_alloc.append((int(match.group(1)), line))
+    for number, line in sorted(missing_alloc):
+        next_case = re.search(rf"(?m)^\s*case ([0-9]+):", lavender)
+        insertion = None
+        for candidate in re.finditer(r"(?m)^\s*case ([0-9]+):", lavender):
+            if int(candidate.group(1)) > number:
+                insertion = candidate.start()
+                break
+        if insertion is None:
+            default = re.search(r"(?m)^\s*default:", lavender)
+            if default is None:
+                raise SystemExit("could not locate trace-renderer insertion point")
+            insertion = default.start()
+        lavender = lavender[:insertion] + line + "\n" + lavender[insertion:]
     if missing_alloc:
-        default_anchor = "\tdefault:"
-        if lavender.count(default_anchor) != 1:
-            raise SystemExit("could not locate unique default trace-renderer case")
-        lavender = lavender.replace(
-            default_anchor,
-            "\n".join(missing_alloc) + "\n" + default_anchor,
-            1
-        )
         LAVENDER_SOURCE.write_text(lavender)
 
 
