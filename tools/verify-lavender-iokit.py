@@ -176,6 +176,18 @@ def main():
         case = re.search(rf'case {event}:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)
         require(case is not None and f'"{label}"' in case.group(1),
                 f"trace renderer event {event} must display {label!r}")
+    renderer_positions = []
+    for event in range(133, 147):
+        match = re.search(rf"(?m)^\\s*case {event}:", trace)
+        require(match is not None, f"trace renderer case {event} is missing")
+        renderer_positions.append(match.start())
+    require(renderer_positions == sorted(renderer_positions),
+            "allocator trace renderer cases 133–146 are not in numerical order")
+
+    files_arm64 = (root / "osfmk/conf/files.arm64").read_text()
+    require("osfmk/arm64/lavender_early.c\\tstandard" in files_arm64,
+            "generated Lavender early diagnostics translation unit is not in files.arm64")
+
     require("event >= 47 && event <= 106" in trace,
             "existing POST-PLATFORM event range must remain unchanged")
     require("((event - 47) % 4) == 0 || event == 106" in trace,
