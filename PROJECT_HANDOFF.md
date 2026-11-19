@@ -156,3 +156,14 @@ Use only RAM-only `fastboot boot iosboot.img` for current kernel bring-up. Never
 - Patch 0128 passed local patch --dry-run against the clean Run #358 IODeviceTreeSupport.cpp. Current guarded XNU validation candidate at this handoff: Run #371, source commit 1e594ec5880a8cfb337de7a16980f5c31c6f38d9, queued at the time of update. Runs #362–#370 are earlier queued/in-progress validation runs from intermediate commits; only accept a candidate after complete source guards, XNU build, linked ARM64 Mach-O verification and RAM-only packaging pass.
 - Run #358 (artifact 14445642030) remains the latest accepted diagnostic image (iosboot.img SHA-256 b6361d9d03147570fb0a5407413d1b25c623d77c20649bcba63c35a3426f508f). Do not physically test unaccepted intermediate candidates.
 - Next: follow the latest guarded run to a verified iosboot.img. Then use only RAM-only fastboot boot, preserve cpus=1 and volume-key recovery, and capture the full A53 LAST MARK hex value. Never flash, erase, format, repartition, or write Android eMMC/userdata or any other partition.
+
+
+## Run #376 failure and allocator renderer repair — 19 November 2026
+
+- Run #376 (44449132010, commit 47461799297c69ab0bbd9779972c70d93b64e950) built XNU 8796 successfully but failed at tools/verify-lavender-iokit.py with FAIL: trace renderer case 138 is missing. The package job was skipped; there is no new accepted image from this run.
+- Root cause: partial earlier splitter injections left the late event-146 sentinel present while event 138 (DT ROOT BUILD DONE entry=) was absent. The source verifier correctly caught the missing case. This was a generated renderer/injection defect, not a compiler failure.
+- tools/split-lavender-early.py now enumerates each expected allocator case 133–146, inserts missing cases individually in numeric order before the next greater case, and no longer trusts event 146 as a completeness sentinel. A subsequent cleanup removed an unused local variable.
+- Repair commits: 21b05e98275fb15671050aef1519399abc73f6de (ordered per-event repair) and b9d6fe5df2ba4f10d434256b1e799c3492bd765c (cleanup).
+- Runs #377–#379 were started by intermediate repair commits. Run #379 (44452048435) was in progress at the time of this update. Treat these as validation attempts, not accepted artifacts. Follow the newest run on ci/lavender-machine-profile, inspect the exact IOKit verifier output, and continue fixing the generator if any event 133–146 is missing or out of order.
+- Acceptance still requires all source guards, successful XNU 8796 build, linked ARM64 Mach-O checks, RAM-only package construction and image identity/SHA-256 verification. Do not flash or write any device partition; physical test must remain RAM-only with cpus=1 and volume-key recovery.
+
