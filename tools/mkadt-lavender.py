@@ -370,7 +370,8 @@ def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
     if interrupt_nodes != ["/arm-io/i2c0", "/arm-io/emmc"]:
         raise ValueError(f"unexpected Lavender interrupt-bearing nodes: {interrupt_nodes}")
     gic = next(n for path, n in walk_nodes_with_paths(root) if path == "/arm-io/gic")
-    if get_prop(gic, "interrupt-controller") is None or struct.unpack("<I", get_prop(gic, "#interrupt-cells"))[0] != 3:
+    gic_props = {name: value for name, _flags, value in gic.props}
+    if gic_props.get("interrupt-controller") is None or struct.unpack("<I", gic_props["#interrupt-cells"])[0] != 3:
         raise ValueError("Lavender GIC must be a three-cell interrupt controller")
     chosen = next(c for c in root.children if c.name == 'chosen')
     get = lambda name: next(v for n, _, v in chosen.props if n == name)
