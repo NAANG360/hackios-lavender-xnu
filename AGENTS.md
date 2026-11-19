@@ -1,3 +1,15 @@
+## Latest accepted diagnostic image — Run #390 (19 November 2026)
+
+- **Latest accepted CI image:** [Run #390 / 44466081921](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44466081921), source commit `719eaa9dbd6bd5be4108cee3f5cca3b9abd473af`, branch `ci/lavender-machine-profile`.
+- Both jobs passed: XNU 8796 build/source verification and the separate RAM-only fastboot packaging job. Step 16 (Lavender IOKit platform match and early-init trace) passed; kernel artifact verification and image-structure/payload-identity verification passed.
+- Artifact `lavender-fastboot-boot-test`, ID `14503291183`, contains `iosboot.img`; extracted image size **16,617,472 bytes**, SHA-256 **`942dd83338632c1811337bfd8f4d2f7578fc30f584ed901e8f44aca253ad6def`**. Artifact ZIP digest: `2b07c70796ecd10ab68aa1a200b111a867ababf9e6aa06731df3bd9702395588`.
+- Exact Run #390 image has been fetched for the user. Its package bootargs include `lavender_no_fbcon=1`; do not promise a verbose framebuffer text overlay from this image.
+- **Physical test status: awaiting user footage of this exact Run #390 image.** Do not make any source, patch, workflow, configuration, bootarg, or documentation changes in response to the upcoming footage until the user explicitly authorizes changes after review. First inspect the footage and bind it to this exact image using a host-side SHA-256 if available; otherwise label the provenance unconfirmed.
+- This is a CI-verified RAM-only diagnostic package, not proof of physical boot or complete Darwin/userspace. No BSD init, root mount, launchd, SpringBoard, calling, iMessage, or complete iOS functionality may be claimed without direct evidence.
+- Physical test only via `fastboot boot iosboot.img`; never flash, erase, format, repartition, or write Android eMMC/`userdata`/any partition. Preserve `cpus=1` and volume-key recovery.
+
+---
+
 ## Latest accepted diagnostic image — Run #358 (18 November 2026)
 
 - **Latest accepted image:** [Run #358 / 44339488789](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44339488789), built from source commit `f1f633f9ac1887736f17937c38eb6c32de489160`. XNU build/verification and downstream RAM-only package jobs both passed.
