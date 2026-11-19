@@ -173,8 +173,11 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
     cpus = node('cpus', [ph(), ('#address-cells', u32(1)),
                          ('#size-cells', u32(0))], cpu_nodes)
 
+    # XNU AddPHandle requires both an Apple phandle and #interrupt-cells.
+    gic_phandle = next(phandle)
     gic = node('gic', [
-        ph(),
+        ('AAPL,phandle', u32(gic_phandle)),
+        ('#interrupt-cells', u32(3)),
         ('compatible', cstr('arm,gic-v3')),
         ('interrupt-controller', b''),
         ('virtual-timer-intid', u32(VTIMER_INTID)),
@@ -210,6 +213,7 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
             ('reg', u64(I2C0 - SOC_BASE, I2C0_SIZE)),
             ('reg-names', cstr('qup_phys_addr')),
             ('interrupts', u32(*I2C0_IRQ_SPEC)),
+            ('interrupt-parent', u32(gic_phandle)),
             ('interrupt-names', cstr('qup_irq')),
             ('qcom,clk-freq-in', u32(I2C0_INPUT_HZ)),
             ('qcom,clk-freq-out', u32(I2C0_OUTPUT_HZ)),
@@ -221,7 +225,8 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
                 ('device_type', cstr('touchscreen')),
                 ('compatible', cstr('novatek,NVT-ts')),
                 ('reg', u32(NVT_I2C_ADDRESS)),
-                ('interrupts', u32(NVT_IRQ_GPIO, 0x2008)),
+                # GPIO 67 is a TLMM interrupt, not a three-cell GIC specifier.
+                # Keep it private until a Lavender TLMM driver owns the translation.
                 ('lavender,gpio-compat', cstr('qcom,sdm660-pinctrl')),
                 ('lavender,irq-gpio-number', u32(NVT_IRQ_GPIO)),
                 ('lavender,irq-gpio-flags', u32(0x2001)),
@@ -238,6 +243,7 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
                           for v in (base - SOC_BASE, size)))),
             ('reg-names', cstr('hc_mem') + cstr('cqhci_mem') + cstr('cqhci_ice')),
             ('interrupts', u32(*EMMC_IRQ_SPEC)),
+            ('interrupt-parent', u32(gic_phandle)),
             ('interrupt-names', cstr('hc_irq') + cstr('pwr_irq')),
             ('clock-names', cstr('iface_clk') + cstr('core_clk') + cstr('ice_core_clk')),
             ('bus-width', u32(8)),
@@ -279,6 +285,63 @@ def build(seed=None, product_tree=D22AP_ADT, boot_mpidr=CPU_MPIDRS[0], cpu_count
     ], [chosen, defaults, cpus, arm_io, fbcon, buttons, pram] + product)
 
 
+
+def walk_nodes_with_paths(root):
+    """Yield (path, node) pairs in device-tree order for contract validation."""
+    pending = [("/", root)]
+    while pending:
+        path, current = pending.pop()
+        yield path, current
+        for child in reversed(current.children):
+            child_path = (path.rstrip("/") + "/" + child.name) if path != "/" else "/" + child.name
+            pending.append((child_path, child))
+
+
+def check_iokit_interrupt_contract(root):
+    """Validate the exact phandle/cell contract used by XNU's IODTMapOneInterrupt()."""
+    entries = list(walk_nodes_with_paths(root))
+    by_phandle = {}
+    for path, current in entries:
+        handle = current.prop("AAPL,phandle")
+        if handle is None:
+            continue
+        if len(handle) != 4:
+            raise ValueError(f"{path}: AAPL,phandle must be one little-endian UInt32")
+        value = struct.unpack("<I", handle)[0]
+        if value in by_phandle:
+            raise ValueError(f"{path}: duplicate AAPL,phandle {value:#x}")
+        by_phandle[value] = (path, current)
+
+    interrupt_nodes = []
+    for path, current in entries:
+        interrupts = current.prop("interrupts")
+        if interrupts is None:
+            continue
+        parent_data = current.prop("interrupt-parent")
+        if parent_data is None or len(parent_data) != 4:
+            raise ValueError(f"{path}: interrupts requires a direct 4-byte interrupt-parent")
+        parent_handle = struct.unpack("<I", parent_data)[0]
+        resolved = by_phandle.get(parent_handle)
+        if resolved is None:
+            raise ValueError(f"{path}: interrupt-parent {parent_handle:#x} is not registered by AddPHandle")
+        parent_path, parent = resolved
+        cells = parent.prop("#interrupt-cells")
+        if cells is None or len(cells) != 4:
+            raise ValueError(f"{parent_path}: interrupt parent must expose a 4-byte #interrupt-cells")
+        cell_count = struct.unpack("<I", cells)[0]
+        if cell_count == 0:
+            raise ValueError(f"{parent_path}: #interrupt-cells must be non-zero")
+        if parent.prop("interrupt-controller") is None and parent.prop("interrupt-map") is None:
+            raise ValueError(f"{parent_path}: interrupt parent is neither controller nor interrupt-map")
+        if not interrupts or len(interrupts) % (cell_count * 4):
+            raise ValueError(
+                f"{path}: interrupts length {len(interrupts)} is not a whole number "
+                f"of {cell_count}-cell specifiers"
+            )
+        interrupt_nodes.append(path)
+    return interrupt_nodes
+
+
 def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
     root, end = adt.parse(blob)
     assert end == len(blob)
@@ -298,6 +361,12 @@ def check(blob, boot_mpidr=CPU_MPIDRS[0], cpu_count=len(CPU_MPIDRS)):
                 f"ADT property name is not NUL-terminated within 32 bytes: {key!r}"
             )
         pending.extend(current.children)
+    interrupt_nodes = check_iokit_interrupt_contract(root)
+    if interrupt_nodes != ["/arm-io/i2c0", "/arm-io/emmc"]:
+        raise ValueError(f"unexpected Lavender interrupt-bearing nodes: {interrupt_nodes}")
+    gic = next(n for path, n in walk_nodes_with_paths(root) if path == "/arm-io/gic")
+    if gic.prop("interrupt-controller") is None or struct.unpack("<I", gic.prop("#interrupt-cells"))[0] != 3:
+        raise ValueError("Lavender GIC must be a three-cell interrupt controller")
     chosen = next(c for c in root.children if c.name == 'chosen')
     get = lambda name: next(v for n, _, v in chosen.props if n == name)
     base = struct.unpack('<Q', get('dram-base'))[0]

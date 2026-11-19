@@ -92,18 +92,60 @@ def run():
     assert struct.unpack("<I", tp["reg"])[0] == 0x62
     assert struct.unpack("<I", tp["lavender,irq-gpio-number"])[0] == 67
     assert struct.unpack("<I", tp["lavender,reset-gpio-number"])[0] == 66
+    assert "interrupts" not in tp, "GPIO IRQ must not be misrepresented as a GIC interrupt"
+    gic = props(child(arm_io, "gic"))
+    assert gic["interrupt-controller"] == b""
+    assert struct.unpack("<I", gic["#interrupt-cells"])[0] == 3
+    i2c_props = props(i2c)
+    assert struct.unpack("<I", i2c_props["interrupt-parent"])[0] == struct.unpack("<I", gic["AAPL,phandle"])[0]
+    assert struct.unpack("<3I", i2c_props["interrupts"]) == mod.I2C0_IRQ_SPEC
     emmc = props(child(arm_io, "emmc"))
     expected_emmc = tuple(value for address, size in mod.EMMC_REGIONS
                           for value in (address - mod.SOC_BASE, size))
     assert struct.unpack("<6Q", emmc["reg"]) == expected_emmc
     assert emmc["reg-names"] == mod.cstr("hc_mem") + mod.cstr("cqhci_mem") + mod.cstr("cqhci_ice")
     assert struct.unpack("<6I", emmc["interrupts"]) == mod.EMMC_IRQ_SPEC
+    assert struct.unpack("<I", emmc["interrupt-parent"])[0] == struct.unpack("<I", gic["AAPL,phandle"])[0]
     assert emmc["interrupt-names"] == mod.cstr("hc_irq") + mod.cstr("pwr_irq")
     assert emmc["clock-names"] == mod.cstr("iface_clk") + mod.cstr("core_clk") + mod.cstr("ice_core_clk")
     assert struct.unpack("<I", emmc["bus-width"])[0] == 8
     assert emmc["non-removable"] == b""
     assert emmc["status"] == mod.cstr("ok")
     assert b"qcom,sdhci-msm-v5" in emmc["compatible"] and b"qcom,sdhci-msm-cqe" in emmc["compatible"]
+
+
+    # Negative cases exercise the same ADT invariants that prevent the prior hang.
+    def expect_bad_interrupt_contract(mutator, label):
+        bad_root, _ = mod.adt.parse(blob)
+        bad_arm_io = child(bad_root, "arm-io")
+        bad_gic = child(bad_arm_io, "gic")
+        bad_i2c = child(bad_arm_io, "i2c0")
+        mutator(bad_gic, bad_i2c)
+        try:
+            mod.check(mod.adt.serialize(bad_root))
+        except (AssertionError, ValueError, StopIteration):
+            return
+        raise AssertionError(f"invalid interrupt contract was accepted: {label}")
+
+    expect_bad_interrupt_contract(
+        lambda gic_node, i2c_node: gic_node.props.__setitem__(
+            slice(None), [item for item in gic_node.props if item[0] != "#interrupt-cells"]
+        ),
+        "missing GIC #interrupt-cells"
+    )
+    expect_bad_interrupt_contract(
+        lambda gic_node, i2c_node: i2c_node.props.__setitem__(
+            slice(None), [(name, flags, struct.pack("<I", 0xdeadbeef) if name == "interrupt-parent" else value)
+                          for name, flags, value in i2c_node.props]
+        ),
+        "unresolved interrupt-parent phandle"
+    )
+    expect_bad_interrupt_contract(
+        lambda gic_node, i2c_node: gic_node.props.__setitem__(
+            slice(None), [item for item in gic_node.props if item[0] != "interrupt-controller"]
+        ),
+        "parent without controller or interrupt-map"
+    )
 
     # Optional A73-only first-boot profile: boot MPIDR first, then only its cluster.
     a73_root = mod.build(seed=bytes(range(64)), product_tree="/nonexistent/lavender-product.adt",

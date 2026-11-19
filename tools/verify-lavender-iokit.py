@@ -42,6 +42,12 @@ def main():
             "InitIOKit begin marker must precede InitIOKit call")
     require(pe.index("ConfigureIOKit();") < pe.index("LAVENDER_IOKIT_TRACE(125)"),
             "ConfigureIOKit return marker must follow the call")
+    lockdown_start = pe.index("PE_lockdown_iokit(void)")
+    lockdown_body = pe[lockdown_start:pe.index("\n}", lockdown_start)]
+    ordered_numbers(lockdown_body, [147, 148], "PE_lockdown_iokit")
+    require(lockdown_body.index("LAVENDER_IOKIT_TRACE(147)") < lockdown_body.index("StartIOKitMatching();") <
+            lockdown_body.index("LAVENDER_IOKIT_TRACE(148)"),
+            "post-lockdown IOKit matching markers do not bracket StartIOKitMatching")
 
     iokit = (root / "iokit/Kernel/IOStartIOKit.cpp").read_text()
     ordered_numbers(iokit, [115, 116, 117, 118, 119, 120, 121, 122, 123],
@@ -85,7 +91,50 @@ def main():
     require("IOWorkLoop::workLoop()" not in root_body and "registerService()" not in root_body,
             "service matching/workloop setup must remain in the later lockdown path")
 
+    platform_source = (root / "iokit/Kernel/arm/LavenderPlatformExpert.cpp").read_text()
+    start_pos = platform_source.index("LavenderPlatformExpert::start(")
+    start_end = platform_source.index("\n}", start_pos)
+    start_body = platform_source[start_pos:start_end]
+    ordered_numbers(start_body, [149, 150, 151, 152], "LavenderPlatformExpert::start",
+                    macro="LAVENDER_PLATFORM_TRACE")
+    require(start_body.index("IODTPlatformExpert::start(provider)") <
+            start_body.index("LAVENDER_PLATFORM_TRACE(150") <
+            start_body.index("registerService()") <
+            start_body.index("LAVENDER_PLATFORM_TRACE(152"),
+            "platform-expert registration markers do not bracket service registration")
+    process_pos = platform_source.index("LavenderPlatformExpert::processTopLevel(")
+    process_end = platform_source.index("\nbool\nLavenderPlatformExpert::getTargetName", process_pos)
+    process_body = platform_source[process_pos:process_end]
+    ordered_numbers(process_body, [153, 154, 155, 156, 157, 158, 159],
+                    "LavenderPlatformExpert::processTopLevel", macro="LAVENDER_PLATFORM_TRACE")
+    require('root->childFromPath("arm-io", gIODTPlane)' in process_body and
+            "IODTFindMatchingEntries(armio, kIODTExclusive" in process_body and
+            "'gic'" in process_body and
+            process_body.index("LAVENDER_PLATFORM_TRACE(156") <
+            process_body.index("createNubs(this, IODTFindMatchingEntries(armio") <
+            process_body.index("LAVENDER_PLATFORM_TRACE(157") <
+            process_body.index("armio->release()"),
+            "Lavender platform expert must publish arm-io children while excluding the GIC")
+    require('armio->childFromPath("i2c0", gIODTPlane)' in process_body and
+            process_body.index("LAVENDER_PLATFORM_TRACE(158") <
+            process_body.index("createNubs(this, IODTFindMatchingEntries(i2c0") <
+            process_body.index("LAVENDER_PLATFORM_TRACE(159") <
+            process_body.index("i2c0->release()"),
+            "Lavender platform expert must also publish nested I2C child nodes")
+
     dt_support = (root / "iokit/Kernel/IODeviceTreeSupport.cpp").read_text()
+    map_start = dt_support.index("IODTMapOneInterrupt( IORegistryEntry * regEntry")
+    map_end = dt_support.index("return ok ? original_icells : 0;", map_start)
+    map_body = dt_support[map_start:map_end]
+    require(map_body.index("parent = IODTFindInterruptParent") <
+            map_body.index("if (parent == NULL)") <
+            map_body.index("IODTGetICellCounts( parent"),
+            "unresolved interrupt-parent must be rejected before dereference")
+    require("if (addrCmp == NULL)" in map_body,
+            "interrupt-map address cells must not dereference a missing reg property")
+    require("else if (parent)" in map_body and
+            "Do not spin forever on a node that is neither controller nor map." in map_body,
+            "unrecognized interrupt parent must terminate instead of looping forever")
     alloc_start = dt_support.index("IODeviceTreeAlloc( void * dtTop )")
     alloc_end = dt_support.index("\n}\n#endif", alloc_start)
     alloc_body = dt_support[alloc_start:alloc_end]
@@ -172,7 +221,25 @@ def main():
     for event in range(133, 147):
         require(re.search(rf'case {event}:.*?"[^"\n]+"', trace) is not None,
                 f"trace renderer case {event} is missing")
-    for event, label in expected.items():
+    expected.update({
+        147: "IOKIT LOCKDOWN DONE; MATCHING BEGIN",
+        148: "IOKIT ROOT SERVICE MATCHING RETURNED",
+        149: "LAVENDER PLATFORM EXPERT START",
+        150: "LAVENDER PLATFORM BASE START RETURNED ok=",
+        151: "LAVENDER PLATFORM REGISTER BEGIN",
+        152: "LAVENDER PLATFORM REGISTER RETURNED",
+        153: "LAVENDER NUB ENUMERATION BEGIN root=",
+        154: "LAVENDER CPU NUBS REGISTERED",
+        155: "LAVENDER ROOT DEVICE NUBS REGISTERED",
+        156: "LAVENDER ARM-IO NUBS BEGIN armio=",
+        157: "LAVENDER ARM-IO NUBS REGISTERED",
+        158: "LAVENDER I2C CHILD NUBS BEGIN i2c=",
+        159: "LAVENDER I2C CHILD NUBS REGISTERED",
+    })
+    for event in range(147, 160):
+        require(re.search(rf'case {event}:.*?"[^"\n]+"', trace) is not None,
+                f"trace renderer case {event} is missing")
+    for event, label in expected.items()
         case = re.search(rf'case {event}:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)
         require(case is not None and f'"{label}"' in case.group(1),
                 f"trace renderer event {event} must display {label!r}")
@@ -181,12 +248,12 @@ def main():
             "if ((a % 4u) == 0 || a >= 18u)" in child_case.group(1),
             "event 141 must throttle framebuffer text without throttling Guardian publication")
     renderer_positions = []
-    for event in range(133, 147):
+    for event in range(133, 160):
         match = re.search(rf"(?m)^\s*case {event}:", trace)
         require(match is not None, f"trace renderer case {event} is missing")
         renderer_positions.append(match.start())
     require(renderer_positions == sorted(renderer_positions),
-            "allocator trace renderer cases 133–146 are not in numerical order")
+            "IOKit and driver-matching renderer cases 133–159 are not in numerical order")
 
     files_arm64 = (root / "osfmk/conf/files.arm64").read_text()
     require("osfmk/arm64/lavender_early.c\tstandard" in files_arm64,
@@ -198,7 +265,7 @@ def main():
             "generic platform console output must be throttled to preserve late IOKit rows")
     require("if (length == 0) return;" in trace,
             "throttled generic events must not consume blank console rows")
-    print("PASS: Lavender IOKit platform match, InitIOKit boundaries, root-nub init branches, and trace labels 126–132")
+    print("PASS: Lavender interrupt ADT guards, DeviceTree allocator, root-nub init, arm-io/I2C nub publication, and post-lockdown matching trace 126–159")
     
 
 if __name__ == "__main__":

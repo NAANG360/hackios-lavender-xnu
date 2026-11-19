@@ -190,6 +190,26 @@ def ensure_post_platform_renderer():
         LAVENDER_SOURCE.write_text(lavender)
 
 
+    # Events 147–159 cover post-lockdown service matching and Lavender nub publication.
+    platform_anchor = '\tcase 146: lavender_trace_append_text(text, &length, "DT ALLOC RETURN root="); lavender_trace_append_hex(text, &length, a); break;'
+    platform_labels = (
+        '\n\tcase 147: lavender_trace_append_text(text, &length, "IOKIT LOCKDOWN DONE; MATCHING BEGIN"); break;'
+        '\n\tcase 148: lavender_trace_append_text(text, &length, "IOKIT ROOT SERVICE MATCHING RETURNED"); break;'
+        '\n\tcase 149: lavender_trace_append_text(text, &length, "LAVENDER PLATFORM EXPERT START"); break;'
+        '\n\tcase 150: lavender_trace_append_text(text, &length, "LAVENDER PLATFORM BASE START RETURNED ok="); lavender_trace_append_decimal(text, &length, a); break;'
+        '\n\tcase 151: lavender_trace_append_text(text, &length, "LAVENDER PLATFORM REGISTER BEGIN"); break;'
+        '\n\tcase 152: lavender_trace_append_text(text, &length, "LAVENDER PLATFORM REGISTER RETURNED"); break;'
+        '\n\tcase 153: lavender_trace_append_text(text, &length, "LAVENDER NUB ENUMERATION BEGIN root="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 154: lavender_trace_append_text(text, &length, "LAVENDER CPU NUBS REGISTERED"); break;'
+        '\n\tcase 155: lavender_trace_append_text(text, &length, "LAVENDER ROOT DEVICE NUBS REGISTERED"); break;'
+        '\n\tcase 156: lavender_trace_append_text(text, &length, "LAVENDER ARM-IO NUBS BEGIN armio="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 157: lavender_trace_append_text(text, &length, "LAVENDER ARM-IO NUBS REGISTERED"); break;'
+        '\n\tcase 158: lavender_trace_append_text(text, &length, "LAVENDER I2C CHILD NUBS BEGIN i2c="); lavender_trace_append_hex(text, &length, a); break;'
+        '\n\tcase 159: lavender_trace_append_text(text, &length, "LAVENDER I2C CHILD NUBS REGISTERED"); break;'
+    )
+    inject(platform_anchor, platform_labels, 'case 159: lavender_trace_append_text', "event 146 / post-lockdown driver matching")
+
+
     old = ('default:\n\t\tlavender_trace_append_text(text, &length, "UNKNOWN STARTUP TRACE");\n'
            '\t\tbreak;')
     new = ('default:\n'

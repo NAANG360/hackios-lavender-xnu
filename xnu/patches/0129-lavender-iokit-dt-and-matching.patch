@@ -1,0 +1,118 @@
+--- a/iokit/Kernel/IODeviceTreeSupport.cpp
++++ b/iokit/Kernel/IODeviceTreeSupport.cpp
+@@ -626,12 +626,19 @@
+ 	bool                        cmp, ok = false;
+ 
+ 	parent = IODTFindInterruptParent( regEntry, index );
++	/* A missing/unresolved interrupt-parent is malformed ADT input. */
++	if (parent == NULL) {
++		return 0;
++	}
+ 	IODTGetICellCounts( parent, &icells, &acells );
+ 	addrCmp = NULL;
+ 	if (acells) {
+ 		data = OSDynamicCast( OSData, regEntry->getProperty( "reg" ));
+ 		if (data && (data->getLength() >= (acells * sizeof(UInt32)))) {
+ 			addrCmp = (UInt32 *) data->getBytesNoCopy();
++		}
++		if (addrCmp == NULL) {
++			return 0;
+ 		}
+ 	}
+ 	original_icells = icells;
+@@ -729,6 +736,9 @@
+ 			if (!cmp) {
+ 				parent = NULL;
+ 			}
++		} else if (parent) {
++			/* Do not spin forever on a node that is neither controller nor map. */
++			parent = NULL;
+ 		}
+ 
+ 		if (parent) {
+--- a/iokit/Kernel/arm/LavenderPlatformExpert.cpp
++++ b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
+@@ -9,6 +9,11 @@
+ #include <IOKit/IOPlatformExpert.h>
+ #include <IOKit/IODeviceTreeSupport.h>
+ #include <IOKit/IOLib.h>
++
++extern "C" void sweet_early_trace_startup(unsigned int event, uintptr_t a,
++    uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
++#define LAVENDER_PLATFORM_TRACE(event, a, b) \
++    sweet_early_trace_startup((event), (uintptr_t)(a), (uintptr_t)(b), 0, 0, 0)
+ 
+ class LavenderPlatformExpert : public IODTPlatformExpert {
+     OSDeclareDefaultStructors(LavenderPlatformExpert);
+@@ -27,11 +32,16 @@
+ bool
+ LavenderPlatformExpert::start(IOService *provider)
+ {
++    LAVENDER_PLATFORM_TRACE(149, provider, 0);
+     IOLog("LAVENDER: starting device-tree platform expert\\n");
+-    if (!IODTPlatformExpert::start(provider)) {
++    bool ok = IODTPlatformExpert::start(provider);
++    LAVENDER_PLATFORM_TRACE(150, ok, 0);
++    if (!ok) {
+         return false;
+     }
++    LAVENDER_PLATFORM_TRACE(151, this, provider);
+     registerService();
++    LAVENDER_PLATFORM_TRACE(152, this, 0);
+     IOLog("LAVENDER: platform expert registered\\n");
+     return true;
+ }
+@@ -51,12 +61,41 @@
+ void
+ LavenderPlatformExpert::processTopLevel(IORegistryEntry *root)
+ {
++    LAVENDER_PLATFORM_TRACE(153, root, 0);
+     IORegistryEntry *cpus = root->childFromPath("cpus", gIODTPlane);
+     if (cpus != NULL) {
+         createNubs(this, IODTFindMatchingEntries(cpus, kIODTExclusive, NULL));
++        LAVENDER_PLATFORM_TRACE(154, cpus, 0);
+         cpus->release();
+     }
+     createNubs(this, IODTFindMatchingEntries(root, kIODTExclusive, excludeList()));
++    LAVENDER_PLATFORM_TRACE(155, root, 0);
++
++    /*
++     * No AppleARMIO driver publishes /arm-io children on Lavender. Publish
++     * those platform devices directly so any matching built-in/kext driver
++     * can see their compatible strings. The GIC remains owned by PE code and
++     * must not be exposed as an ordinary IOPlatformDevice nub.
++     */
++    IORegistryEntry *armio = root->childFromPath("arm-io", gIODTPlane);
++    if (armio != NULL) {
++        LAVENDER_PLATFORM_TRACE(156, armio, 0);
++        createNubs(this, IODTFindMatchingEntries(armio, kIODTExclusive, "('gic')"));
++        LAVENDER_PLATFORM_TRACE(157, armio, 0);
++
++        /* Publish the nested touchscreen node even before an I2C controller
++         * driver exists to enumerate its children. This exposes its matching
++         * properties without claiming that the bus or touch hardware works.
++         */
++        IORegistryEntry *i2c0 = armio->childFromPath("i2c0", gIODTPlane);
++        if (i2c0 != NULL) {
++            LAVENDER_PLATFORM_TRACE(158, i2c0, 0);
++            createNubs(this, IODTFindMatchingEntries(i2c0, kIODTExclusive, NULL));
++            LAVENDER_PLATFORM_TRACE(159, i2c0, 0);
++            i2c0->release();
++        }
++        armio->release();
++    }
+ }
+ 
+ bool
+--- a/pexpert/arm/pe_init.c
++++ b/pexpert/arm/pe_init.c
+@@ -397,7 +397,9 @@
+ 	 * hardware protections.
+ 	 */
+ 	zalloc_iokit_lockdown();
++	LAVENDER_IOKIT_TRACE(147); /* lockdown complete; service matching begins */
+ 	StartIOKitMatching();
++	LAVENDER_IOKIT_TRACE(148); /* root nub service matching returned */
+ }
+ 
+ void
