@@ -841,7 +841,7 @@ jobs:
           ls -la out/kdk-libs
 
       - name: Collect kernel outputs
-        if: always()
+        if: success()
         run: |
           mkdir -p out
           cp -R dxb/fakeroot/System/Library/Kernels/. out/ 2>/dev/null || true
@@ -852,7 +852,7 @@ jobs:
 
 
       - name: Preserve raw kernel candidate for independent inspection
-        if: always() && hashFiles('out/kernel.development.lavender') != ''
+        if: success() && hashFiles('out/kernel.development.lavender') != ''
         uses: actions/upload-artifact@v4
         with:
           name: xnu-kernel-candidate
