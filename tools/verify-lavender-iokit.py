@@ -176,7 +176,7 @@ def main():
         case = re.search(rf'case {event}:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)
         require(case is not None and f'"{label}"' in case.group(1),
                 f"trace renderer event {event} must display {label!r}")
-    child_case = re.search(r'case 141:(.*?)(?=\\n\\tcase |\\n\\tdefault:)', trace, re.S)
+    child_case = re.search(r'case 141:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)
     require(child_case is not None and
             "if ((a % 4u) == 0 || a >= 18u)" in child_case.group(1),
             "event 141 must throttle framebuffer text without throttling Guardian publication")
