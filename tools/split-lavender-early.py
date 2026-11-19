@@ -174,7 +174,6 @@ def ensure_post_platform_renderer():
         if match and not re.search(rf"\bcase {match.group(1)}:", lavender):
             missing_alloc.append((int(match.group(1)), line))
     for number, line in sorted(missing_alloc):
-        next_case = re.search(rf"(?m)^\s*case ([0-9]+):", lavender)
         insertion = None
         for candidate in re.finditer(r"(?m)^\s*case ([0-9]+):", lavender):
             if int(candidate.group(1)) > number:
