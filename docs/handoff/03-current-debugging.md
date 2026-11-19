@@ -951,3 +951,24 @@ Continue with RAM-only fastboot boot iosboot.img, preserve cpus=1, and keep volu
 - Next acceptance gate: inspect generated `lavender_early.c`; prove renderer cases 133–146 are complete and ordered; pass Guardian and patch-to-translation-unit checks; complete XNU and linked ARM64 verification; package and hash the RAM-only image. Do not physically test an intermediate kernel. Keep `cpus=1`, volume-key recovery, and RAM-only fastboot boot; never write Android partitions.
 
 - Patch hunk metadata was recalculated after converting event 141 to an unconditional per-child Guardian publication; corrected patch commit: `040fd105e45f6c8bdf90838589ab856bd912ae60`. Run #389 is the first validation run containing the corrected patch offsets.
+
+
+## Run #390 accepted image — awaiting exact-image physical footage (19 November 2026)
+
+### CI acceptance
+
+- Run #390: [workflow 44466081921](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44466081921), branch `ci/lavender-machine-profile`, source commit `719eaa9dbd6bd5be4108cee3f5cca3b9abd473af`.
+- Both jobs completed successfully. XNU 8796 build, all source guards, Step 16 Lavender IOKit/platform and early-init trace verifier, linked/kernel artifact verification, and the separate RAM-only package job passed.
+- Fastboot artifact: `lavender-fastboot-boot-test`, artifact ID `14503291183`; `iosboot.img` is 16,617,472 bytes with SHA-256 `942dd83338632c1811337bfd8f4d2f7578fc30f584ed901e8f44aca253ad6def`.
+- Artifact ZIP SHA-256: `2b07c70796ecd10ab68aa1a200b111a867ababf9e6aa06731df3bd9702395588`.
+- The image bootargs include `lavender_no_fbcon=1`. This gates the ordinary fbcon probe; do not describe Run #390 as a verbose text-overlay build. The direct early checkpoint renderer is a distinct path, but the presence of that renderer does not guarantee visible output in every boot phase.
+
+### Physical-test gate — footage is pending
+
+- The user has fetched Run #390 `iosboot.img` and will send physical boot footage. **Do not modify source, patches, workflow, bootargs, configuration, or any project files based on that footage until the user explicitly authorizes changes after the evidence has been reviewed.**
+- On receipt, first inspect the full footage and transcribe the last completed marker, any in-progress marker, the Guardian's A53 last-marker value, reset/timeout behavior, and whether the Apple logo/framebuffer remains visible. Preserve uncertainty for unreadable text; do not fill gaps from expectation.
+- Bind the footage to Run #390 only if the host-side image hash is confirmed as `942dd83338632c1811337bfd8f4d2f7578fc30f584ed901e8f44aca253ad6def`. If the user cannot provide a matching hash, record it as Run #390-intended / provenance unconfirmed, not an exact-image test.
+- Diagnosis may be prepared as a read-only analysis, but **no code edits, commits, workflow reruns, or replacement image builds** until the user explicitly says to proceed after the footage review.
+- Keep physical testing RAM-only: `fastboot boot iosboot.img`; preserve `cpus=1`, volume-key recovery, and all Android partitions. Never flash, erase, format, repartition, or write eMMC/`userdata`.
+- A successful CI build is not evidence that the handset booted. Do not claim BSD init, root mount, launchd, SpringBoard, calling, iMessage, or full Darwin userspace without direct physical evidence.
+
