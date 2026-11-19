@@ -61,7 +61,7 @@ diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSup
  
  	do {
  		parent = (IORegistryEntry *)stack->getObject( stack->getCount() - 1);
-@@ -194,6 +213,11 @@
+@@ -194,6 +213,9 @@
  		stack->removeObject( stack->getCount() - 1);
  
  		while (kSuccess == SecureDTIterateEntries( &iter, &dtChild)) {
@@ -71,7 +71,7 @@ diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSup
  			child = MakeReferenceTable( dtChild, freeDT );
  			child->attachToParent( parent, gIODTPlane);
  
-@@ -211,6 +235,7 @@
+@@ -211,6 +233,7 @@
  
  	stack->release();
  	assert(kSuccess != SecureDTExitEntry(&iter, &dtChild));
@@ -79,7 +79,7 @@ diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSup
  
  	// parent is now root of the created tree
  
-@@ -223,6 +248,7 @@
+@@ -223,6 +246,7 @@
  	// attach tree to meta root
  	parent->attachToParent( IORegistryEntry::getRegistryRoot(), gIODTPlane);
  	parent->release();
@@ -87,7 +87,7 @@ diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSup
  
  	if (freeDT) {
  		// free original device tree
-@@ -239,6 +265,7 @@
+@@ -239,6 +263,7 @@
  	regIter = IORegistryIterator::iterateOver( gIODTPlane,
  	    kIORegistryIterateRecursively );
  	assert( regIter && allInts && gIODTSharedInterrupts );
@@ -95,7 +95,7 @@ diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSup
  	if (regIter && allInts && gIODTSharedInterrupts) {
  		while ((child = regIter->getNextObject())) {
  			IODTMapInterruptsSharing( child, allInts );
-@@ -254,6 +281,7 @@
+@@ -254,6 +279,7 @@
  		}
  		regIter->release();
  	}
@@ -103,7 +103,7 @@ diff --git a/iokit/Kernel/IODeviceTreeSupport.cpp b/iokit/Kernel/IODeviceTreeSup
  
  #if IODTSUPPORTDEBUG
  	parent->setProperty("allInts", allInts);
-@@ -285,6 +313,7 @@
+@@ -285,6 +311,7 @@
  		    (OSObject *) gIODTNWInterruptMappingKey );
  	}
  
