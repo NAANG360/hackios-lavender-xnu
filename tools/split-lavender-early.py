@@ -8,6 +8,7 @@ The pinned XNU patch stack adds Lavender bring-up to sweet_early.c for historica
 compatibility. Run this after the complete patch stack and before compilation.
 """
 from pathlib import Path
+import re
 
 ROOT = Path("xnu")
 SOURCE = ROOT / "osfmk/arm64/sweet_early.c"
