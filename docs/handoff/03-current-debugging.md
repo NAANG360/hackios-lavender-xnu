@@ -937,3 +937,15 @@ Continue with RAM-only fastboot boot iosboot.img, preserve cpus=1, and keep volu
 - The required 0128 allocator patch and verifier expectations remain enabled. The next XNU run must prove the complete renderer 133–146, pass the IOKit verifier, then proceed through linked ARM64 artifact checks and RAM-only package verification. Do not use an intermediate or failed-run artifact for physical testing.
 - Latest repair commit: 21b05e98275fb15671050aef1519399abc73f6de (splitter order repair). Follow the next Actions run on ci/lavender-machine-profile and record its run number, head SHA, verifier result, and artifact SHA-256 before calling it accepted.
 
+
+
+## Run #380 diagnosis and per-child Guardian refinement — 19 November 2026
+
+- Exact Run #380 failure: `tools/split-lavender-early.py:174` raises `NameError: name 're' is not defined`; the generator's allocator repair uses the regex module without importing it. Run #380 did not reach source verification or compile a fresh build tree.
+- The workflow uploaded a kernel candidate despite the failed build because collection used `if: always()`. Logs state that no generated XNU tree existed. The candidate is treated as stale/unverified; success-only collection/upload is committed as `253f7ee4fee690376547525163e5206f1f41d033`.
+- Missing regex import committed as `187b1e7ec95108b47f476c11d64aee6bef3ff8be`.
+- Renderer verification now checks numerical order of cases 133–146 and verifies `lavender_early.c` is included by `files.arm64`; corrected verifier commit `0f8aa0e1eb76c43f3279836ed69d5dfe3aca0a4f`.
+- Event 141 now reaches the Guardian on every child, before child conversion; framebuffer text remains throttled to every fourth child and children >=18. Patch/generator/verifier commits: `fdfa89d8e29647877ed0c76bfc0287819e5381a7`, `d2b60de97e96a6ad1cc8b7926af3f5345725e39f`, `e9314d3577b91be7e57ef15b024ee98b54283648`, `ad076fd5e231f153a724b27bfd7e5a8f7745e32d`.
+- Expected Guardian marker for event 141, child 20: `0x80018D14`. The XNU store cleans the cache line with `dc cvac` and `dsb sy`; the independent A53 Guardian polls the reserved boot-argument word.
+- Latest code head at this checkpoint: `ad076fd5e231f153a724b27bfd7e5a8f7745e32d`. Runs #381–#388 were queued/in progress; no complete validation or accepted image was available at documentation time. Artifact SHA-256: none (no accepted `iosboot.img`).
+- Next acceptance gate: inspect generated `lavender_early.c`; prove renderer cases 133–146 are complete and ordered; pass Guardian and patch-to-translation-unit checks; complete XNU and linked ARM64 verification; package and hash the RAM-only image. Do not physically test an intermediate kernel. Keep `cpus=1`, volume-key recovery, and RAM-only fastboot boot; never write Android partitions.
