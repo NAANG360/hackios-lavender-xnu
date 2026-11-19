@@ -129,3 +129,15 @@ Patch 0109 writes the hook record immediately before invoking cur->func(cur->arg
 ### Follow-up
 
 Inspect _lck_mtx_startup_init, the ___startup_lck_mtx_spec_processor_updown_lock startup specification/object, and the corresponding ARM64 lock initialization implementation in the Run #240 buildtree. Trace relevant dereferences, object layout, initialization state and platform assumptions. Make no speculative behavior change, callback skip, ordering change or rank change. Establish a concrete defect and focused validation first. Respect the independent recovery/reset safety gate before any further handset test.
+
+
+## Run #390 — accepted CI artifact; physical footage pending (19 November 2026)
+
+- Run #390 ([44466081921](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44466081921)) used source commit `719eaa9dbd6bd5be4108cee3f5cca3b9abd473af` on `ci/lavender-machine-profile`.
+- XNU build job and separate RAM-only package job both completed successfully. The IOKit platform/early-init verifier (Step 16), linked kernel verification, kernel artifact verification, image structure and payload identity checks all passed.
+- Artifact `lavender-fastboot-boot-test`, ID `14503291183`, contains `iosboot.img` (16,617,472 bytes), SHA-256 `942dd83338632c1811337bfd8f4d2f7578fc30f584ed901e8f44aca253ad6def`. Artifact ZIP SHA-256: `2b07c70796ecd10ab68aa1a200b111a867ababf9e6aa06731df3bd9702395588`.
+- The image was fetched and supplied to the user. Package bootargs include `lavender_no_fbcon=1`; do not describe it as a verbose framebuffer text-overlay build.
+- **No physical footage has yet been reviewed for Run #390.** The next evidence will be user-supplied handset footage. It must not be attributed to this exact image unless the host-side image SHA-256 matches the value above; otherwise mark provenance as unconfirmed.
+- The user explicitly requested a no-changes hold: inspect and document the footage first, but do not edit code, patches, workflows, bootargs, configuration, or project files, do not commit, and do not trigger another build until the user explicitly authorizes changes after review.
+- Keep this separate from CI acceptance: a successful package does not prove physical boot, IOKit driver matching, BSD init, root mount, launchd, SpringBoard, or complete Darwin userspace. Physical test remains RAM-only `fastboot boot iosboot.img`; preserve `cpus=1`, volume-key recovery, and Android partitions.
+
