@@ -108,7 +108,7 @@ def ensure_post_platform_renderer():
         if missing:
             if anchor not in lavender:
                 raise SystemExit("could not find " + description + " insertion anchor")
-            addition = "\\n" + "\\n".join(missing)
+            addition = "\n" + "\n".join(missing)
             lavender = lavender.replace(anchor, anchor + addition, 1)
             LAVENDER_SOURCE.write_text(lavender)
 
