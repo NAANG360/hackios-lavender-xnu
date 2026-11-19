@@ -105,10 +105,10 @@ def main():
         "DeviceTree iterator-ready checkpoint must follow iterator initialization"
     )
     require(
-        "if ((lavenderNodeIndex % 4) == 0 || lavenderNodeIndex >= 18)" in alloc_body and
+        "if ((lavenderNodeIndex % 4) == 0 || lavenderNodeIndex >= 18)" not in alloc_body and
         alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(141") <
         alloc_body.index("child = MakeReferenceTable( dtChild"),
-        "bounded per-child progress checkpoint is missing or occurs after child conversion"
+        "Guardian must receive every child index before child conversion"
     )
     require(
         alloc_body.index("LAVENDER_DEVICE_TREE_TRACE(142") <
@@ -176,6 +176,10 @@ def main():
         case = re.search(rf'case {event}:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)
         require(case is not None and f'"{label}"' in case.group(1),
                 f"trace renderer event {event} must display {label!r}")
+    child_case = re.search(r'case 141:(.*?)(?=\\n\\tcase |\\n\\tdefault:)', trace, re.S)
+    require(child_case is not None and
+            "if ((a % 4u) == 0 || a >= 18u)" in child_case.group(1),
+            "event 141 must throttle framebuffer text without throttling Guardian publication")
     renderer_positions = []
     for event in range(133, 147):
         match = re.search(rf"(?m)^\s*case {event}:", trace)
