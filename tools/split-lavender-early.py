@@ -160,7 +160,7 @@ def ensure_post_platform_renderer():
         '\n\tcase 138: lavender_trace_append_text(text, &length, "DT ROOT BUILD DONE entry="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 139: lavender_trace_append_text(text, &length, "DT STACK READY ptr="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 140: lavender_trace_append_text(text, &length, "DT ITERATOR READY root="); lavender_trace_append_hex(text, &length, a); break;'
-        '\n\tcase 141: lavender_trace_append_text(text, &length, "DT CHILD BUILD n="); lavender_trace_append_decimal(text, &length, a); lavender_trace_append_text(text, &length, " ptr="); lavender_trace_append_hex(text, &length, b); break;'
+        '\n\tcase 141: if ((a % 4u) == 0 || a >= 18u) { lavender_trace_append_text(text, &length, "DT CHILD BUILD n="); lavender_trace_append_decimal(text, &length, a); lavender_trace_append_text(text, &length, " ptr="); lavender_trace_append_hex(text, &length, b); } break;'
         '\n\tcase 142: lavender_trace_append_text(text, &length, "DT WALK DONE nodes="); lavender_trace_append_decimal(text, &length, a); break;'
         '\n\tcase 143: lavender_trace_append_text(text, &length, "DT ROOT ATTACHED ptr="); lavender_trace_append_hex(text, &length, a); break;'
         '\n\tcase 144: lavender_trace_append_text(text, &length, "DT INTERRUPT WALK READY iter="); lavender_trace_append_hex(text, &length, a); break;'
