@@ -239,7 +239,7 @@ def main():
     for event in range(147, 160):
         require(re.search(rf'case {event}:.*?"[^"\n]+"', trace) is not None,
                 f"trace renderer case {event} is missing")
-    for event, label in expected.items()
+    for event, label in expected.items():
         case = re.search(rf'case {event}:(.*?)(?=\n\tcase |\n\tdefault:)', trace, re.S)
         require(case is not None and f'"{label}"' in case.group(1),
                 f"trace renderer event {event} must display {label!r}")
