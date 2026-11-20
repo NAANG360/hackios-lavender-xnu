@@ -88,12 +88,12 @@ private:
     void handleIRQ(void);
     bool enableClocks(void); void disableClocks(void);
     bool initController(void); bool setState(uint32_t state);
-    bool waitForBlock(bool *flag,AbsoluteTime deadline); void releaseResources(void);
+    bool waitForBlock(uint32_t *events,AbsoluteTime deadline); void releaseResources(void);
     IOMemoryMap *fQUPMap=nullptr,*fGCCMap=nullptr;
     volatile uint8_t *fQUP=nullptr,*fGCC=nullptr;
     IOWorkLoop *fWorkLoop=nullptr; IOInterruptEventSource *fIRQ=nullptr; IOLock *fLock=nullptr;
     bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false;
-    bool fBlockMode=false,fNeedInput=false,fTxBlockReady=false,fRxBlockReady=false;
+    bool fBlockMode=false,fNeedInput=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0;
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
 OSDefineMetaClassAndStructors(LavenderQUPI2C,IOService);
@@ -140,14 +140,14 @@ bool LavenderQUPI2C::initController(void){
     qwrite(fQUP,QUP_I2C_MASTER_CONFIG,QUP_EN_VERSION_TWO_TAG);
     return (qread(fQUP,QUP_STATE)&QUP_I2C_MAST_GEN)!=0;
 }
-bool LavenderQUPI2C::waitForBlock(bool *flag,AbsoluteTime deadline){
-    if(!flag||!fLock)return false;
-    while(!*flag&&fResult==kIOReturnSuccess){
+bool LavenderQUPI2C::waitForBlock(uint32_t *events,AbsoluteTime deadline){
+    if(!events||!fLock)return false;
+    while(*events==0&&fResult==kIOReturnSuccess){
         int wr=IOLockSleepDeadline(fLock,&fEvent,deadline,THREAD_UNINT);
         if(wr==THREAD_TIMED_OUT)return false;
     }
-    if(fResult!=kIOReturnSuccess||!*flag)return false;
-    *flag=false;return true;
+    if(fResult!=kIOReturnSuccess||*events==0)return false;
+    --(*events);return true;
 }
 bool LavenderQUPI2C::start(IOService *p){
     if(!super::start(p))return false;
@@ -190,8 +190,8 @@ void LavenderQUPI2C::handleIRQ(void){
         if(r!=kIOReturnSuccess){
             fResult=r;fDone=true;qwrite(fQUP,QUP_STATE,QUP_STATE_RESET);wake=true;
         }else if(fBlockMode){
-            if((op&QUP_OUTPUT_SERVICE_FLAG)&&(op&QUP_OUT_BLOCK_WRITE_REQ)){fTxBlockReady=true;wake=true;}
-            if(op&QUP_INPUT_SERVICE_FLAG){fRxBlockReady=true;wake=true;}
+            if((op&QUP_OUTPUT_SERVICE_FLAG)&&(op&QUP_OUT_BLOCK_WRITE_REQ)){if(fTxBlockEvents!=UINT32_MAX)++fTxBlockEvents;wake=true;}
+            if(op&QUP_INPUT_SERVICE_FLAG){if(fRxBlockEvents!=UINT32_MAX)++fRxBlockEvents;wake=true;}
             uint32_t completeMask=QUP_MAX_OUTPUT_DONE_FLAG|(fNeedInput?QUP_MAX_INPUT_DONE_FLAG:0U);
             if((op&QUP_OUTPUT_SERVICE_FLAG)&&((op&completeMask)==completeMask)){fDone=true;wake=true;}
         }else{
@@ -213,6 +213,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     uint32_t written=0,inPos=0,ioModes;uint8_t *out=nullptr,*in=nullptr;
     IOReturn result=kIOReturnSuccess;AbsoluteTime deadline;int wr;
     if(!fQUP||!fLock||!fClocks)return kIOReturnNotReady;
+    if(!timeout)timeout=500;
     if(!lavender_qup_measure(m,n,&z))return kIOReturnBadArgument;
     ioModes=qread(fQUP,QUP_IO_MODES);
     if(!lavender_qup_choose_mode(ioModes,z.outputBytes,z.inputBytes,&mode,&g))return kIOReturnNoResources;
@@ -227,7 +228,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     IOLockLock(fLock);if(fActive){IOLockUnlock(fLock);result=kIOReturnBusy;goto done;}
     fActive=true;fDone=false;fLastRead=z.lastIsRead;fResult=kIOReturnSuccess;
     fBlockMode=(mode==LAVENDER_QUP_MODE_BLOCK);fNeedInput=(z.inputBytes!=0);
-    fTxBlockReady=false;fRxBlockReady=false;
+    fTxBlockEvents=0;fRxBlockEvents=0;
     if(!setState(QUP_STATE_RESET)){result=kIOReturnTimeout;goto unlock;}
     qwrite(fQUP,QUP_MX_INPUT_COUNT,0);qwrite(fQUP,QUP_MX_OUTPUT_COUNT,0);
     qwrite(fQUP,QUP_MX_READ_COUNT,z.inputBytes);qwrite(fQUP,QUP_MX_WRITE_COUNT,z.outputBytes);
@@ -253,7 +254,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
         if(!setState(QUP_STATE_RUN)){result=kIOReturnTimeout;goto unlock;}
     }else{
         for(uint32_t offset=0;offset<written;){
-            if(!waitForBlock(&fTxBlockReady,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
+            if(!waitForBlock(&fTxBlockEvents,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
             if(!setState(QUP_STATE_PAUSE)){result=kIOReturnTimeout;goto unlock;}
             uint32_t count=g.outputBlockBytes;if(count>written-offset)count=written-offset;
             for(uint32_t i=0;i<count;i+=4){
@@ -265,7 +266,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
             offset+=count;
         }
         while(inPos<z.inputBytes){
-            if(!waitForBlock(&fRxBlockReady,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
+            if(!waitForBlock(&fRxBlockEvents,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
             if(!setState(QUP_STATE_PAUSE)){result=kIOReturnTimeout;goto unlock;}
             uint32_t count=g.inputBlockBytes;if(count>z.inputBytes-inPos)count=z.inputBytes-inPos;
             for(uint32_t i=0;i<g.inputBlockBytes;i+=4){
@@ -289,7 +290,8 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     if(z.inputBytes&&!lavender_qup_consume_input(m,n,in,z.inputBytes))result=kIOReturnIOError;
     setState(QUP_STATE_RESET);
 unlock:
-    fActive=false;fBlockMode=false;fNeedInput=false;fTxBlockReady=false;fRxBlockReady=false;
+    if(result!=kIOReturnSuccess)setState(QUP_STATE_RESET);
+    fActive=false;fBlockMode=false;fNeedInput=false;fTxBlockEvents=0;fRxBlockEvents=0;
     IOLockUnlock(fLock);
 done:
     if(out)IOFree(out,z.outputBytes+4);if(in)IOFree(in,z.inputBytes+4);return result;
