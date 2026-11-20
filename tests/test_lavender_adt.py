@@ -89,6 +89,7 @@ def run():
     tp = props(touch)
     assert tp["lavender,gpio-compat"] == mod.cstr("qcom,sdm660-pinctrl")
     assert "lavender,gpio-controller-compatible" not in tp
+    assert tp["compatible"] == mod.cstr("novatek,NVT-ts")
     assert struct.unpack("<I", tp["reg"])[0] == 0x62
     assert struct.unpack("<I", tp["lavender,irq-gpio-number"])[0] == 67
     assert struct.unpack("<I", tp["lavender,reset-gpio-number"])[0] == 66
@@ -97,6 +98,14 @@ def run():
     assert gic["interrupt-controller"] == b""
     assert struct.unpack("<I", gic["#interrupt-cells"])[0] == 3
     i2c_props = props(i2c)
+    assert i2c_props["compatible"] == mod.cstr("qcom,i2c-msm-v2")
+    i2c_reg, i2c_size = struct.unpack("<QQ", i2c_props["reg"])
+    assert (i2c_reg + mod.SOC_BASE, i2c_size) == (mod.I2C0, mod.I2C0_SIZE)
+    assert i2c_props["reg-names"] == mod.cstr("qup_phys_addr")
+    assert i2c_props["clock-names"] == mod.cstr("iface_clk") + mod.cstr("core_clk")
+    assert struct.unpack("<I", i2c_props["qcom,clk-freq-in"])[0] == mod.I2C0_INPUT_HZ
+    assert struct.unpack("<I", i2c_props["qcom,clk-freq-out"])[0] == mod.I2C0_OUTPUT_HZ
+    assert i2c_props["status"] == mod.cstr("ok")
     assert struct.unpack("<I", i2c_props["interrupt-parent"])[0] == struct.unpack("<I", gic["AAPL,phandle"])[0]
     assert struct.unpack("<3I", i2c_props["interrupts"]) == mod.I2C0_IRQ_SPEC
     emmc = props(child(arm_io, "emmc"))
