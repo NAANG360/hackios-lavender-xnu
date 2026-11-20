@@ -9,7 +9,6 @@
 #include <IOKit/IOCatalogue.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
-#include <libkern/c++/OSSharedPtr.h>
 #include <libkern/c++/OSString.h>
 #include <libkern/c++/OSArray.h>
 #include <libkern/c++/OSDictionary.h>
@@ -73,6 +72,7 @@ static bool qwait(volatile uint8_t *b,uint32_t o,uint32_t m,uint32_t e,uint32_t 
 class LavenderQUPI2C : public IOService {
     OSDeclareDefaultStructors(LavenderQUPI2C);
 public:
+    using super = IOService;
     IOService *probe(IOService *provider,SInt32 *score) APPLE_KEXT_OVERRIDE;
     bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
     void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
@@ -98,11 +98,12 @@ IOService *LavenderQUPI2C::probe(IOService *p,SInt32 *score){
     if(score)*score=1000; return this;
 }
 bool LavenderQUPI2C::enableClocks(void){
-    OSPtr<IODeviceMemory> mem=IODeviceMemory::withRange(GCC_PHYS_BASE,GCC_PHYS_LENGTH);
+    IODeviceMemory *mem=IODeviceMemory::withRange(GCC_PHYS_BASE,GCC_PHYS_LENGTH);
     if(!mem)return false;
-    OSPtr<IOMemoryMap> map=mem->map(kIOMapInhibitCache);
-    if(!map||map->getLength()<GCC_PHYS_LENGTH)return false;
-    fGCCMap=map.get();fGCCMap->retain();fGCC=(volatile uint8_t *)fGCCMap->getVirtualAddress();
+    IOMemoryMap *map=mem->map(kIOMapInhibitCache);
+    mem->release();
+    if(!map||map->getLength()<GCC_PHYS_LENGTH){if(map)map->release();return false;}
+    fGCCMap=map;fGCC=(volatile uint8_t *)fGCCMap->getVirtualAddress();
     if(!fGCC)return false;
     uint32_t v=qread(fGCC,GCC_BLSP1_AHB_VOTE);
     /* XO 19.2MHz is the lowest GCC table entry; no PLL rate increase.
@@ -146,13 +147,12 @@ bool LavenderQUPI2C::start(IOService *p){
     if(!fQUP||!enableClocks()||!initController()){releaseResources();super::stop(p);return false;}
     fLock=IOLockAlloc();fWorkLoop=getWorkLoop();
     if(!fLock||!fWorkLoop){releaseResources();super::stop(p);return false;}fWorkLoop->retain();
-    OSPtr<IOInterruptEventSource> src=IOInterruptEventSource::interruptEventSource(this,&LavenderQUPI2C::irqAction,p,0);
-    if(!src){releaseResources();super::stop(p);return false;}
-    fIRQ=src.get();fIRQ->retain();
+    fIRQ=IOInterruptEventSource::interruptEventSource(this,&LavenderQUPI2C::irqAction,p,0);
+    if(!fIRQ){releaseResources();super::stop(p);return false;}
     if(fWorkLoop->addEventSource(fIRQ)!=kIOReturnSuccess){releaseResources();super::stop(p);return false;}
-    fIRQ->enable();setProperty("LavenderQUPI2CReady",kOSBooleanTrue);registerService();
+    fIRQ->enable();setProperty("LavenderQUPI2CControllerInitialized",kOSBooleanTrue);registerService();
     IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,this);
-    IOLog("LAVENDER QUP: BLSP1 QUP1 online at 0x%llx; tagged FIFO transport registered\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
+    IOLog("LAVENDER QUP: BLSP1 QUP1 controller initialized at 0x%llx; FIFO transport published (XO-only)\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
     IOLog("LAVENDER QUP: native vdd_dig vote/TLMM pinctrl/bus-clear recovery are not yet implemented\n");
     return true;
 }
@@ -164,7 +164,7 @@ void LavenderQUPI2C::releaseResources(void){
     if(fGCCMap){fGCCMap->release();fGCCMap=nullptr;fGCC=nullptr;}
     if(fQUPMap){fQUPMap->release();fQUPMap=nullptr;fQUP=nullptr;}
 }
-void LavenderQUPI2C::stop(IOService *p){if(fQUP)setState(QUP_STATE_RESET);releaseResources();super::stop(p);}
+void LavenderQUPI2C::stop(IOService *p){IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,nullptr);if(fQUP)setState(QUP_STATE_RESET);releaseResources();super::stop(p);}
 void LavenderQUPI2C::irqAction(OSObject *o,IOInterruptEventSource *,int){LavenderQUPI2C *s=OSDynamicCast(LavenderQUPI2C,o);if(s)s->handleIRQ();}
 void LavenderQUPI2C::handleIRQ(void){
     if(!fQUP)return;uint32_t st=qread(fQUP,QUP_I2C_STATUS),er=qread(fQUP,QUP_ERROR_FLAGS),op=qread(fQUP,QUP_OPERATIONAL);
@@ -218,16 +218,24 @@ unlock:
 done:
     if(out)IOFree(out,z.outputBytes+4);if(in)IOFree(in,z.inputBytes+4);return result;
 }
+extern "C" void lavender_register_qup_i2c_driver(void);
 extern "C" void lavender_register_qup_i2c_driver(void){
-    OSPtr<OSDictionary> p=OSDictionary::withCapacity(4);OSPtr<OSArray> a=OSArray::withCapacity(1);
-    OSPtr<OSString> c=OSString::withCStringNoCopy("LavenderQUPI2C");
-    OSPtr<OSString> pc=OSString::withCStringNoCopy("IOPlatformDevice");
-    OSPtr<OSString> n=OSString::withCStringNoCopy("qcom,i2c-msm-v2");
-    OSPtr<OSString> mc=OSString::withCStringNoCopy("LavenderQUPI2C");
-    if(!p||!a||!c||!pc||!n||!mc){IOLog("LAVENDER QUP: personality allocation failed\n");return;}
-    p->setObject("IOClass",c.get());p->setObject("IOProviderClass",pc.get());p->setObject("IONameMatch",n.get());p->setObject("IOMatchCategory",mc.get());
-    a->setObject(p.get());
-    if(!gIOCatalogue||!gIOCatalogue->addDrivers(a.get(),true))IOLog("LAVENDER QUP: personality registration failed\n");
+    OSDictionary *p=OSDictionary::withCapacity(4);
+    OSArray *a=OSArray::withCapacity(1);
+    OSString *c=OSString::withCStringNoCopy("LavenderQUPI2C");
+    OSString *pc=OSString::withCStringNoCopy("IOPlatformDevice");
+    OSString *n=OSString::withCStringNoCopy("qcom,i2c-msm-v2");
+    OSString *mc=OSString::withCStringNoCopy("LavenderQUPI2C");
+    if(!p||!a||!c||!pc||!n||!mc){
+        IOLog("LAVENDER QUP: personality allocation failed\n");
+        if(p)p->release();if(a)a->release();if(c)c->release();if(pc)pc->release();if(n)n->release();if(mc)mc->release();
+        return;
+    }
+    p->setObject("IOClass",c);p->setObject("IOProviderClass",pc);p->setObject("IONameMatch",n);p->setObject("IOMatchCategory",mc);
+    a->setObject(p);
+    bool ok=gIOCatalogue&&gIOCatalogue->addDrivers(a,true);
+    a->release();p->release();c->release();pc->release();n->release();mc->release();
+    if(!ok)IOLog("LAVENDER QUP: personality registration failed\n");
     else IOLog("LAVENDER QUP: personality registered\n");
 }
 #endif
