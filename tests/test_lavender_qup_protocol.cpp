@@ -10,14 +10,36 @@ int main(){
  assert(n==4&&tag[0]==0x81&&tag[1]==0xc5&&tag[2]==0x87&&tag[3]==5);
  uint8_t cmd[]={0x10,0x20},rsp[3]={};
  LavenderI2CMessage m[2]={{0x62,0,2,cmd},{0x62,LAVENDER_I2C_MESSAGE_READ,3,rsp}};
- LavenderQUPTransferSize z={};assert(lavender_qup_measure(m,2,&z));
- assert(z.outputBytes==10&&z.inputBytes==5&&z.txBytes==2&&z.rxBytes==3&&z.lastIsRead);
- uint8_t out[16]={};uint32_t written=0;assert(lavender_qup_build_output(m,2,out,sizeof(out),&written));
+ LavenderQUPTransferSize z={};
+ assert(lavender_qup_measure(m,2,&z));
+ assert(z.outputBytes==10&&z.inputBytes==5&&z.txBytes==2&&z.rxBytes==3&&z.lastIsRead&&z.readMessages==1);
+ uint8_t out[16]={};uint32_t written=0;
+ assert(lavender_qup_build_output(m,2,out,sizeof(out),&written));
  const uint8_t expected[]={0x81,0xc4,0x82,0x02,0x10,0x20,0x81,0xc5,0x87,0x03};
  assert(written==sizeof(expected)&&memcmp(out,expected,sizeof(expected))==0);
  const uint8_t input[]={0x93,0x00,0xaa,0xbb,0xcc};
  assert(lavender_qup_consume_input(m,2,input,sizeof(input)));
  assert(rsp[0]==0xaa&&rsp[1]==0xbb&&rsp[2]==0xcc);
- assert(!lavender_qup_measure(m,0,&z));assert(!lavender_qup_encode_tag(0x80,false,true,1,true,tag,&n));
- m[0].length=0;assert(!lavender_qup_measure(m,2,&z));return 0;
+
+ /* Real NT36xxx path: 1-byte register write, 66-byte read, 2-byte QUP tag. */
+ uint8_t reg=0x01, touchReport[66]={}, touchWire[68]={0x93,0x00};
+ LavenderI2CMessage touch[2]={{0x62,0,1,&reg},{0x62,LAVENDER_I2C_MESSAGE_READ,66,touchReport}};
+ assert(lavender_qup_measure(touch,2,&z));
+ assert(z.outputBytes==9&&z.inputBytes==68&&z.readMessages==1);
+ LavenderQUPFifoGeometry geometry={};enum LavenderQUPTransferMode mode=LAVENDER_QUP_MODE_FIFO;
+ assert(lavender_qup_choose_mode(0,z.outputBytes,z.inputBytes,&mode,&geometry));
+ assert(mode==LAVENDER_QUP_MODE_BLOCK);
+ assert(geometry.outputBlockBytes==16&&geometry.inputBlockBytes==16);
+ assert(geometry.outputFifoBytes==32&&geometry.inputFifoBytes==32);
+ assert(lavender_qup_choose_mode((2U<<7),z.outputBytes,z.inputBytes,&mode,&geometry));
+ assert(mode==LAVENDER_QUP_MODE_FIFO&&geometry.inputFifoBytes==128);
+ memset(touchWire+2,0x5a,66);
+ assert(lavender_qup_consume_input(touch,2,touchWire,sizeof(touchWire)));
+ assert(touchReport[0]==0x5a&&touchReport[65]==0x5a);
+ assert(!lavender_qup_fifo_geometry((3U<<5),&geometry));
+
+ assert(!lavender_qup_measure(m,0,&z));
+ assert(!lavender_qup_encode_tag(0x80,false,true,1,true,tag,&n));
+ m[0].length=0;assert(!lavender_qup_measure(m,2,&z));
+ return 0;
 }
