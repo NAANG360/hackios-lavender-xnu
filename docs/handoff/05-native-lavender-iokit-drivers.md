@@ -2,8 +2,9 @@
 
 **Status date:** 20 November 2026  
 **Branch:** `ci/lavender-machine-profile`  
-**Baseline:** Run #394, source commit `312227c4da9f27c3bbecc72be06cdd149edda99f`  
-**Scope:** native XNU 8796 driver architecture and staged implementation plan; no driver implementation is accepted by this chapter.
+**Latest accepted source/build:** Run #400, source commit `7a15aaad2d649f570ffe3f9ad23d1a98f659085d`  
+**Latest accepted image:** `iosboot.img`, artifact `14615937969`, 16,621,568 bytes, SHA-256 `f0239f08c402d0a97e95ceddbee10cf61ec7c76d94258619716d038518c84ce2`  
+**Scope:** native XNU 8796 driver implementation and staged hardware validation. Run #400 accepts QUP source/build integration only; no physical peripheral operation is claimed.
 
 ## Mission and porting rule
 
@@ -11,7 +12,7 @@ Implement Lavender peripheral support as **native XNU 8796 IOKit drivers**. Use 
 
 Do not use SWEET's SM7150/Kryo 470 device constants or present inherited SWEET touchscreen code as Lavender support.
 
-The preceding unbranched-session handoff reports that a source audit began and supplies the paths below. This document records those paths as **candidate references supplied by that handoff**; it does not claim that every file, register field, sequence, or commit has been independently re-audited here. Before coding, check out and inspect the exact public Lavender kernel branch, the matching Android 15 device tree, Lucid OS configuration, and XNU 8796 APIs. Record exact source commits and line ranges in follow-up commits.
+The public Lavender Linux 4.19 reference tree is pinned at commit `da9b19cb9ec452281cbe1270c5e733e20d69475a`. QUP I2C, Novatek NT36xxx, TLMM pinctrl/interrupt and MPM parent-domain paths have been inspected at that exact commit. The SDHCI/eMMC and MDSS/DSI/panel paths still require their own exact source audit before implementation. Keep source-level evidence, CI acceptance and physical hardware verification as separate claims.
 
 ## Pinned source audit and verified Lavender hardware contract
 
