@@ -231,3 +231,5 @@ extern "C" void lavender_register_qup_i2c_driver(void){
     else IOLog("LAVENDER QUP: personality registered\n");
 }
 #endif
+
+/* End of native Lavender QUP-v2 IOKit implementation. */
