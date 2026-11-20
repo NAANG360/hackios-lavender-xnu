@@ -1,19 +1,14 @@
-## Latest accepted CI image — Run #394 (20 November 2026)
+## Latest accepted CI image — Run #400 (20 November 2026)
 
-- **Branch:** `ci/lavender-machine-profile`; source commit `312227c4da9f27c3bbecc72be06cdd149edda99f`.
-- **Workflow:** [Run #394 / 44698533578](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44698533578). Both jobs passed: XNU 8796 build/verification and downstream RAM-only fastboot packaging. The Lavender ADT preflight, IOKit platform-match/early-init verifier, kernel artifact verification, ADT generation, payload build, image construction, and image-identity checks all passed.
-- **Image artifact:** `lavender-fastboot-boot-test`, artifact ID `14612706642`; `iosboot.img`, **16,617,472 bytes**.
-- **Image SHA-256:** `e93754c5e83732f107b5af10bd48360e0178fa81272077069d1c570e816621f4`. Independently extracted from the artifact ZIP and matched `BUILD-MANIFEST.txt` / `SHA256SUMS`.
-- **Artifact ZIP digest:** not recorded in this handoff; do not invent one.
-- **Manifest:** kernel SHA-256 `95c1b40501f17b65223982810de4f3e35229e228d78e04405078c4b95fee428f`; payload SHA-256 `0b7910a058fb414477938746ef1d6bd00c580ac06c4cf07a8e4416b1e55367cc`; DTB SHA-256 `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
-- **Bootargs:** `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. Keep `cpus=1`; test only with `fastboot boot iosboot.img`.
-- **Interpretation:** Run #394 proves the committed XNU source builds, the IOKit/ADT source verifier passes, and a structurally verified RAM-only image is packaged. It does **not** prove a physical boot, working storage/I2C/touch/display hardware, BSD init, root mount, launchd, SpringBoard, calling, or iMessage.
-
-## New engineering milestone — native Lavender IOKit drivers
-
-The next milestone is four native XNU 8796 components with explicit dependencies: Qualcomm QUP I2C v2, Qualcomm SDHCI v5/eMMC 5.1, Novatek NT36xxx touchscreen, and Qualcomm MDSS/MIPI-DSI plus Tianma NT36672A panel. Use the Android 15/Lucid OS configuration and public Lavender Linux 4.19 driver behavior as *reference material only*. Do not transplant Linux code or treat SWEET's SM7150 drivers as Lavender support. The detailed handoff, hardware parameters, reference paths, dependency order, and acceptance gates are in [Chapter 05 — Native Lavender IOKit Drivers](docs/handoff/05-native-lavender-iokit-drivers.md).
-
-**Source-status discipline:** the unbranched prior-session message reports that a Linux source audit was started and lists candidate paths. Those paths and hardware details are captured as reported reference targets, not as independently re-audited source findings in this documentation-only update. Re-open the exact public Lavender kernel branch and verify register maps, clocks, resets, IRQ wiring, panel sequence, and firmware protocol before implementing each driver. No native driver implementation is claimed committed by Run #394.
+- **Branch:** `ci/lavender-machine-profile`; source commit `7a15aaad2d649f570ffe3f9ad23d1a98f659085d`.
+- **Workflow:** [Run #400 / 44706182280](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44706182280). Both jobs passed: XNU 8796 build/source verification/kernel artifact verification and downstream RAM-only fastboot packaging.
+- **Image artifact:** `lavender-fastboot-boot-test`, artifact ID `14615937969`; `iosboot.img`, **16,621,568 bytes**.
+- **Image SHA-256:** `f0239f08c402d0a97e95ceddbee10cf61ec7c76d94258619716d038518c84ce2`. Independently extracted from the artifact ZIP and matched `BUILD-MANIFEST.txt` / `SHA256SUMS`.
+- **Kernel SHA-256:** `24bfe515b6e6bfab70f53602a00384cdcc8f76fe3c7505916b7021fc6c33bb4e`; **payload SHA-256:** `8f3fdd5fc187b7ac18691af5952d4b0228f011ac95fa2cd1de3a327532bf7cf2`; **DTB SHA-256:** `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
+- **Bootargs:** `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. Keep `cpus=1`; physical test only with `fastboot boot iosboot.img`.
+- **QUP source/build milestone:** native `LavenderQUPI2C` compiled and linked into the ARM64 Mach-O kernel. The ADT preflight, QUP protocol host test, QUP source guard, IOKit/early-init guards, independent kernel verification, image construction and payload identity checks all passed. The lifecycle follow-up (balanced workloop retain and interrupt-source removal) is included in this run.
+- **Limitations:** this is not proof of a working physical I2C bus. The current QUP implementation is FIFO/tagged mode only; block mode for the Novatek 66-byte report plus two-byte QUP input tag (68 bytes total), TLMM pinctrl for QUP GPIO2/3, bus-clear recovery, and a native `vdd_dig` vote remain to be implemented. No SDHCI/eMMC, Novatek input, or MDSS/DSI panel driver is yet accepted. No physical test has been performed.
+- **Interpretation:** Run #400 proves source/build integration, ARM64 kernel linkage and a structurally verified RAM-only image. It does **not** prove physical boot, QUP transaction success, eMMC reads, touchscreen input, display output, BSD init, root mount, launchd, SpringBoard, calling or iMessage.
 
 ---
 
@@ -39,12 +34,14 @@ Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to 
 
 ## Current milestone — 20 November 2026
 
-- Run #394 on the current branch HEAD `312227c4da9f27c3bbecc72be06cdd149edda99f` passed both XNU build/verification and RAM-only packaging. Image artifact `14612706642`, `iosboot.img` 16,617,472 bytes, SHA-256 `e93754c5e83732f107b5af10bd48360e0178fa81272077069d1c570e816621f4`.
-- The Run #394 IOKit platform-match/early-init verifier and Lavender ADT preflight passed. This accepts the device-tree/nub/matching infrastructure changes at source/build level; it does not establish that any physical peripheral driver is operational.
-- New next milestone: native XNU 8796 IOKit drivers for QUP I2C v2, SDHCI v5/eMMC 5.1, Novatek NT36xxx touch, and Qualcomm MDSS/MIPI-DSI with Tianma NT36672A panel. Dependency and acceptance plan: `docs/handoff/05-native-lavender-iokit-drivers.md`.
-- The preceding unbranched-session message reports a Linux 4.19 source audit and candidate file paths. Treat those as research leads, not proof that the exact source files, register definitions, or hardware sequences have been independently checked in this branch. Verify against the public Lavender kernel source and Android 15 DT/config before coding.
-- No native implementation of these four drivers is claimed committed or accepted by Run #394. No SDHCI block device, QUP bus, TLMM GPIO interrupt translation, Novatek touch input, or working DSI panel is yet proven.
-- Physical test only via `fastboot boot iosboot.img`; preserve `cpus=1`, volume-key recovery, and Android partitions. Never flash, erase, format, repartition, or write any partition.
+- Run #400 ([44706182280](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44706182280), source commit `7a15aaad2d649f570ffe3f9ad23d1a98f659085d`) passed both XNU 8796 build/verification and the downstream RAM-only packaging job.
+- Artifact `14615937969` (`lavender-fastboot-boot-test`) contains `iosboot.img`, **16,621,568 bytes**, SHA-256 `f0239f08c402d0a97e95ceddbee10cf61ec7c76d94258619716d038518c84ce2`. Manifest kernel SHA-256: `24bfe515b6e6bfab70f53602a00384cdcc8f76fe3c7505916b7021fc6c33bb4e`.
+- The native `LavenderQUPI2C` IOKit translation unit is compiled and linked into the ARM64 Mach-O. QUP protocol host tests, ADT checks, source guards, IOKit platform-match/early-init checks, independent kernel verification and RAM-only image structure/payload-identity checks all passed.
+- This is a **source/build milestone**, not physical peripheral verification. The QUP driver currently implements FIFO/tagged transactions, repeated-start construction, interrupt completion and bounded error/timeout handling, and publishes a native transfer interface. The lifecycle correction in Run #400 balances workloop ownership and interrupt-event-source removal.
+- Remaining QUP work before calling the bus functional: block-mode transfer path for the 68-byte Novatek read envelope when FIFO capacity is insufficient; TLMM pinmux for QUP GPIO2/3; bus-clear recovery; native `vdd_dig` clock/voltage vote; runtime transaction instrumentation and physical verification.
+- Linux reference commit `da9b19cb9ec452281cbe1270c5e733e20d69475a` is pinned. The verified NVT source reads `POINT_DATA_LEN + 1 = 66` bytes; the QUP input tag adds two bytes. GPIO67 is a TLMM interrupt (DTS flags `0x2008`), not a direct GIC interrupt.
+- No SDHCI/eMMC, Novatek HID/input, or MDSS/DSI/Tianma panel implementation is yet accepted. No physical test has been performed. Do not infer storage, touch, display, BSD init, root mount, launchd or SpringBoard operation from CI.
+- Physical test remains RAM-only via `fastboot boot iosboot.img`; preserve `cpus=1`, volume-key recovery and Android partitions. Never flash, erase, format, repartition or write any partition.
 
 ## Previous accepted operations — Run #300 (superseded by Run #302)
 
