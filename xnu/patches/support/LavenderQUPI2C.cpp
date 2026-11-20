@@ -14,6 +14,7 @@
 #include <libkern/c++/OSArray.h>
 #include <libkern/c++/OSDictionary.h>
 #include <libkern/c++/OSBoolean.h>
+#include <libkern/OSByteOrder.h>
 #include <kern/clock.h>
 #include <kern/thread.h>
 #define QUP_CONFIG 0x000
@@ -104,7 +105,7 @@ bool LavenderQUPI2C::enableClocks(void){
     fGCCMap=map.get();fGCCMap->retain();fGCC=(volatile uint8_t *)fGCCMap->getVirtualAddress();
     if(!fGCC)return false;
     uint32_t v=qread(fGCC,GCC_BLSP1_AHB_VOTE);
-    qwrite(fGCC,GCC_BLSP1_AHB_VOTE,v|GCC_QUP1_AHB_VOTE_BIT);fClocks=true;
+    /* XO 19.2MHz is the lowest GCC table entry; no PLL rate increase.\n     * vdd_dig voting and native TLMM pad programming remain separate follow-ups. */\n    qwrite(fGCC,GCC_BLSP1_AHB_VOTE,v|GCC_QUP1_AHB_VOTE_BIT);fClocks=true;
     if(!qwait(fGCC,GCC_BLSP1_AHB_HALT,GCC_BRANCH_HALT,0,100))return false;
     v=qread(fGCC,GCC_QUP1_I2C_CFG_RCGR);qwrite(fGCC,GCC_QUP1_I2C_CFG_RCGR,(v&~0x71fU)|1U);
     v=qread(fGCC,GCC_QUP1_I2C_CMD_RCGR);qwrite(fGCC,GCC_QUP1_I2C_CMD_RCGR,v|GCC_RCG_UPDATE);
