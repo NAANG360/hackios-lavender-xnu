@@ -48,6 +48,11 @@
 #define QUP_INPUT_SERVICE_FLAG (1U<<9)
 #define QUP_MAX_OUTPUT_DONE_FLAG (1U<<10)
 #define QUP_MAX_INPUT_DONE_FLAG (1U<<11)
+#define QUP_OUT_BLOCK_WRITE_REQ (1U<<12)
+#define QUP_IN_BLOCK_READ_REQ (1U<<13)
+#define QUP_OUTPUT_MODE_SHIFT 10U
+#define QUP_INPUT_MODE_SHIFT 12U
+#define QUP_MODE_BLOCK 1U
 #define QUP_SERVICE_FLAGS (QUP_OUTPUT_SERVICE_FLAG|QUP_INPUT_SERVICE_FLAG)
 #define QUP_I2C_ERROR_MASK 0x0380003cU
 #define QUP_I2C_NACK (1U<<3)
@@ -83,11 +88,12 @@ private:
     void handleIRQ(void);
     bool enableClocks(void); void disableClocks(void);
     bool initController(void); bool setState(uint32_t state);
-    bool fifoSizes(uint32_t *in,uint32_t *out); void releaseResources(void);
+    bool waitForBlock(bool *flag,AbsoluteTime deadline); void releaseResources(void);
     IOMemoryMap *fQUPMap=nullptr,*fGCCMap=nullptr;
     volatile uint8_t *fQUP=nullptr,*fGCC=nullptr;
     IOWorkLoop *fWorkLoop=nullptr; IOInterruptEventSource *fIRQ=nullptr; IOLock *fLock=nullptr;
-    volatile bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false;
+    bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false;
+    bool fBlockMode=false,fNeedInput=false,fTxBlockReady=false,fRxBlockReady=false;
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
 OSDefineMetaClassAndStructors(LavenderQUPI2C,IOService);
@@ -134,10 +140,14 @@ bool LavenderQUPI2C::initController(void){
     qwrite(fQUP,QUP_I2C_MASTER_CONFIG,QUP_EN_VERSION_TWO_TAG);
     return (qread(fQUP,QUP_STATE)&QUP_I2C_MAST_GEN)!=0;
 }
-bool LavenderQUPI2C::fifoSizes(uint32_t *in,uint32_t *out){
-    static const uint8_t blk[4]={16,16,32,0},sz[4]={2,4,8,16};
-    if(!in||!out||!fQUP)return false;uint32_t m=qread(fQUP,QUP_IO_MODES);
-    *out=blk[m&3U]*sz[(m>>2)&3U];*in=blk[(m>>5)&3U]*sz[(m>>7)&3U];return *in&&*out;
+bool LavenderQUPI2C::waitForBlock(bool *flag,AbsoluteTime deadline){
+    if(!flag||!fLock)return false;
+    while(!*flag&&fResult==kIOReturnSuccess){
+        int wr=IOLockSleepDeadline(fLock,&fEvent,deadline,THREAD_UNINT);
+        if(wr==THREAD_TIMED_OUT)return false;
+    }
+    if(fResult!=kIOReturnSuccess||!*flag)return false;
+    *flag=false;return true;
 }
 bool LavenderQUPI2C::start(IOService *p){
     if(!super::start(p))return false;
@@ -167,15 +177,30 @@ void LavenderQUPI2C::releaseResources(void){
 void LavenderQUPI2C::stop(IOService *p){IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,nullptr);if(fQUP)setState(QUP_STATE_RESET);releaseResources();super::stop(p);}
 void LavenderQUPI2C::irqAction(OSObject *o,IOInterruptEventSource *,int){LavenderQUPI2C *s=OSDynamicCast(LavenderQUPI2C,o);if(s)s->handleIRQ();}
 void LavenderQUPI2C::handleIRQ(void){
-    if(!fQUP)return;uint32_t st=qread(fQUP,QUP_I2C_STATUS),er=qread(fQUP,QUP_ERROR_FLAGS),op=qread(fQUP,QUP_OPERATIONAL);
-    IOReturn r=kIOReturnSuccess;bool done=false;
-    if(st&QUP_I2C_ERROR_MASK){r=(st&QUP_I2C_NACK)?kIOReturnNotResponding:(st&QUP_I2C_ARB_LOST)?kIOReturnBusy:kIOReturnIOError;done=true;}
-    if(er&QUP_ERROR_FLAGS_MASK){r=kIOReturnIOError;done=true;}
+    if(!fQUP||!fLock)return;
+    IOLockLock(fLock);
+    uint32_t st=qread(fQUP,QUP_I2C_STATUS),er=qread(fQUP,QUP_ERROR_FLAGS),op=qread(fQUP,QUP_OPERATIONAL);
+    IOReturn r=kIOReturnSuccess;bool wake=false;
+    if(st&QUP_I2C_ERROR_MASK)r=(st&QUP_I2C_NACK)?kIOReturnNotResponding:(st&QUP_I2C_ARB_LOST)?kIOReturnBusy:kIOReturnIOError;
+    if(er&QUP_ERROR_FLAGS_MASK)r=kIOReturnIOError;
     if(st&QUP_I2C_ERROR_MASK)qwrite(fQUP,QUP_I2C_STATUS,st&QUP_I2C_ERROR_MASK);
     if(er&QUP_ERROR_FLAGS_MASK)qwrite(fQUP,QUP_ERROR_FLAGS,er&QUP_ERROR_FLAGS_MASK);
     if(op&QUP_SERVICE_FLAGS)qwrite(fQUP,QUP_OPERATIONAL,op&QUP_SERVICE_FLAGS);
-    if(!done&&fActive)done=fLastRead?((op&QUP_MAX_INPUT_DONE_FLAG)!=0):((op&(QUP_OUTPUT_SERVICE_FLAG|QUP_MAX_OUTPUT_DONE_FLAG))!=0);
-    if(done&&fLock){IOLockLock(fLock);if(fActive&&!fDone){fResult=r;fDone=true;if(r!=kIOReturnSuccess)qwrite(fQUP,QUP_STATE,QUP_STATE_RESET);IOLockWakeup(fLock,&fEvent,false);}IOLockUnlock(fLock);}
+    if(fActive){
+        if(r!=kIOReturnSuccess){
+            fResult=r;fDone=true;qwrite(fQUP,QUP_STATE,QUP_STATE_RESET);wake=true;
+        }else if(fBlockMode){
+            if((op&QUP_OUTPUT_SERVICE_FLAG)&&(op&QUP_OUT_BLOCK_WRITE_REQ)){fTxBlockReady=true;wake=true;}
+            if(op&QUP_INPUT_SERVICE_FLAG){fRxBlockReady=true;wake=true;}
+            uint32_t completeMask=QUP_MAX_OUTPUT_DONE_FLAG|(fNeedInput?QUP_MAX_INPUT_DONE_FLAG:0U);
+            if((op&QUP_OUTPUT_SERVICE_FLAG)&&((op&completeMask)==completeMask)){fDone=true;wake=true;}
+        }else{
+            bool done=fLastRead?((op&QUP_MAX_INPUT_DONE_FLAG)!=0):((op&(QUP_OUTPUT_SERVICE_FLAG|QUP_MAX_OUTPUT_DONE_FLAG))!=0);
+            if(done){fDone=true;wake=true;}
+        }
+    }
+    if(wake)IOLockWakeup(fLock,&fEvent,false);
+    IOLockUnlock(fLock);
 }
 IOReturn LavenderQUPI2C::callPlatformFunction(const OSSymbol *name,bool wait,void *p1,void *p2,void *p3,void *p4){
     if(!name||!name->isEqualTo(LAVENDER_I2C_TRANSFER_FUNCTION))return super::callPlatformFunction(name,wait,p1,p2,p3,p4);
@@ -183,38 +208,89 @@ IOReturn LavenderQUPI2C::callPlatformFunction(const OSSymbol *name,bool wait,voi
     return transfer(r->messages,r->messageCount,r->timeoutMilliseconds?r->timeoutMilliseconds:500);
 }
 IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t timeout){
-    LavenderQUPTransferSize z={};uint32_t inCap,outCap,written=0,inPos=0,ioModes;uint8_t *out=nullptr,*in=nullptr;
+    LavenderQUPTransferSize z={};LavenderQUPFifoGeometry g={};
+    enum LavenderQUPTransferMode mode=LAVENDER_QUP_MODE_FIFO;
+    uint32_t written=0,inPos=0,ioModes;uint8_t *out=nullptr,*in=nullptr;
     IOReturn result=kIOReturnSuccess;AbsoluteTime deadline;int wr;
     if(!fQUP||!fLock||!fClocks)return kIOReturnNotReady;
     if(!lavender_qup_measure(m,n,&z))return kIOReturnBadArgument;
-    if(!fifoSizes(&inCap,&outCap)||z.outputBytes>outCap||z.inputBytes>inCap)return kIOReturnNoResources;
+    ioModes=qread(fQUP,QUP_IO_MODES);
+    if(!lavender_qup_choose_mode(ioModes,z.outputBytes,z.inputBytes,&mode,&g))return kIOReturnNoResources;
+    /* The touchscreen's combined write/read fits one output block. Until the
+     * multi-read block scheduler is added, reject larger mixed block transfers
+     * rather than deadlocking with an undrained input FIFO. */
+    if(mode==LAVENDER_QUP_MODE_BLOCK&&z.inputBytes&&
+       (z.readMessages>1||z.outputBytes>g.outputBlockBytes))return kIOReturnUnsupported;
     out=(uint8_t *)IOMalloc(z.outputBytes+4);if(z.inputBytes)in=(uint8_t *)IOMalloc(z.inputBytes+4);
     if(!out||(z.inputBytes&&!in)){result=kIOReturnNoMemory;goto done;}
     if(!lavender_qup_build_output(m,n,out,z.outputBytes+4,&written)||written!=z.outputBytes){result=kIOReturnBadArgument;goto done;}
     IOLockLock(fLock);if(fActive){IOLockUnlock(fLock);result=kIOReturnBusy;goto done;}
     fActive=true;fDone=false;fLastRead=z.lastIsRead;fResult=kIOReturnSuccess;
+    fBlockMode=(mode==LAVENDER_QUP_MODE_BLOCK);fNeedInput=(z.inputBytes!=0);
+    fTxBlockReady=false;fRxBlockReady=false;
     if(!setState(QUP_STATE_RESET)){result=kIOReturnTimeout;goto unlock;}
     qwrite(fQUP,QUP_MX_INPUT_COUNT,0);qwrite(fQUP,QUP_MX_OUTPUT_COUNT,0);
     qwrite(fQUP,QUP_MX_READ_COUNT,z.inputBytes);qwrite(fQUP,QUP_MX_WRITE_COUNT,z.outputBytes);
     qwrite(fQUP,QUP_CONFIG,QUP_N_VAL|QUP_MINI_CORE_I2C_VAL|(z.inputBytes?0:QUP_NO_INPUT));
-    ioModes=qread(fQUP,QUP_IO_MODES);ioModes&=~((3U<<10)|(3U<<12)|QUP_PACK_EN|QUP_UNPACK_EN|(1U<<16));
-    qwrite(fQUP,QUP_IO_MODES,ioModes|QUP_PACK_EN|QUP_UNPACK_EN);
+    ioModes=qread(fQUP,QUP_IO_MODES);
+    ioModes&=~((3U<<QUP_OUTPUT_MODE_SHIFT)|(3U<<QUP_INPUT_MODE_SHIFT)|QUP_PACK_EN|QUP_UNPACK_EN|(1U<<16));
+    ioModes|=QUP_PACK_EN|QUP_UNPACK_EN;
+    if(fBlockMode)ioModes|=(QUP_MODE_BLOCK<<QUP_OUTPUT_MODE_SHIFT)|(QUP_MODE_BLOCK<<QUP_INPUT_MODE_SHIFT);
+    qwrite(fQUP,QUP_IO_MODES,ioModes);
     qwrite(fQUP,QUP_I2C_STATUS,QUP_I2C_ERROR_MASK);qwrite(fQUP,QUP_ERROR_FLAGS,QUP_ERROR_FLAGS_MASK);
+    qwrite(fQUP,QUP_OPERATIONAL,QUP_SERVICE_FLAGS);
     qwrite(fQUP,QUP_OPERATIONAL_MASK,0);
     if(!setState(QUP_STATE_RUN)){result=kIOReturnTimeout;goto unlock;}
     qwrite(fQUP,QUP_I2C_MASTER_CLK_CTL,(14U<<16)|28U);
-    if(!setState(QUP_STATE_PAUSE)){result=kIOReturnTimeout;goto unlock;}
-    for(uint32_t i=0;i<written;i+=4){uint32_t w=out[i];if(i+1<written)w|=(uint32_t)out[i+1]<<8;if(i+2<written)w|=(uint32_t)out[i+2]<<16;if(i+3<written)w|=(uint32_t)out[i+3]<<24;qwrite(fQUP,QUP_OUT_FIFO_BASE,w);}
-    if(!setState(QUP_STATE_RUN)){result=kIOReturnTimeout;goto unlock;}
     clock_interval_to_deadline(timeout,kMillisecondScale,&deadline);
-    wr=fDone?THREAD_AWAKENED:IOLockSleepDeadline(fLock,&fEvent,deadline,THREAD_UNINT);
-    if(!fDone||wr==THREAD_TIMED_OUT){setState(QUP_STATE_RESET);result=kIOReturnTimeout;goto unlock;}
+    if(mode==LAVENDER_QUP_MODE_FIFO){
+        if(!setState(QUP_STATE_PAUSE)){result=kIOReturnTimeout;goto unlock;}
+        for(uint32_t i=0;i<written;i+=4){
+            uint32_t w=out[i];if(i+1<written)w|=(uint32_t)out[i+1]<<8;
+            if(i+2<written)w|=(uint32_t)out[i+2]<<16;if(i+3<written)w|=(uint32_t)out[i+3]<<24;
+            qwrite(fQUP,QUP_OUT_FIFO_BASE,w);
+        }
+        if(!setState(QUP_STATE_RUN)){result=kIOReturnTimeout;goto unlock;}
+    }else{
+        for(uint32_t offset=0;offset<written;){
+            if(!waitForBlock(&fTxBlockReady,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
+            if(!setState(QUP_STATE_PAUSE)){result=kIOReturnTimeout;goto unlock;}
+            uint32_t count=g.outputBlockBytes;if(count>written-offset)count=written-offset;
+            for(uint32_t i=0;i<count;i+=4){
+                uint32_t w=out[offset+i];if(i+1<count)w|=(uint32_t)out[offset+i+1]<<8;
+                if(i+2<count)w|=(uint32_t)out[offset+i+2]<<16;if(i+3<count)w|=(uint32_t)out[offset+i+3]<<24;
+                qwrite(fQUP,QUP_OUT_FIFO_BASE,w);
+            }
+            if(!setState(QUP_STATE_RUN)){result=kIOReturnTimeout;goto unlock;}
+            offset+=count;
+        }
+        while(inPos<z.inputBytes){
+            if(!waitForBlock(&fRxBlockReady,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
+            if(!setState(QUP_STATE_PAUSE)){result=kIOReturnTimeout;goto unlock;}
+            uint32_t count=g.inputBlockBytes;if(count>z.inputBytes-inPos)count=z.inputBytes-inPos;
+            for(uint32_t i=0;i<g.inputBlockBytes;i+=4){
+                uint32_t w=qread(fQUP,QUP_IN_FIFO_BASE);
+                for(uint32_t b=0;b<4&&i+b<count;b++)in[inPos+i+b]=(uint8_t)(w>>(b*8));
+            }
+            if(!setState(QUP_STATE_RUN)){result=kIOReturnTimeout;goto unlock;}
+            inPos+=count;
+        }
+        if(z.inputBytes&&!waitForBlock(&fRxBlockReady,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
+    }
+    while(!fDone&&fResult==kIOReturnSuccess){
+        wr=IOLockSleepDeadline(fLock,&fEvent,deadline,THREAD_UNINT);
+        if(wr==THREAD_TIMED_OUT)break;
+    }
+    if(!fDone){setState(QUP_STATE_RESET);result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
     result=fResult;if(result!=kIOReturnSuccess)goto unlock;
-    while(inPos<z.inputBytes){uint32_t w=qread(fQUP,QUP_IN_FIFO_BASE);for(uint32_t b=0;b<4&&inPos<z.inputBytes;b++)in[inPos++]=(uint8_t)(w>>(b*8));}
+    if(mode==LAVENDER_QUP_MODE_FIFO){
+        while(inPos<z.inputBytes){uint32_t w=qread(fQUP,QUP_IN_FIFO_BASE);for(uint32_t b=0;b<4&&inPos<z.inputBytes;b++)in[inPos++]=(uint8_t)(w>>(b*8));}
+    }
     if(z.inputBytes&&!lavender_qup_consume_input(m,n,in,z.inputBytes))result=kIOReturnIOError;
     setState(QUP_STATE_RESET);
 unlock:
-    fActive=false;IOLockUnlock(fLock);
+    fActive=false;fBlockMode=false;fNeedInput=false;fTxBlockReady=false;fRxBlockReady=false;
+    IOLockUnlock(fLock);
 done:
     if(out)IOFree(out,z.outputBytes+4);if(in)IOFree(in,z.inputBytes+4);return result;
 }
