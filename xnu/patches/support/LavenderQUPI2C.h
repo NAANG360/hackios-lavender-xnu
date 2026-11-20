@@ -18,7 +18,7 @@ static inline bool lavender_qup_encode_tag(uint16_t address, bool read, bool las
     if (address > 0x7f || length == 0 || bytes == NULL || count == NULL) return false;
     command = read ? (last ? 0x87 : 0x85) : (last ? 0x83 : 0x82);
     /* 0x87 is QUP_TAG2_DATA_READ_N_STOP; 0x83 is WRITE_N_STOP. */
-    if (start) { bytes[0]=0x81; bytes[1]=(uint8_t)((address<<1)|(read?1U:0U)); bytes[2]=command; bytes[3]=length; *count=4; }
+    if (start) { bytes[0]=0x81; /* QUP_TAG2_START */ bytes[1]=(uint8_t)((address<<1)|(read?1U:0U)); bytes[2]=command; bytes[3]=length; *count=4; }
     else { bytes[0]=command; bytes[1]=length; *count=2; }
     return true;
 }
