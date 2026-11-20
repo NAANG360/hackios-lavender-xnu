@@ -146,3 +146,12 @@ References: [Xiaomi SDM660 device tree](https://github.com/xiaomi-sdm660/android
 - The generated `/arm-io/emmc` node models SDHC1 as three 64-bit register windows: host controller, CQHCI and ICE; the register bases/lengths are stored relative to the SoC base. The descriptor also includes the two interrupt specifiers (host and power), names them, declares `iface_clk`, `core_clk` and `ice_core_clk`, and sets 8-bit/non-removable/enabled.
 - The ADT generator's `check()` now asserts the exact register windows, interrupt cells/names, clock names, bus width, non-removable property and status. `tests/test_lavender_adt.py` independently unpacks and validates the same values. Workflow CI runs the regression before the long XNU build.
 - This guards the device-tree input for the future driver; it does not implement the Qualcomm SDHCI V5 power handshake or a usable block device. CQE/ICE remain described in metadata only and must not be enabled by an unverified Lavender driver.
+
+
+## Native Lavender IOKit driver plan — 20 November 2026
+
+Run #394 is the accepted CI baseline for the ADT/IOKit discovery layer. The next work is four native XNU drivers with dependencies: QUP I2C v2, SDHCI v5/eMMC 5.1, Novatek NT36xxx touchscreen, and Qualcomm MDSS/MIPI-DSI plus Tianma NT36672A panel. Android 15/Lucid OS configuration and public Lavender Linux 4.19 behavior are references only; no Linux driver code is to be transplanted into XNU.
+
+The reported candidate Linux paths, hardware values, XNU porting constraints, staged implementation order, and acceptance gates are documented in [Chapter 05 — Native Lavender IOKit Drivers](05-native-lavender-iokit-drivers.md). That chapter explicitly distinguishes the unbranched prior-session audit report from independently verified branch state. The key architectural dependency is QUP I2C before Novatek touch; the panel requires MDSS host/PHY/clocks/reset integration, not just a panel sequence. SDHCI/eMMC begins read-only, with CQE/ICE disabled until separately implemented. GPIO 67 must be translated through TLMM, never treated as a raw GIC interrupt.
+
+Run #394 does not contain or prove these hardware drivers. CI acceptance of nub publication and IOKit matching infrastructure is not evidence of a matched or operational peripheral.

@@ -18,6 +18,7 @@
 - Linux-visible RAM: 2,803,968 kB (~2.8 GiB on 3 GB model).
 - Android 15 / SDK 35; running Linux kernel observed as `4.19.325-NYXION-SUSFS`.
 - Display: Tianma FHD+ DSI, 1080×2340, `qcom,mdss_dsi_nt36672a_tianma_fhdplus_video`.
+- Driver-port targets reported in the 20 November handoff: SDHCI v5/eMMC MMIO base `0x0c0c4000` (8-bit eMMC); QUP I2C v2 MMIO base `0x0c175000`; Novatek touch I2C address `0x62`; TLMM GPIO 67 IRQ and GPIO 66 reset; Tianma NT36672A panel at 1080×2340/60 Hz/four-lane MIPI DSI. These values are implementation leads and must be revalidated against the bootloader DTB and Android 15 DT before use.
 - GPU Adreno 512; storage controller `c0c4000.sdhci` (Lavender docs indicate eMMC 5.1).
 - Device-tree compatibles include `qcom,sdm660-mtp`, `qcom,sdm660`, `qcom,mtp`.
 - Lavender is ARM64, not arm64e. Do not assume Apple pointer authentication, PPL or Apple SoC services.

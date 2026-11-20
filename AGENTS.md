@@ -1,13 +1,19 @@
-## Latest accepted diagnostic image — Run #390 (19 November 2026)
+## Latest accepted CI image — Run #394 (20 November 2026)
 
-- **Latest accepted CI image:** [Run #390 / 44466081921](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44466081921), source commit `719eaa9dbd6bd5be4108cee3f5cca3b9abd473af`, branch `ci/lavender-machine-profile`.
-- Both jobs passed: XNU 8796 build/source verification and the separate RAM-only fastboot packaging job. Step 16 (Lavender IOKit platform match and early-init trace) passed; kernel artifact verification and image-structure/payload-identity verification passed.
-- Artifact `lavender-fastboot-boot-test`, ID `14503291183`, contains `iosboot.img`; extracted image size **16,617,472 bytes**, SHA-256 **`942dd83338632c1811337bfd8f4d2f7578fc30f584ed901e8f44aca253ad6def`**. Artifact ZIP digest: `2b07c70796ecd10ab68aa1a200b111a867ababf9e6aa06731df3bd9702395588`.
-- Exact Run #390 image has been fetched for the user. Its package bootargs include `lavender_no_fbcon=1`; do not promise a verbose framebuffer text overlay from this image.
-- **Physical test status:** user footage intended to show Run #390 has been reviewed, but neither clip proves the handset booted this exact file; retain the label **Run #390-intended, provenance unconfirmed**. The clearest trace reaches `DT INTERRUPT WALK READY` (event 144), and the readable Guardian value is `0x80019000`. The downloaded image hash is verified, but that does not bind the handset test to it.
-- Exact Run #390 ADT audit found the GIC missing `#interrupt-cells`, I2C/eMMC interrupt nodes missing direct `interrupt-parent`, and the nested touchscreen's two-cell TLMM GPIO tuple incorrectly emitted as generic `interrupts`. The current authorized engineering task is to correct those ADT/XNU assumptions, publish device nubs, and instrument post-lockdown service matching. Do not claim driver hardware support or a later Darwin/userspace milestone until verified.
-- This is a CI-verified RAM-only diagnostic package, not proof of physical boot or complete Darwin/userspace. No BSD init, root mount, launchd, SpringBoard, calling, iMessage, or complete iOS functionality may be claimed without direct evidence.
-- Physical test only via `fastboot boot iosboot.img`; never flash, erase, format, repartition, or write Android eMMC/`userdata`/any partition. Preserve `cpus=1` and volume-key recovery.
+- **Branch:** `ci/lavender-machine-profile`; source commit `312227c4da9f27c3bbecc72be06cdd149edda99f`.
+- **Workflow:** [Run #394 / 44698533578](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44698533578). Both jobs passed: XNU 8796 build/verification and downstream RAM-only fastboot packaging. The Lavender ADT preflight, IOKit platform-match/early-init verifier, kernel artifact verification, ADT generation, payload build, image construction, and image-identity checks all passed.
+- **Image artifact:** `lavender-fastboot-boot-test`, artifact ID `14612706642`; `iosboot.img`, **16,617,472 bytes**.
+- **Image SHA-256:** `e93754c5e83732f107b5af10bd48360e0178fa81272077069d1c570e816621f4`. Independently extracted from the artifact ZIP and matched `BUILD-MANIFEST.txt` / `SHA256SUMS`.
+- **Artifact ZIP digest:** not recorded in this handoff; do not invent one.
+- **Manifest:** kernel SHA-256 `95c1b40501f17b65223982810de4f3e35229e228d78e04405078c4b95fee428f`; payload SHA-256 `0b7910a058fb414477938746ef1d6bd00c580ac06c4cf07a8e4416b1e55367cc`; DTB SHA-256 `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
+- **Bootargs:** `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`. Keep `cpus=1`; test only with `fastboot boot iosboot.img`.
+- **Interpretation:** Run #394 proves the committed XNU source builds, the IOKit/ADT source verifier passes, and a structurally verified RAM-only image is packaged. It does **not** prove a physical boot, working storage/I2C/touch/display hardware, BSD init, root mount, launchd, SpringBoard, calling, or iMessage.
+
+## New engineering milestone — native Lavender IOKit drivers
+
+The next milestone is four native XNU 8796 components with explicit dependencies: Qualcomm QUP I2C v2, Qualcomm SDHCI v5/eMMC 5.1, Novatek NT36xxx touchscreen, and Qualcomm MDSS/MIPI-DSI plus Tianma NT36672A panel. Use the Android 15/Lucid OS configuration and public Lavender Linux 4.19 driver behavior as *reference material only*. Do not transplant Linux code or treat SWEET's SM7150 drivers as Lavender support. The detailed handoff, hardware parameters, reference paths, dependency order, and acceptance gates are in [Chapter 05 — Native Lavender IOKit Drivers](docs/handoff/05-native-lavender-iokit-drivers.md).
+
+**Source-status discipline:** the unbranched prior-session message reports that a Linux source audit was started and lists candidate paths. Those paths and hardware details are captured as reported reference targets, not as independently re-audited source findings in this documentation-only update. Re-open the exact public Lavender kernel branch and verify register maps, clocks, resets, IRQ wiring, panel sequence, and firmware protocol before implementing each driver. No native driver implementation is claimed committed by Run #394.
 
 ---
 
@@ -31,13 +37,13 @@
 ## Mission
 Bring XNU 8796 and eventually iPhone X iOS 16.7.16 (20H392) Darwin userspace to Xiaomi Redmi Note 7/7S (`lavender`, Qualcomm SDM660 / Kryo 260, ARM64).
 
-## Current milestone — 19 November 2026
+## Current milestone — 20 November 2026
 
-- **Latest accepted diagnostic image remains Run #390** ([44466081921](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44466081921)); artifact `14503291183`, `iosboot.img` 16,617,472 bytes, SHA-256 `942dd83338632c1811337bfd8f4d2f7578fc30f584ed901e8f44aca253ad6def`.
-- The physical footage reaches event 144 (`DT INTERRUPT WALK READY`) and displays Guardian marker `0x80019000`; the footage is Run #390-intended, provenance unconfirmed. Do not infer BSD, userspace, or exact-image testing from it.
-- Exact artifact/ADT inspection confirms the current interrupt-mapping failure mechanism: GIC lacked `#interrupt-cells`; I2C and eMMC lacked direct `interrupt-parent`; touchscreen's GPIO tuple was encoded as generic `interrupts`. XNU's `IODTMapOneInterrupt()` also had an unchecked NULL parent and a non-terminating path for an unrecognized parent.
-- The authorized repair adds ADT contract checks, defensive XNU exits, Lavender `/arm-io` and nested I2C child nub publication, plus events 147–159 around post-lockdown service matching. These changes are **not accepted by CI yet**; preserve Run #390 as the latest accepted artifact until a complete build and package pass.
-- This stage establishes device-tree conversion and platform-device discovery/matching infrastructure only. The examined XNU buildtree does not yet demonstrate working Lavender SDHCI/eMMC, I2C, TLMM, touchscreen, or display driver bindings.
+- Run #394 on the current branch HEAD `312227c4da9f27c3bbecc72be06cdd149edda99f` passed both XNU build/verification and RAM-only packaging. Image artifact `14612706642`, `iosboot.img` 16,617,472 bytes, SHA-256 `e93754c5e83732f107b5af10bd48360e0178fa81272077069d1c570e816621f4`.
+- The Run #394 IOKit platform-match/early-init verifier and Lavender ADT preflight passed. This accepts the device-tree/nub/matching infrastructure changes at source/build level; it does not establish that any physical peripheral driver is operational.
+- New next milestone: native XNU 8796 IOKit drivers for QUP I2C v2, SDHCI v5/eMMC 5.1, Novatek NT36xxx touch, and Qualcomm MDSS/MIPI-DSI with Tianma NT36672A panel. Dependency and acceptance plan: `docs/handoff/05-native-lavender-iokit-drivers.md`.
+- The preceding unbranched-session message reports a Linux 4.19 source audit and candidate file paths. Treat those as research leads, not proof that the exact source files, register definitions, or hardware sequences have been independently checked in this branch. Verify against the public Lavender kernel source and Android 15 DT/config before coding.
+- No native implementation of these four drivers is claimed committed or accepted by Run #394. No SDHCI block device, QUP bus, TLMM GPIO interrupt translation, Novatek touch input, or working DSI panel is yet proven.
 - Physical test only via `fastboot boot iosboot.img`; preserve `cpus=1`, volume-key recovery, and Android partitions. Never flash, erase, format, repartition, or write any partition.
 
 ## Previous accepted operations — Run #300 (superseded by Run #302)

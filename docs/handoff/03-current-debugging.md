@@ -1,5 +1,33 @@
 # Chapter 3 — Current debugging state
 
+## Latest accepted baseline — Run #394 (20 November 2026)
+
+- Branch HEAD: `312227c4da9f27c3bbecc72be06cdd149edda99f`.
+- Workflow: [Run #394 / 44698533578](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44698533578); XNU build and RAM-only package jobs both passed.
+- Artifact: `lavender-fastboot-boot-test`, ID `14612706642`; `iosboot.img` 16,617,472 bytes.
+- SHA-256: `e93754c5e83732f107b5af10bd48360e0178fa81272077069d1c570e816621f4`. Verified locally against the extracted artifact and `BUILD-MANIFEST.txt` / `SHA256SUMS`.
+- Kernel SHA-256: `95c1b40501f17b65223982810de4f3e35229e228d78e04405078c4b95fee428f`; payload SHA-256: `0b7910a058fb414477938746ef1d6bd00c580ac06c4cf07a8e4416b1e55367cc`; DTB SHA-256: `bcb3848e080bcf058f0b32ebf2ec440b6f638fed144c182766aa80a45bb9bb22`.
+- Bootargs: `debug=0xc serial=3 cpus=1 keepsyms=1 lavender_no_fbcon=1`.
+- Both jobs passed: Lavender ADT preflight; XNU 8796 build; IOKit platform-match/early-init source verifier; kernel artifact checks; ADT generation; payload and fastboot image construction; structure and payload-identity checks; artifact upload.
+- This proves CI/build/package acceptance only. No physical Run #394 boot result is recorded here. Do not infer storage, QUP, TLMM, touch, DSI, BSD, root mount, launchd, SpringBoard, calling, or iMessage support.
+
+## Next milestone — native peripheral drivers
+
+The unbranched prior-session handoff proposes four native XNU 8796 driver components. It is not evidence that those drivers were already implemented in this branch. See [Chapter 05 — Native Lavender IOKit Drivers](05-native-lavender-iokit-drivers.md) for the detailed reference-path list, hardware targets, dependencies, constraints and acceptance gates.
+
+Implementation order:
+1. QUP I2C v2 provider and bounded transfer state machine.
+2. SDHCI v5/eMMC 5.1, initially read-only block enumeration and reads; CQE/ICE off.
+3. Novatek NT36xxx touchscreen over QUP, with TLMM GPIO 66 reset and a proper GPIO 67 interrupt-domain translation.
+4. Qualcomm MDSS/MIPI-DSI host/PHY/resources, then Tianma NT36672A panel initialization.
+
+The previous session's candidate Linux paths and hardware values are preserved as research leads. Revalidate them against the exact public Lavender kernel source, Android 15 DT, bootloader DTB and XNU 8796 APIs before implementation. No single mega-patch: each driver needs isolated tests, source guards, compile/link checks, runtime markers and exact-image physical validation.
+
+## Physical test gate for Run #394
+
+The image hash above must be checked on the downloaded `iosboot.img` before use. Boot only with `fastboot boot iosboot.img`; retain `cpus=1`, volume-key recovery and all Android partitions. Never flash, erase, format, repartition or write any partition. Capture the full console and retain the host-side image SHA-256 with any footage.
+
+
 **Branch:** `ci/lavender-machine-profile`
 **Branch tip:** documentation-only follow-ups are layered after the tested source commit; resolve the live branch HEAD before further engineering.
 **Latest accepted CI image:** Run [#390 / 44466081921](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44466081921), source commit `719eaa9dbd6bd5be4108cee3f5cca3b9abd473af`.
