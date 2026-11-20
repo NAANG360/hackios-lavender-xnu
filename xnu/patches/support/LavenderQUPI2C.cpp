@@ -87,7 +87,7 @@ private:
     IOMemoryMap *fQUPMap=nullptr,*fGCCMap=nullptr;
     volatile uint8_t *fQUP=nullptr,*fGCC=nullptr;
     IOWorkLoop *fWorkLoop=nullptr; IOInterruptEventSource *fIRQ=nullptr; IOLock *fLock=nullptr;
-    volatile bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false;
+    volatile bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false;
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
 OSDefineMetaClassAndStructors(LavenderQUPI2C,IOService);
@@ -145,11 +145,11 @@ bool LavenderQUPI2C::start(IOService *p){
     if(!fQUPMap||fQUPMap->getPhysicalAddress()!=LAVENDER_QUP_I2C_BASE||fQUPMap->getLength()<LAVENDER_QUP_I2C_LENGTH){releaseResources();super::stop(p);return false;}
     fQUP=(volatile uint8_t *)fQUPMap->getVirtualAddress();
     if(!fQUP||!enableClocks()||!initController()){releaseResources();super::stop(p);return false;}
-    fLock=IOLockAlloc();fWorkLoop=getWorkLoop();
-    if(!fLock||!fWorkLoop){releaseResources();super::stop(p);return false;}fWorkLoop->retain();
+    fLock=IOLockAlloc();fWorkLoop=getWorkLoop();if(fWorkLoop)fWorkLoop->retain();
+    if(!fLock||!fWorkLoop){releaseResources();super::stop(p);return false;}
     fIRQ=IOInterruptEventSource::interruptEventSource(this,&LavenderQUPI2C::irqAction,p,0);
     if(!fIRQ){releaseResources();super::stop(p);return false;}
-    if(fWorkLoop->addEventSource(fIRQ)!=kIOReturnSuccess){releaseResources();super::stop(p);return false;}
+    if(fWorkLoop->addEventSource(fIRQ)!=kIOReturnSuccess){releaseResources();super::stop(p);return false;}fIRQAdded=true;
     fIRQ->enable();setProperty("LavenderQUPI2CControllerInitialized",kOSBooleanTrue);registerService();
     IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,this);
     IOLog("LAVENDER QUP: BLSP1 QUP1 controller initialized at 0x%llx; FIFO transport published (XO-only)\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
@@ -157,7 +157,7 @@ bool LavenderQUPI2C::start(IOService *p){
     return true;
 }
 void LavenderQUPI2C::releaseResources(void){
-    if(fIRQ){fIRQ->disable();if(fWorkLoop)fWorkLoop->removeEventSource(fIRQ);fIRQ->release();fIRQ=nullptr;}
+    if(fIRQ){if(fIRQAdded&&fWorkLoop){fIRQ->disable();fWorkLoop->removeEventSource(fIRQ);}fIRQ->release();fIRQ=nullptr;fIRQAdded=false;}
     if(fWorkLoop){fWorkLoop->release();fWorkLoop=nullptr;}
     if(fLock){IOLockFree(fLock);fLock=nullptr;}
     disableClocks();
