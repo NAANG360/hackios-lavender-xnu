@@ -76,6 +76,7 @@ public:
     bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
     void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
     IOReturn callPlatformFunction(const OSSymbol *name,bool wait,void *p1,void *p2,void *p3,void *p4) APPLE_KEXT_OVERRIDE;
+    IOReturn transfer(LavenderI2CMessage *messages,uint32_t count,uint32_t timeoutMilliseconds=500);
 private:
     static void irqAction(OSObject *owner,IOInterruptEventSource *sender,int count);
     void handleIRQ(void);
