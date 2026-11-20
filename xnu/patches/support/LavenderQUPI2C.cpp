@@ -105,7 +105,9 @@ bool LavenderQUPI2C::enableClocks(void){
     fGCCMap=map.get();fGCCMap->retain();fGCC=(volatile uint8_t *)fGCCMap->getVirtualAddress();
     if(!fGCC)return false;
     uint32_t v=qread(fGCC,GCC_BLSP1_AHB_VOTE);
-    /* XO 19.2MHz is the lowest GCC table entry; no PLL rate increase.\n     * vdd_dig voting and native TLMM pad programming remain separate follow-ups. */\n    qwrite(fGCC,GCC_BLSP1_AHB_VOTE,v|GCC_QUP1_AHB_VOTE_BIT);fClocks=true;
+    /* XO 19.2MHz is the lowest GCC table entry; no PLL rate increase.
+     * vdd_dig voting and native TLMM pad programming remain separate follow-ups. */
+    qwrite(fGCC,GCC_BLSP1_AHB_VOTE,v|GCC_QUP1_AHB_VOTE_BIT);fClocks=true;
     if(!qwait(fGCC,GCC_BLSP1_AHB_HALT,GCC_BRANCH_HALT,0,100))return false;
     v=qread(fGCC,GCC_QUP1_I2C_CFG_RCGR);qwrite(fGCC,GCC_QUP1_I2C_CFG_RCGR,(v&~0x71fU)|1U);
     v=qread(fGCC,GCC_QUP1_I2C_CMD_RCGR);qwrite(fGCC,GCC_QUP1_I2C_CMD_RCGR,v|GCC_RCG_UPDATE);
@@ -151,6 +153,7 @@ bool LavenderQUPI2C::start(IOService *p){
     fIRQ->enable();setProperty("LavenderQUPI2CReady",kOSBooleanTrue);registerService();
     IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,this);
     IOLog("LAVENDER QUP: BLSP1 QUP1 online at 0x%llx; tagged FIFO transport registered\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
+    IOLog("LAVENDER QUP: native vdd_dig vote/TLMM pinctrl/bus-clear recovery are not yet implemented\n");
     return true;
 }
 void LavenderQUPI2C::releaseResources(void){
