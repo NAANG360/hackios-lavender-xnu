@@ -31,6 +31,8 @@ int main(){
  assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(geometry.outputBlockBytes==16&&geometry.inputBlockBytes==16);
  assert(geometry.outputFifoBytes==32&&geometry.inputFifoBytes==32);
+ /* Linux chooses BLOCK when a transfer exactly fills the FIFO. */
+ assert(lavender_qup_choose_mode(0,1,32,&mode,&geometry));assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(lavender_qup_choose_mode((2U<<7),z.outputBytes,z.inputBytes,&mode,&geometry));
  assert(mode==LAVENDER_QUP_MODE_FIFO&&geometry.inputFifoBytes==128);
  memset(touchWire+2,0x5a,66);
