@@ -34,7 +34,7 @@ static inline bool lavender_qup_choose_mode(uint32_t ioModes, uint32_t outputByt
                                              struct LavenderQUPFifoGeometry *g) {
     if (!mode || !lavender_qup_fifo_geometry(ioModes,g) ||
         outputBytes>LAVENDER_QUP_MAX_FIFO_BYTES || inputBytes>LAVENDER_QUP_MAX_FIFO_BYTES) return false;
-    *mode=(outputBytes>g->outputFifoBytes || inputBytes>g->inputFifoBytes)
+    *mode=(outputBytes>=g->outputFifoBytes || inputBytes>=g->inputFifoBytes)
         ? LAVENDER_QUP_MODE_BLOCK : LAVENDER_QUP_MODE_FIFO;
     return true;
 }
