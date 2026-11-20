@@ -276,7 +276,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
             if(!setState(QUP_STATE_RUN)){result=kIOReturnTimeout;goto unlock;}
             inPos+=count;
         }
-        if(z.inputBytes&&!waitForBlock(&fRxBlockReady,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
+        if(z.inputBytes&&!waitForBlock(&fRxBlockEvents,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
     }
     while(!fDone&&fResult==kIOReturnSuccess){
         wr=IOLockSleepDeadline(fLock,&fEvent,deadline,THREAD_UNINT);
