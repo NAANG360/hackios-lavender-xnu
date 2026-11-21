@@ -103,7 +103,7 @@ private:
     volatile uint8_t *fQUP=nullptr,*fGCC=nullptr,*fTLMM=nullptr;
     IOWorkLoop *fWorkLoop=nullptr; IOInterruptEventSource *fIRQ=nullptr; IOLock *fLock=nullptr;
     bool fActive=false,fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false,fPinsActive=false,fRecovering=false;
-    bool fBlockMode=false,fNeedInput=false,fFirstTransferLogged=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0;
+    bool fBlockMode=false,fNeedInput=false,fFirstTransferLogged=false,fFirstErrorLogged=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0;
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
 OSDefineMetaClassAndStructors(LavenderQUPI2C,IOService);
@@ -271,6 +271,15 @@ bool LavenderQUPI2C::start(IOService *p){
     if(!fQUP||!mapTLMM()||!setQUPPins(true)||!enableClocks()||!initController()){
         releaseResources();super::stop(p);return false;
     }
+    uint32_t ioModes=qread(fQUP,QUP_IO_MODES);
+    LavenderQUPFifoGeometry geometry={};
+    if(!lavender_qup_fifo_geometry(ioModes,&geometry)){
+        IOLog("LAVENDER QUP: unsupported IO_MODES geometry 0x%08x\\n",ioModes);
+        releaseResources();super::stop(p);return false;
+    }
+    IOLog("LAVENDER QUP: IO_MODES=0x%08x TX block/FIFO=%u/%u RX block/FIFO=%u/%u\\n",
+          ioModes,geometry.outputBlockBytes,geometry.outputFifoBytes,
+          geometry.inputBlockBytes,geometry.inputFifoBytes);
     fLock=IOLockAlloc();fWorkLoop=getWorkLoop();if(fWorkLoop)fWorkLoop->retain();
     if(!fLock||!fWorkLoop){releaseResources();super::stop(p);return false;}
     fIRQ=IOInterruptEventSource::interruptEventSource(this,&LavenderQUPI2C::irqAction,p,0);
@@ -337,7 +346,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     LavenderQUPRegisterCounts counts={};
     IOReturn result=kIOReturnSuccess;AbsoluteTime deadline;int wr;bool attemptRecovery=false,busIdle=false;
     if(!fQUP||!fLock||!fClocks)return kIOReturnNotReady;
-    if(!timeout)timeout=500;
+    timeout=lavender_qup_clamp_timeout(timeout);
     if(!lavender_qup_measure(m,n,&z))return kIOReturnBadArgument;
     ioModes=qread(fQUP,QUP_IO_MODES);
     if(!lavender_qup_choose_mode(ioModes,z.outputBytes,z.inputBytes,&mode,&g))return kIOReturnNoResources;
@@ -431,6 +440,12 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
               n,z.txBytes,z.rxBytes,mode==LAVENDER_QUP_MODE_BLOCK?"BLOCK":"FIFO");
     }
 unlock:
+    if(result!=kIOReturnSuccess&&!fFirstErrorLogged){
+        fFirstErrorLogged=true;
+        IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\\n",
+              result,qread(fQUP,QUP_I2C_STATUS),qread(fQUP,QUP_OPERATIONAL),
+              qread(fQUP,QUP_ERROR_FLAGS),qread(fQUP,QUP_ERROR_FLAGS_EN));
+    }
     if(result!=kIOReturnSuccess)setState(QUP_STATE_RESET);
     attemptRecovery=(result==kIOReturnTimeout||result==kIOReturnBusy||result==kIOReturnIOError)&&fIRQ&&fTLMM;
     fRecovering=attemptRecovery;
