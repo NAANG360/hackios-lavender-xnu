@@ -384,7 +384,9 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
             if(!waitForBlock(&fRxBlockEvents,deadline)){result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
             if(!setState(QUP_STATE_PAUSE)){result=kIOReturnTimeout;goto unlock;}
             uint32_t count=g.inputBlockBytes;if(count>z.inputBytes-inPos)count=z.inputBytes-inPos;
-            for(uint32_t i=0;i<g.inputBlockBytes;i+=4){
+            uint32_t words=0;
+            if(!lavender_qup_block_read_words(count,g.inputBlockBytes,&words)){result=kIOReturnIOError;goto unlock;}
+            for(uint32_t i=0;i<words*4U;i+=4){
                 uint32_t w=qread(fQUP,QUP_IN_FIFO_BASE);
                 for(uint32_t b=0;b<4&&i+b<count;b++)in[inPos+i+b]=(uint8_t)(w>>(b*8));
             }
