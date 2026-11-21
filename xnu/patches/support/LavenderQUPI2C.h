@@ -29,6 +29,13 @@ static inline bool lavender_qup_bus_is_active(uint32_t masterStatus) {
 #define LAVENDER_QUP_MAX_MESSAGES 8U
 #define LAVENDER_QUP_MAX_MESSAGE 255U
 #define LAVENDER_QUP_MAX_FIFO_BYTES 2048U
+#define LAVENDER_QUP_DEFAULT_TIMEOUT_MS 500U
+#define LAVENDER_QUP_MAX_TIMEOUT_MS 5000U
+static inline uint32_t lavender_qup_clamp_timeout(uint32_t requested) {
+    if (!requested) return LAVENDER_QUP_DEFAULT_TIMEOUT_MS;
+    return requested > LAVENDER_QUP_MAX_TIMEOUT_MS
+        ? LAVENDER_QUP_MAX_TIMEOUT_MS : requested;
+}
 #define LAVENDER_I2C_MESSAGE_READ 0x0001U
 #define LAVENDER_I2C_TRANSFER_FUNCTION "lavender-i2c-transfer"
 
