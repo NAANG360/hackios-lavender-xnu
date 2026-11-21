@@ -207,3 +207,53 @@ The new LavenderRPMGLINK IOKit service validates the TOC, owns the two shared-me
 ### Workflow queue note
 
 The previous per-file commits created multiple workflow runs because the old concurrency group was unique per run. This source implementation is batched into an atomic Git tree commit. The workflow now uses one concurrency group per branch with cancel-in-progress enabled, so a newer source commit supersedes older runs created under the new group. Legacy runs created under the former per-run groups cannot be cancelled by this concurrency change; the latest pre-existing run and accepted Run #400 baseline are left untouched. Run #400 remains the accepted baseline until the new RPM/GLINK workflow passes.
+
+
+## RPM/GLINK build result and queue checkpoint — 21 November 2026, 15:10 IST
+
+**Latest source:** `a74f05bfcfc82becccb24a9cb2189db462a3fb57` (parent implementation commit: `ecb3bd3fa0c1b36dbd9ee0875665f24d295a7c30`). The implementation is present in the branch, but Run `44871413803` failed at the final kernel link. This supersedes any earlier wording that described the RPM/GLINK build as merely pending.
+
+### What Run 44871413803 actually verified
+
+- Lavender QUP host protocol regression: **passed**.
+- Lavender RPM/GLINK host protocol regression: **passed**.
+- Lavender ADT memory/CPU topology validation and preceding build setup: **passed**.
+- The QUP and platform-expert translation units compiled. The RPM/GLINK translation unit did **not** appear in the IOKit build object list.
+- XNU link failed with undefined symbol `_lavender_rpm_vote_vdd_dig_low_svs`, referenced from `LavenderQUPI2C::start(IOService*)`.
+- The decisive earlier log line is that `0130-lavender-rpm-glink-v0.patch` was skipped as malformed: `patch fragment without header at line 12: @@ -15,4 +16,5 @@`. Because that patch is what adds `LavenderRPMGLINK.cpp` to `iokit/conf/files.arm64` and adds its registration call/nub publication to `LavenderPlatformExpert.cpp`, the RPM implementation never became a kernel object. The undefined symbol is therefore an integration/staging failure, not evidence that the GLINK or RPM protocol code itself failed to compile.
+- The RAM-only image packaging job was skipped. No new `iosboot.img`, linked kernel, RPM ACK or physical voltage vote was produced by this run.
+- Diagnostic artifacts were retained: `xnu-build-log` artifact ID `14696531915` (ZIP SHA-256 `f06f15dc59a6903bd33f66f7a350157cbfb0dd356cf725d10f519feca6b582b4`) and `xnu-buildtree` artifact ID `14696800920` (ZIP SHA-256 `26bc07525eadafb32119b02df171f91402fbfb28371a9bfb09cc7771b2da2fb4`). The build-tree artifact is diagnostic only, not a kernel image.
+
+### RPM/GLINK implementation now present in source
+
+The native implementation is committed, not merely planned:
+
+- `LavenderRPMGLINK.cpp/.h` implement the SDM660 RPM message-RAM TOC/ring path, APCS mailbox doorbell, GLINK v1 negotiation, remote-created `rpm_requests` channel OPEN/OPEN_ACK, intentless TX_DATA, RPM-SMD v0 request and matching ACK handling.
+- The first request is the QUP1 digital-corner vote: resource name `rwcx`, `vdd_dig` resource ID 0, KVP `vlvl`, LOW_SVS value 64.
+- QUP clock enable is gated on the acknowledged vote. The RPM transport uses bounded polling; it has not been physically exercised.
+- The follow-up commit `a74f05b` names the resource constant explicitly as `LAVENDER_RPM_RESOURCE_ID_VDD_DIG` and records the active/sleep-set semantics. With the one XNU client holding the same LOW_SVS floor, no separate sleep request is added unless the aggregate sleep vote differs from active.
+
+### Queue/concurrency checkpoint
+
+The workflow now uses one branch concurrency group, `xnu-${{ github.ref }}`, with `cancel-in-progress: true`. This supersedes runs created under the new group when a newer commit arrives. The branch message reports these outcomes:
+
+| Run | Outcome |
+|---|---|
+| `44871035770` | Cancelled |
+| `44871146744` | Cancelled |
+| `44871215312` | Cancelled |
+| `44868695080` | Preserved legacy run |
+| `44706182280` (Run #400) | Successful; accepted baseline |
+| `44871413803` | Completed with link failure |
+
+Legacy runs created under the former per-run concurrency groups are not automatically covered by the new branch group. Do not claim they were cancelled unless their individual status is checked. No manual cancellation capability is assumed.
+
+### Exact next steps
+
+1. Repair `0130-lavender-rpm-glink-v0.patch` as a valid unified diff. The malformed hunk header at line 12 is the first concrete failure to fix. Regenerate the patch from the exact pinned XNU base or use a reliable, idempotent staging script for the platform-expert and `files.arm64` edits; do not hand-edit hunk counts.
+2. Add a build-time guard that fails before link if the staged `iokit/Kernel/arm/LavenderRPMGLINK.cpp` is absent or if `LavenderRPMGLINK.cpo` is absent from the IOKit object list. Also verify the platform-expert registration and `/soc/rpm-glink` nub publication survived patch application.
+3. Verify the C-linkage declaration and definition for `lavender_rpm_vote_vdd_dig_low_svs`, and verify the object is in the final kernel link file list. Do not paper over this with a weak stub or by removing QUP's fail-closed voltage-vote gate.
+4. Run the RPM/GLINK host tests and source guard, then one coherent XNU compile/link/package workflow. Avoid per-file commits and repeated build triggers; preserve the Run #400 artifact.
+5. Only after a linked ARM64 kernel and RAM-only image pass all checks should the physical test begin. Record actual remote OPEN, matching RPM ACK, voltage-vote and QUP initialization evidence. No physical success is currently claimed.
+
+The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM driver, kernel module, DTB, boot image, vendor partition or Android configuration was changed. Physical validation must remain RAM-only via `fastboot boot iosboot.img`; never flash or write Android partitions.
