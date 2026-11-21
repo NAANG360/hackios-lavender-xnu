@@ -230,9 +230,14 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     fBlockMode=(mode==LAVENDER_QUP_MODE_BLOCK);fNeedInput=(z.inputBytes!=0);
     fTxBlockEvents=0;fRxBlockEvents=0;
     if(!setState(QUP_STATE_RESET)){result=kIOReturnTimeout;goto unlock;}
-    qwrite(fQUP,QUP_MX_INPUT_COUNT,0);qwrite(fQUP,QUP_MX_OUTPUT_COUNT,0);
-    qwrite(fQUP,QUP_MX_READ_COUNT,z.inputBytes);qwrite(fQUP,QUP_MX_WRITE_COUNT,z.outputBytes);
-    qwrite(fQUP,QUP_CONFIG,QUP_N_VAL|QUP_MINI_CORE_I2C_VAL|(z.inputBytes?0:QUP_NO_INPUT));
+    LavenderQUPRegisterCounts counts={};
+    if(!lavender_qup_register_counts(&z,mode,&counts)){result=kIOReturnBadArgument;goto unlock;}
+    qwrite(fQUP,QUP_MX_INPUT_COUNT,counts.mxInputCount);
+    qwrite(fQUP,QUP_MX_OUTPUT_COUNT,counts.mxOutputCount);
+    qwrite(fQUP,QUP_MX_READ_COUNT,counts.mxReadCount);
+    qwrite(fQUP,QUP_MX_WRITE_COUNT,counts.mxWriteCount);
+    qwrite(fQUP,QUP_CONFIG,QUP_N_VAL|QUP_MINI_CORE_I2C_VAL|
+           (counts.noInput?QUP_NO_INPUT:0));
     ioModes=qread(fQUP,QUP_IO_MODES);
     ioModes&=~((3U<<QUP_OUTPUT_MODE_SHIFT)|(3U<<QUP_INPUT_MODE_SHIFT)|QUP_PACK_EN|QUP_UNPACK_EN|(1U<<16));
     ioModes|=QUP_PACK_EN|QUP_UNPACK_EN;
