@@ -3,6 +3,20 @@
 #include <stdint.h>
 #include <stddef.h>
 #define LAVENDER_QUP_I2C_BASE 0x0c175000ULL
+/* SDM660 TLMM SOUTH tile: gpio2/gpio3 are the BLSP1 QUP1 I2C pads. */
+#define LAVENDER_TLMM_SOUTH_BASE 0x03100000ULL
+#define LAVENDER_TLMM_SOUTH_LENGTH 0x00004000U
+#define LAVENDER_TLMM_GPIO2_CTL 0x00002000U
+#define LAVENDER_TLMM_GPIO3_CTL 0x00003000U
+#define LAVENDER_TLMM_MUX_SHIFT 2U
+#define LAVENDER_TLMM_MUX_MASK (0x0fU << LAVENDER_TLMM_MUX_SHIFT)
+#define LAVENDER_TLMM_PULL_MASK 0x03U
+#define LAVENDER_TLMM_DRIVE_MASK (0x07U << 6)
+#define LAVENDER_TLMM_OE (1U << 9)
+#define LAVENDER_TLMM_BLSP_I2C1_FUNCTION 3U
+#define LAVENDER_TLMM_GPIO_FUNCTION 0U
+#define LAVENDER_TLMM_NO_PULL 0U
+#define LAVENDER_TLMM_PULL_UP 3U
 #define LAVENDER_QUP_I2C_LENGTH 0x600U
 #define LAVENDER_QUP_I2C_ADDRESS 0x62U
 #define LAVENDER_QUP_MAX_MESSAGES 8U
@@ -21,6 +35,20 @@ struct LavenderQUPRegisterCounts {
     uint32_t mxInputCount, mxOutputCount, mxReadCount, mxWriteCount;
     bool noInput, noOutput;
 };
+
+/* SDM660 PINGROUP(2/3): mux bits 2..5, pull 0..1, drive 6..8,
+ * output-enable bit 9. DTS active: function index 3, 2mA, no pull.
+ * DTS sleep: same mux, 2mA, pull-up. */
+static inline uint32_t lavender_qup_tlmm_control(uint32_t oldValue, bool active) {
+    uint32_t mask = LAVENDER_TLMM_MUX_MASK |
+                    LAVENDER_TLMM_PULL_MASK |
+                    LAVENDER_TLMM_DRIVE_MASK |
+                    LAVENDER_TLMM_OE;
+    uint32_t value = oldValue & ~mask;
+    value |= (LAVENDER_TLMM_BLSP_I2C1_FUNCTION << LAVENDER_TLMM_MUX_SHIFT);
+    if (!active) value |= LAVENDER_TLMM_PULL_UP;
+    return value;
+}
 
 /* QUP v2 uses MX_INPUT/OUTPUT_COUNT for BLOCK mode and MX_READ/WRITE_COUNT
  * for FIFO mode. The two register pairs are not interchangeable. */
