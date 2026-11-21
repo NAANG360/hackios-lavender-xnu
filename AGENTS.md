@@ -254,3 +254,13 @@ The user's confirmed-booting Android 15/Lucid ROM is a read-only hardware refere
 - Keep all related fixes in one coherent source update and avoid a build flood. Do not start another workflow until patch/staging and object-list guards are repaired and reviewed.
 - The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM modules, drivers, DTB, boot image or Android partitions may be modified. Physical tests remain RAM-only.
 - See `docs/handoff/05-native-lavender-iokit-drivers.md` for the full run log findings, artifact IDs, RPM protocol notes and next acceptance gates.
+
+
+## Run 44871413803 verified outcome and mandatory next step — 21 November 2026
+
+- Run 44871413803 is **completed with failure**, not pending. QUP and RPM/GLINK host protocol tests passed. XNU link failed on undefined `_lavender_rpm_vote_vdd_dig_low_svs`; RAM-only image packaging was skipped.
+- The build log identifies the cause: `0130-lavender-rpm-glink-v0.patch` was rejected as malformed at line 12 (`patch fragment without header`). The RPM source was not added to the IOKit object list, so the missing vote symbol is an integration/staging failure. Do not infer RPM implementation compile or runtime success.
+- Before the next workflow, repair the patch or use an idempotent staging script, and add hard pre-link checks for the staged `LavenderRPMGLINK.cpp`, its `.cpo` object-list entry, platform-expert registration and `/soc/rpm-glink` nub publication. Verify the C-linkage declaration/definition and final link-list inclusion of `lavender_rpm_vote_vdd_dig_low_svs`.
+- Do not use a weak stub, remove QUP's fail-closed voltage-vote gate, or modify the confirmed-booting Android/Lucid ROM. Batch the repair and guards into one coherent source update; avoid per-file commits/build floods.
+- Run #400 / artifact `14615937969` remains the latest accepted bootable baseline. Run 448714's artifacts `14696531915` and `14696800920` are diagnostic logs/buildtree only, not bootable outputs.
+- Full evidence and artifact digests are in `docs/handoff/05-native-lavender-iokit-drivers.md`.
