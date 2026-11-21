@@ -330,3 +330,70 @@ This is a patch application / build integration failure. It is not evidence that
 5. After successful host tests, source guards, XNU compile/link and RAM-only package verification, inspect the image manifest and SHA-256. Only then attempt a physical RAM-only `fastboot boot iosboot.img` test and record actual remote OPEN, matching RPM ACK, voltage vote and QUP initialization evidence.
 
 The confirmed-booting Android 15/Lucid ROM remains strictly read-only: no ROM drivers, kernel modules, DTBs, boot images, vendor files or partitions may be changed. No physical RPM or touchscreen functionality is claimed until device evidence exists.
+
+
+## RPM/GLINK implementation and Actions queue handoff — 21 November 2026, 19:55 IST
+
+This section supersedes earlier wording that the RPM/GLINK build was still pending. The supplied branch message identifies the implementation and queue policy; GitHub job records independently confirm that Run 44871413803 completed with a link failure.
+
+### Source checkpoint
+
+- Repository: `NAANG360/hackios-lavender-xnu`
+- Branch: `ci/lavender-machine-profile`
+- RPM/GLINK implementation commit: `ecb3bd3fa0c1b36dbd9ee0875665f24d295a7c30`
+- Latest source commit: `a74f05bfcfc82becccb24a9cb2189db462a3fb57`
+- The latest source commit names the `vdd_dig` resource ID explicitly and documents active/sleep regulator-set semantics.
+- The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM drivers, modules, DTBs, boot images, vendor partitions or Android configuration were changed.
+
+### Native RPM/GLINK implementation
+
+The implementation is a dedicated native XNU RPM service, not Linux code transplanted into Darwin and not a general-purpose GLINK framework:
+
+1. XNU `LavenderRPMGLINK` IOKit service.
+2. SDM660 RPM shared message RAM, TOC and circular FIFO rings.
+3. APCS mailbox doorbell at `0x17911008`, bit 0.
+4. GLINK v1 negotiation and remote-initiated `rpm_requests` OPEN / OPEN_ACK.
+5. RPM-SMD v0 request and matching ACK.
+6. First supported request: `rwcx` resource, `vdd_dig` resource ID 0, `vlvl=64` (LOW_SVS).
+
+The implementation records RPM message RAM base/size as `0x778000` / `0x7000` and currently uses bounded polling. QUP clock enable is gated on a matching successful RPM ACK. If the vote cannot be acknowledged, QUP must fail closed.
+
+The regulator DTS exposes active and sleep sets. With this single XNU client retaining the same LOW_SVS floor, no separate sleep-set request is sent unless the aggregate sleep vote differs from the active vote. Do not add a speculative unvote or independent per-driver voltage writes; future clients require an aggregate regulator-vote layer.
+
+### Actions queue policy and reported cleanup
+
+The workflow now uses one concurrency group per branch with `cancel-in-progress: true`. The supplied branch message reports:
+
+| Run | Reported outcome |
+|---|---|
+| `44871035770` | Cancelled |
+| `44871146744` | Cancelled |
+| `44871215312` | Cancelled |
+| `44868695080` | Preserved legacy run |
+| `44706182280` — Run #400 | Successful; accepted baseline |
+| `44871413803` | Completed; link failure |
+
+The old per-run concurrency group is not covered by the new branch group. Do not claim any legacy run was cancelled unless its individual status is confirmed. The available GitHub connection does not expose manual cancellation. Avoid per-file commits and unnecessary build triggers; batch related fixes into one coherent source change.
+
+### Run 44871413803 — verified result
+
+The run is complete, not pending. Its `build` job failed and `Package RAM-only Lavender fastboot image` was skipped.
+
+- QUP host protocol regression passed.
+- RPM/GLINK host protocol regression passed.
+- XNU reached final link, but the linker reported undefined `_lavender_rpm_vote_vdd_dig_low_svs`, referenced by `LavenderQUPI2C::start(IOService*)`.
+- The build log says `0130-lavender-rpm-glink-v0.patch` was skipped as malformed at line 12: `patch fragment without header at line 12: @@ -15,4 +16,5 @@`.
+- Therefore the RPM implementation translation unit was not included in the IOKit object list, and its platform-expert registration / nub-publication edits did not reach the staged XNU tree. This is an integration/staging failure. It does not prove the RPM/GLINK translation unit compiles or links, nor that GLINK opens, RPM acknowledges, or voltage changes.
+- Diagnostic-only artifacts: `xnu-build-log` ID `14696531915`, ZIP SHA-256 `f06f15dc59a6903bd33f66f7a350157cbfb0dd356cf725d10f519feca6b582b4`; `xnu-buildtree` ID `14696800920`, ZIP SHA-256 `26bc07525eadafb32119b02df171f91402fbfb28371a9bfb09cc7771b2da2fb4`. Neither is a bootable kernel/image.
+- Run #400 (`44706182280`, artifact `14615937969`) remains the latest accepted XNU build and RAM-only image. Preserve it unchanged.
+
+### Mandatory next engineering task
+
+1. Repair `0130-lavender-rpm-glink-v0.patch` as a valid unified diff generated against the exact pinned XNU base, or replace fragile hunk edits with a deterministic, idempotent staging script. Do not hand-edit hunk counts.
+2. Add hard pre-link checks that fail if staged `iokit/Kernel/arm/LavenderRPMGLINK.cpp` is missing, if `LavenderRPMGLINK.cpo` is absent from the IOKit object/file list, or if platform-expert registration and `/soc/rpm-glink` nub publication are missing.
+3. Verify the C-linkage declaration and definition of `lavender_rpm_vote_vdd_dig_low_svs`, and confirm its implementation object is in the final kernel link inputs. Do not add a weak stub, remove QUP's fail-closed vote gate, or bypass RPM ACK.
+4. Run the RPM/GLINK host test and source guard after the coherent repair. Inspect staged source and object list before starting exactly one new XNU build/link/package workflow.
+5. Accept only after the ARM64 kernel links, the RAM-only package is produced, and manifest/checksum verification passes. Physical validation must record remote OPEN, matching RPM ACK, voltage-vote evidence and QUP initialization.
+6. Only after QUP has an acknowledged vote and a physical transaction should the Novatek client consume the transfer service.
+
+Never flash or write Android partitions. Physical tests remain RAM-only using `fastboot boot iosboot.img`.
