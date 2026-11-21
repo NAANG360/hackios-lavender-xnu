@@ -192,7 +192,8 @@ bool LavenderQUPI2C::recoverBus(void){
             if(ok){IODelay(5);releaseGPIO(sda);IODelay(5);}
         }
     }
-    bool linesHigh=ok&&readGPIO(scl)&&readGPIO(sda);
+    bool sclHigh=readGPIO(scl),sdaHigh=readGPIO(sda);
+    bool linesHigh=ok&&sclHigh&&sdaHigh;
     bool restored=setQUPPins(true);
     if(!restored){
         setQUPPins(false);
@@ -200,8 +201,8 @@ bool LavenderQUPI2C::recoverBus(void){
     }
     status=qread(fQUP,QUP_I2C_STATUS);
     bool clear=linesHigh&&!(status&QUP_BUS_ACTIVE);
-    IOLog("LAVENDER QUP: bus-clear %s (SCL=%u SDA=%u status=0x%08x)\\n",
-          clear?"completed":"failed",readGPIO(scl)?1U:0U,readGPIO(sda)?1U:0U,status);
+    IOLog("LAVENDER QUP: bus-clear %s (SCL=%u SDA=%u status=0x%08x)\n",
+          clear?"completed":"failed",sclHigh?1U:0U,sdaHigh?1U:0U,status);
     return clear;
 }
 bool LavenderQUPI2C::enableClocks(void){
@@ -421,7 +422,7 @@ unlock:
         fIRQ->disable();
         bool recovered=recoverBus();
         fIRQ->enable();
-        if(!recovered)IOLog("LAVENDER QUP: bounded bus recovery did not clear the bus\\n");
+        if(!recovered)IOLog("LAVENDER QUP: bounded bus recovery did not clear the bus\n");
         IOLockLock(fLock);
         fRecovering=false;fActive=false;fBlockMode=false;fNeedInput=false;
         fTxBlockEvents=0;fRxBlockEvents=0;
