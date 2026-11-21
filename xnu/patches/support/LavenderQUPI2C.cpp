@@ -103,7 +103,7 @@ private:
     volatile uint8_t *fQUP=nullptr,*fGCC=nullptr,*fTLMM=nullptr;
     IOWorkLoop *fWorkLoop=nullptr; IOInterruptEventSource *fIRQ=nullptr; IOLock *fLock=nullptr;
     bool fActive=false,fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false,fPinsActive=false,fRecovering=false;
-    bool fBlockMode=false,fNeedInput=false,fFirstTransferLogged=false,fFirstErrorLogged=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0;
+    bool fBlockMode=false,fNeedInput=false,fFirstTransferLogged=false,fFirstErrorLogged=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0,fFailureStatus=0;
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
 OSDefineMetaClassAndStructors(LavenderQUPI2C,IOService);
@@ -170,9 +170,9 @@ bool LavenderQUPI2C::waitGPIOHigh(uint32_t controlOffset){
 }
 bool LavenderQUPI2C::recoverBus(void){
     if(!fQUP||!fTLMM||!fClocks)return false;
-    uint32_t status=qread(fQUP,QUP_I2C_STATUS);
+    uint32_t status=fFailureStatus?fFailureStatus:qread(fQUP,QUP_I2C_STATUS);
     if(!lavender_qup_bus_is_active(status)||(status&QUP_BUS_MASTER)||(status&QUP_I2C_SDA))
-        return true; /* only recover a slave-held-low bus */
+        return false; /* caller should only enter recovery for a saved slave-held-low status */
     if(!setState(QUP_STATE_RESET)||!setQUPPinsGPIO())return false;
     const uint32_t scl=LAVENDER_TLMM_QUP1_SCL_CTL,sda=LAVENDER_TLMM_QUP1_SDA_CTL;
     releaseGPIO(scl);releaseGPIO(sda);
@@ -315,6 +315,7 @@ void LavenderQUPI2C::handleIRQ(void){
     IOReturn r=kIOReturnSuccess;bool wake=false;
     if(st&QUP_I2C_ERROR_MASK)r=(st&QUP_I2C_NACK)?kIOReturnNotResponding:(st&QUP_I2C_ARB_LOST)?kIOReturnBusy:kIOReturnIOError;
     if(er&QUP_ERROR_FLAGS_MASK)r=kIOReturnIOError;
+    if(r!=kIOReturnSuccess)fFailureStatus=st;
     if(st&QUP_I2C_ERROR_MASK)qwrite(fQUP,QUP_I2C_STATUS,st&QUP_I2C_ERROR_MASK);
     if(er&QUP_ERROR_FLAGS_MASK)qwrite(fQUP,QUP_ERROR_FLAGS,er&QUP_ERROR_FLAGS_MASK);
     if(op&QUP_SERVICE_FLAGS)qwrite(fQUP,QUP_OPERATIONAL,op&QUP_SERVICE_FLAGS);
@@ -359,7 +360,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     if(!out||(z.inputBytes&&!in)){result=kIOReturnNoMemory;goto done;}
     if(!lavender_qup_build_output(m,n,out,z.outputBytes+4,&written)||written!=z.outputBytes){result=kIOReturnBadArgument;goto done;}
     IOLockLock(fLock);if(fActive){IOLockUnlock(fLock);result=kIOReturnBusy;goto done;}
-    fActive=true;fDone=false;fLastRead=z.lastIsRead;fResult=kIOReturnSuccess;
+    fActive=true;fDone=false;fLastRead=z.lastIsRead;fResult=kIOReturnSuccess;fFailureStatus=0;
     fBlockMode=(mode==LAVENDER_QUP_MODE_BLOCK);fNeedInput=(z.inputBytes!=0);
     fTxBlockEvents=0;fRxBlockEvents=0;
     if(!setState(QUP_STATE_RESET)){result=kIOReturnTimeout;goto unlock;}
@@ -442,14 +443,20 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
 unlock:
     if(result!=kIOReturnSuccess&&!fFirstErrorLogged){
         fFirstErrorLogged=true;
-        IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\n",
-              result,qread(fQUP,QUP_I2C_STATUS),qread(fQUP,QUP_OPERATIONAL),
+        IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\\n",
+              result,qread(fQUP,QUP_OPERATIONAL),qread(fQUP,QUP_OPERATIONAL),
               qread(fQUP,QUP_ERROR_FLAGS),qread(fQUP,QUP_ERROR_FLAGS_EN));
     }
-    if(result!=kIOReturnSuccess)setState(QUP_STATE_RESET);
-    attemptRecovery=(result==kIOReturnTimeout||result==kIOReturnBusy||result==kIOReturnIOError)&&fIRQ&&fTLMM;
+    if(result!=kIOReturnSuccess&&fFailureStatus==0)
+        fFailureStatus=qread(fQUP,QUP_I2C_STATUS);
+    attemptRecovery=(result==kIOReturnTimeout||result==kIOReturnBusy||result==kIOReturnIOError)&&
+                    (fFailureStatus&QUP_BUS_ACTIVE)&&!(fFailureStatus&QUP_BUS_MASTER)&&
+                    !(fFailureStatus&QUP_I2C_SDA)&&fIRQ&&fTLMM;
     fRecovering=attemptRecovery;
-    if(!attemptRecovery){fActive=false;fBlockMode=false;fNeedInput=false;fTxBlockEvents=0;fRxBlockEvents=0;}
+    if(!attemptRecovery){
+        if(result!=kIOReturnSuccess)setState(QUP_STATE_RESET);
+        fActive=false;fBlockMode=false;fNeedInput=false;fTxBlockEvents=0;fRxBlockEvents=0;
+    }
     IOLockUnlock(fLock);
     if(attemptRecovery){
         fIRQ->disable();
@@ -457,7 +464,7 @@ unlock:
         fIRQ->enable();
         if(!recovered)IOLog("LAVENDER QUP: bounded bus recovery did not clear the bus\n");
         IOLockLock(fLock);
-        fRecovering=false;fActive=false;fBlockMode=false;fNeedInput=false;
+        fRecovering=false;fActive=false;fBlockMode=false;fNeedInput=false;fFailureStatus=0;
         fTxBlockEvents=0;fRxBlockEvents=0;
         IOLockUnlock(fLock);
     }
