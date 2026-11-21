@@ -71,6 +71,8 @@
 #define GCC_QUP1_AHB_VOTE_BIT (1U<<17)
 #define GCC_QUP1_I2C_BRANCH_BIT 1U
 #define GCC_RCG_UPDATE 1U
+#define TLMM_GPIO2_CONTROL LAVENDER_TLMM_GPIO2_CTL
+#define TLMM_GPIO3_CONTROL LAVENDER_TLMM_GPIO3_CTL
 static inline uint32_t qread(volatile uint8_t *b,uint32_t o){return OSReadLittleInt32((const volatile void *)b,o);}
 static inline void qwrite(volatile uint8_t *b,uint32_t o,uint32_t v){OSWriteLittleInt32((volatile void *)b,o,v);OSSynchronizeIO();}
 static bool qwait(volatile uint8_t *b,uint32_t o,uint32_t m,uint32_t e,uint32_t n){while(n--){if((qread(b,o)&m)==e)return true;IOSleep(1);}return false;}
@@ -86,13 +88,14 @@ public:
 private:
     static void irqAction(OSObject *owner,IOInterruptEventSource *sender,int count);
     void handleIRQ(void);
+    bool mapTLMM(void); bool setQUPPins(bool active);
     bool enableClocks(void); void disableClocks(void);
     bool initController(void); bool setState(uint32_t state);
     bool waitForBlock(uint32_t *events,AbsoluteTime deadline); void releaseResources(void);
-    IOMemoryMap *fQUPMap=nullptr,*fGCCMap=nullptr;
-    volatile uint8_t *fQUP=nullptr,*fGCC=nullptr;
+    IOMemoryMap *fQUPMap=nullptr,*fGCCMap=nullptr,*fTLMMMap=nullptr;
+    volatile uint8_t *fQUP=nullptr,*fGCC=nullptr,*fTLMM=nullptr;
     IOWorkLoop *fWorkLoop=nullptr; IOInterruptEventSource *fIRQ=nullptr; IOLock *fLock=nullptr;
-    bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false;
+    bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false,fPinsActive=false;
     bool fBlockMode=false,fNeedInput=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0;
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
@@ -102,6 +105,26 @@ IOService *LavenderQUPI2C::probe(IOService *p,SInt32 *score){
     IODeviceMemory *m=p->getDeviceMemoryWithIndex(0);
     if(!m||m->getPhysicalAddress()!=LAVENDER_QUP_I2C_BASE||m->getLength()<LAVENDER_QUP_I2C_LENGTH)return nullptr;
     if(score)*score=1000; return this;
+}
+bool LavenderQUPI2C::mapTLMM(void){
+    IODeviceMemory *mem=IODeviceMemory::withRange(LAVENDER_TLMM_SOUTH_BASE,LAVENDER_TLMM_SOUTH_LENGTH);
+    if(!mem)return false;
+    IOMemoryMap *map=mem->map(kIOMapInhibitCache);
+    mem->release();
+    if(!map||map->getPhysicalAddress()!=LAVENDER_TLMM_SOUTH_BASE||
+       map->getLength()<LAVENDER_TLMM_SOUTH_LENGTH){if(map)map->release();return false;}
+    fTLMMMap=map;fTLMM=(volatile uint8_t *)fTLMMMap->getVirtualAddress();
+    return fTLMM!=nullptr;
+}
+bool LavenderQUPI2C::setQUPPins(bool active){
+    if(!fTLMM)return false;
+    const uint32_t offsets[2]={TLMM_GPIO2_CONTROL,TLMM_GPIO3_CONTROL};
+    for(uint32_t i=0;i<2;i++){
+        uint32_t reg=qread(fTLMM,offsets[i]);
+        qwrite(fTLMM,offsets[i],lavender_qup_tlmm_control(reg,active));
+    }
+    fPinsActive=active;
+    return true;
 }
 bool LavenderQUPI2C::enableClocks(void){
     IODeviceMemory *mem=IODeviceMemory::withRange(GCC_PHYS_BASE,GCC_PHYS_LENGTH);
@@ -113,7 +136,7 @@ bool LavenderQUPI2C::enableClocks(void){
     if(!fGCC)return false;
     uint32_t v=qread(fGCC,GCC_BLSP1_AHB_VOTE);
     /* XO 19.2MHz is the lowest GCC table entry; no PLL rate increase.
-     * vdd_dig voting and native TLMM pad programming remain separate follow-ups. */
+     * GCC vdd_dig corner voting remains a separate power-controller dependency. */
     qwrite(fGCC,GCC_BLSP1_AHB_VOTE,v|GCC_QUP1_AHB_VOTE_BIT);fClocks=true;
     if(!qwait(fGCC,GCC_BLSP1_AHB_HALT,GCC_BRANCH_HALT,0,100))return false;
     v=qread(fGCC,GCC_QUP1_I2C_CFG_RCGR);qwrite(fGCC,GCC_QUP1_I2C_CFG_RCGR,(v&~0x71fU)|1U);
@@ -154,7 +177,9 @@ bool LavenderQUPI2C::start(IOService *p){
     fQUPMap=p->mapDeviceMemoryWithIndex(0,kIOMapInhibitCache);
     if(!fQUPMap||fQUPMap->getPhysicalAddress()!=LAVENDER_QUP_I2C_BASE||fQUPMap->getLength()<LAVENDER_QUP_I2C_LENGTH){releaseResources();super::stop(p);return false;}
     fQUP=(volatile uint8_t *)fQUPMap->getVirtualAddress();
-    if(!fQUP||!enableClocks()||!initController()){releaseResources();super::stop(p);return false;}
+    if(!fQUP||!mapTLMM()||!setQUPPins(true)||!enableClocks()||!initController()){
+        releaseResources();super::stop(p);return false;
+    }
     fLock=IOLockAlloc();fWorkLoop=getWorkLoop();if(fWorkLoop)fWorkLoop->retain();
     if(!fLock||!fWorkLoop){releaseResources();super::stop(p);return false;}
     fIRQ=IOInterruptEventSource::interruptEventSource(this,&LavenderQUPI2C::irqAction,p,0);
@@ -171,6 +196,8 @@ void LavenderQUPI2C::releaseResources(void){
     if(fWorkLoop){fWorkLoop->release();fWorkLoop=nullptr;}
     if(fLock){IOLockFree(fLock);fLock=nullptr;}
     disableClocks();
+    if(fTLMM&&fPinsActive)setQUPPins(false);
+    if(fTLMMMap){fTLMMMap->release();fTLMMMap=nullptr;fTLMM=nullptr;fPinsActive=false;}
     if(fGCCMap){fGCCMap->release();fGCCMap=nullptr;fGCC=nullptr;}
     if(fQUPMap){fQUPMap->release();fQUPMap=nullptr;fQUP=nullptr;}
 }
