@@ -174,7 +174,7 @@ bool LavenderQUPI2C::recoverBus(void){
     if(!(status&QUP_BUS_ACTIVE)||(status&QUP_BUS_MASTER)||(status&QUP_I2C_SDA))
         return true; /* only recover a slave-held-low bus */
     if(!setState(QUP_STATE_RESET)||!setQUPPinsGPIO())return false;
-    const uint32_t scl=TLMM_GPIO2_CONTROL,sda=TLMM_GPIO3_CONTROL;
+    const uint32_t scl=LAVENDER_TLMM_QUP1_SCL_CTL,sda=LAVENDER_TLMM_QUP1_SDA_CTL;
     releaseGPIO(scl);releaseGPIO(sda);
     bool ok=waitGPIOHigh(scl);
     for(uint32_t pulse=0;ok&&pulse<9&&!readGPIO(sda);pulse++){
