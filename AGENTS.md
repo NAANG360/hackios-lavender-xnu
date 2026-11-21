@@ -214,3 +214,8 @@ Branch: `ci/lavender-machine-profile`
 - Follow-up patch 0127 adds event 126–132 around the root-nub init, device-tree allocation, registry superclass init, and fallback branch. It is required by the XNU workflow; the updated verifier checks brackets and trace-label mapping. Existing panic and synchronous-exception diagnostics are already present; do not add duplicate hooks.
 - Patch application passed a dry-run against the clean Run #357 XNU buildtree. Full CI compile, linked verification, package and physical test remain outstanding. Keep the acceptance gates separate.
 - Preserve `cpus=1`; RAM-only `fastboot boot iosboot.img`; never flash, erase, repartition, or write Android eMMC/userdata; preserve volume-key recovery. Do not claim BSD init, root mount, launchd, SpringBoard or complete Darwin userspace without direct evidence.
+
+
+## ROM preservation rule — LIOS Lavender driver work (21 November 2026)
+
+The user's confirmed-booting Android 15/Lucid ROM is a read-only hardware reference. Do not alter its drivers, kernel modules, DTB, vendor image, boot image or Android configuration. Port observed hardware behavior into native XNU implementations in this repository only. The last accepted XNU baseline is Run #400; newer source changes must remain labelled unaccepted until their own CI build, linked ARM64 verification, package integrity checks and (where relevant) physical hardware test are complete.
