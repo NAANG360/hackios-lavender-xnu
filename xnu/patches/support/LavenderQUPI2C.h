@@ -22,6 +22,10 @@
 #define LAVENDER_TLMM_PULL_UP 3U
 #define LAVENDER_QUP_I2C_LENGTH 0x600U
 #define LAVENDER_QUP_I2C_ADDRESS 0x62U
+#define LAVENDER_QUP_BUS_ACTIVE_FLAG (1U << 8)
+static inline bool lavender_qup_bus_is_active(uint32_t masterStatus) {
+    return (masterStatus & LAVENDER_QUP_BUS_ACTIVE_FLAG) != 0;
+}
 #define LAVENDER_QUP_MAX_MESSAGES 8U
 #define LAVENDER_QUP_MAX_MESSAGE 255U
 #define LAVENDER_QUP_MAX_FIFO_BYTES 2048U
