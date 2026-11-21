@@ -36,6 +36,11 @@ int main(){
  assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(geometry.outputBlockBytes==16&&geometry.inputBlockBytes==16);
  assert(geometry.outputFifoBytes==32&&geometry.inputFifoBytes==32);
+ /* Only a non-master with BUS_ACTIVE and SDA low is eligible for bit-bang recovery. */
+ assert(lavender_qup_should_recover_bus((1U<<8)));
+ assert(!lavender_qup_should_recover_bus(0U));
+ assert(!lavender_qup_should_recover_bus((1U<<8)|(1U<<9)));
+ assert(!lavender_qup_should_recover_bus((1U<<8)|(1U<<26)));
  /* QUP_I2C_STATUS BUS_ACTIVE is bit 8; bus idle must be observed before reset. */
  assert(lavender_qup_bus_is_active(1U<<8));
  assert(!lavender_qup_bus_is_active(0U));
