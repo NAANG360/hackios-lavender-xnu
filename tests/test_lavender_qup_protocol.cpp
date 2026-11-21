@@ -3,6 +3,11 @@
 #include <string.h>
 #include "LavenderQUPI2C.h"
 int main(){
+ assert(lavender_qup_clamp_timeout(0)==500U);
+ assert(lavender_qup_clamp_timeout(250)==250U);
+ assert(lavender_qup_clamp_timeout(5000)==5000U);
+ assert(lavender_qup_clamp_timeout(5001)==5000U);
+ assert(lavender_qup_clamp_timeout(UINT32_MAX)==5000U);
  uint8_t tag[4]={};uint32_t n=0;
  assert(lavender_qup_encode_tag(0x62,false,false,2,true,tag,&n));
  assert(n==4&&tag[0]==0x81&&tag[1]==0xc4&&tag[2]==0x82&&tag[3]==2);
