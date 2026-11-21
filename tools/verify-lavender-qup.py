@@ -8,7 +8,7 @@ files=root/"iokit"/"conf"/"files.arm64"; expert=base/"LavenderPlatformExpert.cpp
 for p in (driver,header,files,expert):
  if not p.is_file(): raise SystemExit(f"missing QUP integration file: {p}")
 s=driver.read_text();h=header.read_text()
-need=("LAVENDER_QUP_I2C_BASE","LAVENDER_TLMM_SOUTH_BASE","LAVENDER_TLMM_GPIO2_CTL","LAVENDER_TLMM_GPIO3_CTL","lavender_qup_tlmm_control","setQUPPins","mapTLMM","GCC_QUP1_I2C_CMD_RCGR","QUP_EN_VERSION_TWO_TAG","QUP_MX_READ_COUNT","QUP_MX_WRITE_COUNT","IOInterruptEventSource::interruptEventSource","IOLockSleepDeadline","QUP_I2C_NACK","QUP_I2C_ARB_LOST","QUP_I2C_BUS_ERROR","lavender_qup_build_output","lavender_qup_consume_input","lavender_qup_choose_mode","QUP_OUT_BLOCK_WRITE_REQ","lavender_qup_register_counts","mxInputCount","mxOutputCount","QUP_OUTPUT_MODE_SHIFT","QUP_MODE_BLOCK","waitForBlock","fTxBlockEvents","fRxBlockEvents","IOService::publishResource","LavenderQUPI2C::probe","IONameMatch","qcom,i2c-msm-v2","LAVENDER_QUP_I2C_ADDRESS")
+need=("LAVENDER_QUP_I2C_BASE","LAVENDER_TLMM_SOUTH_BASE","LAVENDER_TLMM_GPIO2_CTL","LAVENDER_TLMM_GPIO3_CTL","lavender_qup_tlmm_control","lavender_qup_tlmm_gpio_control","lavender_qup_block_read_words","setQUPPins","setQUPPinsGPIO","setGPIOOutputLow","releaseGPIO","waitGPIOHigh","recoverBus","mapTLMM","GCC_QUP1_I2C_CMD_RCGR","QUP_EN_VERSION_TWO_TAG","QUP_MX_READ_COUNT","QUP_MX_WRITE_COUNT","IOInterruptEventSource::interruptEventSource","IOLockSleepDeadline","QUP_I2C_NACK","QUP_I2C_ARB_LOST","QUP_I2C_BUS_ERROR","lavender_qup_build_output","lavender_qup_consume_input","lavender_qup_choose_mode","QUP_OUT_BLOCK_WRITE_REQ","lavender_qup_register_counts","mxInputCount","mxOutputCount","QUP_OUTPUT_MODE_SHIFT","QUP_MODE_BLOCK","waitForBlock","fTxBlockEvents","fRxBlockEvents","IOService::publishResource","LavenderQUPI2C::probe","IONameMatch","qcom,i2c-msm-v2","LAVENDER_QUP_I2C_ADDRESS")
 for x in need:
  if x not in s and x not in h: raise SystemExit(f"missing QUP implementation marker: {x}")
 adt_source=(Path(__file__).resolve().parents[1]/"tools"/"mkadt-lavender.py").read_text()
@@ -28,10 +28,11 @@ if start.find("IOService::publishResource") > start.find("registerService()"): r
 release=s[s.index("void LavenderQUPI2C::releaseResources"):s.index("void LavenderQUPI2C::stop")]
 if "setQUPPins(false)" not in release or release.find("disableClocks()") > release.find("setQUPPins(false)"): raise SystemExit("QUP pins are not restored to sleep state during resource release")
 if "provider matched qcom,i2c-msm-v2" not in s or "fFirstTransferLogged" not in s or "first client transaction completed" not in s: raise SystemExit("QUP match/first-client-transfer runtime instrumentation is missing")
-start=s[s.index("bool LavenderQUPI2C::start"):s.index("void LavenderQUPI2C::releaseResources")]
-if not (start.find("mapTLMM()") < start.find("setQUPPins(true)") < start.find("enableClocks()")): raise SystemExit("QUP TLMM active state is not applied before controller clocks")
-release=s[s.index("void LavenderQUPI2C::releaseResources"):s.index("void LavenderQUPI2C::stop")]
-if "setQUPPins(false)" not in release or release.find("disableClocks()") > release.find("setQUPPins(false)"): raise SystemExit("QUP pins are not restored to sleep state during resource release")
-if "fFirstTransferLogged" not in s or "first client transaction completed" not in s: raise SystemExit("QUP first-client-transfer runtime proof is missing")
+if "bool LavenderQUPI2C::recoverBus" not in s or "recoverBus();" not in s: raise SystemExit("bounded QUP bus recovery is not called on transfer errors")
+if "QUP_BUS_ACTIVE" not in s or "QUP_BUS_MASTER" not in s or "QUP_I2C_SDA" not in s: raise SystemExit("QUP recovery bus-state checks are missing")
+if "fRecovering=attemptRecovery" not in s or "fIRQ->disable()" not in s or "fIRQ->enable()" not in s: raise SystemExit("QUP recovery is not isolated from interrupt handling")
+if "setQUPPinsGPIO()" not in s or "setQUPPins(true)" not in s: raise SystemExit("QUP pin mux is not switched to GPIO and restored")
+if "for(uint32_t pulse=0;ok&&pulse<9" not in s or "waitGPIOHigh" not in s: raise SystemExit("QUP recovery lacks bounded nine-clock/clock-stretch handling")
+if "IOLog(\"LAVENDER QUP: bus-clear %s" not in s: raise SystemExit("QUP bus-clear result instrumentation is missing")
 if "OSPtr<" in s or ".get()" in s: raise SystemExit("non-XNU smart-pointer ownership pattern leaked into driver")
 print("Lavender QUP-v2 IOKit source guard passed")
