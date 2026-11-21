@@ -276,3 +276,16 @@ The user's confirmed-booting Android 15/Lucid ROM is a read-only hardware refere
 - Do not use a weak stub, remove QUP's fail-closed voltage-vote gate, bypass RPM ACK, or perform direct PMIC writes. Do not trigger another build until the patch and guards have been repaired and reviewed. Batch all source changes into one coherent update and then trigger one workflow only.
 - Preserve Run #400 and its accepted artifact. The Android 15/Lucid ROM is read-only; never modify its drivers, modules, DTBs, boot images or partitions. Physical testing remains RAM-only.
 - Full evidence and next-step procedure are in `docs/handoff/05-native-lavender-iokit-drivers.md`, section “Branch queue and RPM/GLINK status reconciliation”.
+
+
+## RPM/GLINK current handoff — 21 November 2026
+
+- Latest source: `a74f05bfcfc82becccb24a9cb2189db462a3fb57`; implementation commit: `ecb3bd3fa0c1b36dbd9ee0875665f24d295a7c30`.
+- Run `44871413803` is completed with failure, not pending. QUP and RPM/GLINK host tests passed, but XNU final link failed on undefined `_lavender_rpm_vote_vdd_dig_low_svs`; packaging was skipped.
+- Root cause in the build log: `0130-lavender-rpm-glink-v0.patch` was rejected as malformed at line 12, so `LavenderRPMGLINK.cpp` did not enter the IOKit object list and platform-expert registration/nub publication were not staged.
+- Next: repair patch 0130 as a valid unified diff or use deterministic idempotent staging. Add pre-link guards for staged source, `LavenderRPMGLINK.cpo` object-list inclusion, platform-expert registration, `/soc/rpm-glink` publication, C-linkage vote declaration/definition and final link input. Never use a weak stub or remove QUP's fail-closed RPM ACK gate.
+- Run #400 (`44706182280`, artifact `14615937969`) remains the latest accepted image. Run 448714 diagnostic artifacts are not bootable.
+- Workflow concurrency is one group per branch with `cancel-in-progress: true`. The supplied queue report says runs `44871035770`, `44871146744`, and `44871215312` were cancelled; `44868695080` was preserved as a legacy run. The new group does not automatically cover old per-run groups. Do not claim manual cancellation of legacy runs; the available GitHub connection lacks that action.
+- Avoid a build flood: make the repair, guards, tests and documentation one coherent source update, inspect the staged tree, then trigger one build.
+- The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM drivers, modules, DTB, boot image or partitions may be changed. Physical tests remain RAM-only.
+- See `docs/handoff/05-native-lavender-iokit-drivers.md` for the full protocol design, failure evidence, artifact digests, queue state and acceptance sequence.
