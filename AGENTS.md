@@ -242,3 +242,15 @@ The user's confirmed-booting Android 15/Lucid ROM is a read-only hardware refere
 - The RPM/GLINK follow-up is source-only until its own host tests, source guard, XNU 8796 compile/link, RAM-only package checks and physical test pass. Run #400 remains the latest accepted baseline.
 - Batch related GitHub changes into one atomic tree/commit. The workflow now uses one concurrency group per branch with cancel-in-progress enabled, so a newer source commit supersedes earlier runs created under the new group. Legacy runs created with the former per-run groups remain unaffected; preserve the accepted Run #400 artifact and do not claim those legacy runs were cancelled.
 - Read Chapter 05 for exact transport, message layout, source references, implementation state and acceptance gates.
+
+
+## RPM/GLINK run 448714 failure checkpoint — 21 November 2026
+
+- Latest RPM/GLINK source is `a74f05bfcfc82becccb24a9cb2189db462a3fb57` (implementation commit `ecb3bd3fa0c1b36dbd9ee0875665f24d295a7c30`). Run `44871413803` completed but **failed at kernel link**; package job was skipped. Run #400 / artifact `14615937969` remains the last accepted image.
+- Both QUP and RPM/GLINK host protocol tests passed in Run 448714. The linker reported undefined `_lavender_rpm_vote_vdd_dig_low_svs` from `LavenderQUPI2C::start`.
+- Root cause shown in the log: `0130-lavender-rpm-glink-v0.patch` was skipped as malformed at hunk line 12 (`patch fragment without header`). As a result `LavenderRPMGLINK.cpp` was absent from the IOKit object list. Repair the patch/staging integration; do not add a weak stub or remove QUP's fail-closed voltage-vote gate.
+- Add a hard build guard that checks the staged RPM source, `LavenderRPMGLINK.cpo` object-list entry, platform expert registration and rpm-glink nub publication before link.
+- Workflow concurrency is one group per branch with `cancel-in-progress: true`. Reported cancelled runs: `44871035770`, `44871146744`, `44871215312`; preserved legacy run: `44868695080`; accepted Run #400: `44706182280`; RPM/GLINK run `44871413803`: link failure. Legacy runs from the old per-run group are not automatically cancelled by the new policy; verify individual statuses before claiming cancellation.
+- Keep all related fixes in one coherent source update and avoid a build flood. Do not start another workflow until patch/staging and object-list guards are repaired and reviewed.
+- The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM modules, drivers, DTB, boot image or Android partitions may be modified. Physical tests remain RAM-only.
+- See `docs/handoff/05-native-lavender-iokit-drivers.md` for the full run log findings, artifact IDs, RPM protocol notes and next acceptance gates.
