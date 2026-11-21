@@ -437,6 +437,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     IOLockUnlock(fLock);
     busIdle=waitBusIdle(100);
     IOLockLock(fLock);
+    if(!busIdle&&fFailureStatus==0)fFailureStatus=qread(fQUP,QUP_I2C_STATUS);
     if(fResult!=kIOReturnSuccess&&result==kIOReturnSuccess)result=fResult;
     if(!busIdle&&result==kIOReturnSuccess)result=kIOReturnIOError;
     if(!setState(QUP_STATE_RESET)&&result==kIOReturnSuccess)result=kIOReturnIOError;
