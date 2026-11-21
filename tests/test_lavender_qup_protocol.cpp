@@ -31,6 +31,17 @@ int main(){
  assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(geometry.outputBlockBytes==16&&geometry.inputBlockBytes==16);
  assert(geometry.outputFifoBytes==32&&geometry.inputFifoBytes==32);
+ /* A 68-byte Novatek read consumes four full 16-byte blocks and one 4-byte tail. */
+ const uint32_t expectedTailBytes[]={16,16,16,16,4};
+ const uint32_t expectedWords[]={4,4,4,4,1};
+ for(uint32_t i=0;i<5;i++){
+   uint32_t words=0;
+   assert(lavender_qup_block_read_words(expectedTailBytes[i],16,&words));
+   assert(words==expectedWords[i]);
+ }
+ uint32_t invalidWords=0;
+ assert(!lavender_qup_block_read_words(17,16,&invalidWords));
+ assert(!lavender_qup_block_read_words(4,0,&invalidWords));
  /* Native XNU pad settings match the pinned SDM660 pinctrl DTS. */
  const uint32_t tlmmMask=LAVENDER_TLMM_MUX_MASK|LAVENDER_TLMM_PULL_MASK|
                          LAVENDER_TLMM_DRIVE_MASK|LAVENDER_TLMM_OE;
