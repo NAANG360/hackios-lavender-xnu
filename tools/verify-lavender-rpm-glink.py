@@ -60,6 +60,12 @@ def main():
 
     require("lavender_rpm_vote_vdd_dig_low_svs" in qup,
             "QUP driver does not request the native RPM voltage vote")
+    require('extern "C" bool lavender_rpm_vote_vdd_dig_low_svs(void)' in driver,
+            "RPM implementation does not export the voltage-vote function with C linkage")
+    require('extern "C" bool lavender_rpm_vote_vdd_dig_low_svs(void);' in qup,
+            "QUP declaration does not use matching C linkage")
+    require(driver.count('extern "C" bool lavender_rpm_vote_vdd_dig_low_svs(void)') == 1,
+            "RPM voltage-vote definition is missing or duplicated")
     start = qup.index("bool LavenderQUPI2C::start")
     start_body = qup[start:qup.index("\n}", start)]
     vote = start_body.index("lavender_rpm_vote_vdd_dig_low_svs")

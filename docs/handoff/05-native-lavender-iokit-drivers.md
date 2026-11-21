@@ -397,3 +397,14 @@ The run is complete, not pending. Its `build` job failed and `Package RAM-only L
 6. Only after QUP has an acknowledged vote and a physical transaction should the Novatek client consume the transfer service.
 
 Never flash or write Android partitions. Physical tests remain RAM-only using `fastboot boot iosboot.img`.
+
+
+## RPM/GLINK patch repair and build guards — 21 November 2026
+
+The live branch had advanced to `6eebcfabdbe65e76c1c4863c6181e4cad36ab902` (documentation-only commit) when this repair was prepared. The source baseline remains the native RPM implementation at `a74f05bfcfc82becccb24a9cb2189db462a3fb57`.
+
+Run `44871413803` failed because patch 0130's first hunk count was wrong (declared 5/6, actual 6/7), causing the parser to treat the next hunk header as body text. The `processTopLevel` hunk also declared 4 old lines but contained 6. The repaired diff narrows the first hunk to 3/4 and corrects the later hunk to 6/19. The RPM host-test runner now independently recounts every unified-diff hunk and rejects malformed headers/body counts.
+
+The staged-source guard verifies the driver, RPM registration, `/soc/rpm-glink` nub publication, IOKit source-list inclusion, the QUP acknowledged-vote ordering, and matching C-linkage declaration/definition for `lavender_rpm_vote_vdd_dig_low_svs`. It is invoked in the build script after patch/staging and before XNU compilation. The workflow additionally audits for `LavenderRPMGLINK.cpo` and the vote symbol in the captured build/link transcript.
+
+The object/link audit is a build artifact check, not physical proof. Acceptance still requires successful XNU 8796 compilation and ARM64 link, linked Mach-O verification, RAM-only image packaging, and manifest/SHA-256 verification. Only after those gates may a physical test use `fastboot boot iosboot.img`; never flash or write Android partitions. No RPM OPEN, ACK, voltage vote, QUP transaction or touchscreen functionality is claimed.

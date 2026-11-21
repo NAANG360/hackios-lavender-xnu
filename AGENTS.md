@@ -289,3 +289,13 @@ The user's confirmed-booting Android 15/Lucid ROM is a read-only hardware refere
 - Avoid a build flood: make the repair, guards, tests and documentation one coherent source update, inspect the staged tree, then trigger one build.
 - The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM drivers, modules, DTB, boot image or partitions may be changed. Physical tests remain RAM-only.
 - See `docs/handoff/05-native-lavender-iokit-drivers.md` for the full protocol design, failure evidence, artifact digests, queue state and acceptance sequence.
+
+
+## RPM/GLINK patch-accounting repair — 21 November 2026
+
+- Live branch HEAD at inspection: `6eebcfabdbe65e76c1c4863c6181e4cad36ab902`; this is a documentation-only advance beyond the RPM source commit `a74f05bfcfc82becccb24a9cb2189db462a3fb57`.
+- Run `44871413803` failed because the first hunk of `0130-lavender-rpm-glink-v0.patch` declared 5 old / 6 new lines while its body contained 6 old / 7 new lines. The later `processTopLevel` hunk declared 4 old lines while its body contained 6. The first hunk has been narrowed to its three include-context lines (3/4), and the later hunk count is corrected to 6/19. Other hunk counts are checked automatically by the host-test script.
+- The RPM/GLINK staged-source guard now checks that the implementation exports `lavender_rpm_vote_vdd_dig_low_svs` with C linkage and that QUP declares the same C-linkage signature. The workflow runs the staged-source guard immediately after patch/staging, before XNU compilation.
+- A post-build audit requires `LavenderRPMGLINK.cpo` in the XNU build tree and the voltage-vote symbol in the captured build/link transcript. This supplements (but does not replace) the actual successful ARM64 link and binary verification.
+- The QUP fail-closed voltage-vote gate remains unchanged. No weak stub, direct PMIC write, ACK bypass, Android/Linux driver, ROM, DTB, boot image or vendor partition change is permitted.
+- This is source/build integration only. No physical GLINK OPEN, RPM ACK, voltage transition or QUP transaction is claimed.

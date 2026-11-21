@@ -117,6 +117,7 @@ jobs:
           new = ("    patches" + chr(10) +
                  '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
                  "        python3 ../tools/split-lavender-early.py" + chr(10) +
+                 "        python3 ../tools/verify-lavender-rpm-glink.py xnu" + chr(10) +
                  "    fi" + chr(10) +
                  "    python3 ../tools/fix-lavender-pre-vbar.py" + chr(10) +
                  '    if [ "$MACHINE_CONFIG" = "LAVENDER" ]; then' + chr(10) +
@@ -252,6 +253,22 @@ jobs:
         env:
           MAKEFLAGS: ${{ inputs.keep_going == 'true' && '-k' || '' }}
         run: set -o pipefail; bash build.sh 2>&1 | tee ../xnu-build.log
+
+      - name: Verify RPM/GLINK object reached the linked kernel
+        if: success() && env.MACHINE_CONFIG == 'LAVENDER'
+        run: |
+          set -euo pipefail
+          rpm_object="$(find dxb/build/xnu.obj -type f -name 'LavenderRPMGLINK.cpo' -print -quit)"
+          test -n "$rpm_object" || { echo 'ERROR: LavenderRPMGLINK.cpo was not built.'; exit 1; }
+          grep -Fq 'LavenderRPMGLINK.cpo' xnu-build.log || {
+            echo 'ERROR: RPM object is absent from the captured XNU build/link log.'
+            exit 1
+          }
+          grep -Fq '_lavender_rpm_vote_vdd_dig_low_svs' xnu-build.log || {
+            echo 'ERROR: RPM voltage-vote symbol is absent from the final link transcript.'
+            exit 1
+          }
+          echo "PASS: RPM object exists ($rpm_object) and the voltage-vote symbol appears in the link transcript."
 
       - name: Require the expected cache-aware XNU build path
         id: xnu-rebuild
