@@ -189,7 +189,8 @@ The pinned qcom,rpm-smd node has no format-version register, so Linux defaults t
 - 40-byte message; v0 request_len=32, data length 12.
 - Message IDs 0 and 1 are reserved; the first request uses ID 2.
 - Active set is 0.
-- Resource type is the little-endian ASCII resource name rwcx (0x78637772), not the regulator-type enum; resource ID is 0.
+- Resource type is the little-endian ASCII resource name rwcx (0x78637772), not the regulator-type enum; the vdd_dig resource ID is 0.
+- The regulator DTS has qcom,set=3 (active and sleep handles). Linux sends a separate sleep-set request only when its aggregate differs from the active request; with this single XNU client holding the same LOW_SVS floor, the active-set request remains in effect during RPM-assisted collapse. A future multi-client/sleep-aware regulator layer must add a separate sleep vote if its aggregate differs.
 - KVP key is little-endian ASCII vlvl (0x6c766c76), value size 4, value 64.
 - GCC maps QUP1's 19.2 MHz XO source to VDD_DIG_LOWER; vdd-level-660.h maps LOWER to RPM_REGULATOR_LEVEL_LOW_SVS = 64.
 

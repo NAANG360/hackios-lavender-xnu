@@ -161,7 +161,7 @@ static inline bool lavender_rpm_encode_glink_tx_data(uint8_t *out, uint32_t capa
 #define LAVENDER_RPM_V0_SERVICE_REQUEST 0x00716572U /* bytes "req\\0" */
 #define LAVENDER_RPM_V0_ACK_SERVICE 3U
 #define LAVENDER_RPM_RESOURCE_RWXC 0x78637772U /* bytes "rwcx" */
-#define LAVENDER_RPM_RESOURCE_VDD_CX_S3 0U
+#define LAVENDER_RPM_RESOURCE_ID_VDD_DIG 0U
 #define LAVENDER_RPM_KVP_VLVL 0x6c766c76U /* bytes "vlvl" */
 #define LAVENDER_RPM_LEVEL_LOW_SVS 64U
 #define LAVENDER_RPM_V0_HEADER_SIZE 28U
@@ -179,7 +179,7 @@ static inline bool lavender_rpm_encode_v0_vdd_dig_vote(uint8_t *out, uint32_t ca
     lavender_rpm_put_le32(out+8,messageId);
     lavender_rpm_put_le32(out+12,0U); /* active set */
     lavender_rpm_put_le32(out+16,LAVENDER_RPM_RESOURCE_RWXC);
-    lavender_rpm_put_le32(out+20,LAVENDER_RPM_RESOURCE_VDD_CX_S3);
+    lavender_rpm_put_le32(out+20,LAVENDER_RPM_RESOURCE_ID_VDD_DIG);
     lavender_rpm_put_le32(out+24,12U);
     lavender_rpm_put_le32(out+28,LAVENDER_RPM_KVP_VLVL);
     lavender_rpm_put_le32(out+32,4U);

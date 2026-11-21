@@ -55,7 +55,7 @@ int main() {
     assert(lavender_rpm_le32(rpmRequest+8)==2);
     assert(lavender_rpm_le32(rpmRequest+12)==0); /* active set */
     assert(lavender_rpm_le32(rpmRequest+16)==LAVENDER_RPM_RESOURCE_RWXC);
-    assert(lavender_rpm_le32(rpmRequest+20)==0); /* S3 resource id */
+    assert(lavender_rpm_le32(rpmRequest+20)==LAVENDER_RPM_RESOURCE_ID_VDD_DIG);
     assert(lavender_rpm_le32(rpmRequest+24)==12);
     assert(lavender_rpm_le32(rpmRequest+28)==LAVENDER_RPM_KVP_VLVL);
     assert(lavender_rpm_le32(rpmRequest+32)==4);
