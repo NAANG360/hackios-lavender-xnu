@@ -38,6 +38,13 @@ if "bool LavenderQUPI2C::recoverBus" not in s or "recoverBus();" not in s: raise
 if "fFailureStatus=st" not in s or "fFailureStatus=qread(fQUP,QUP_I2C_STATUS)" not in s: raise SystemExit("QUP failure-time master status is not preserved before reset")
 if "lavender_qup_should_recover_bus(fFailureStatus)" not in s: raise SystemExit("QUP recovery is not qualified using the saved slave-held-bus status")
 if "uint32_t status=fFailureStatus?fFailureStatus:qread(fQUP,QUP_I2C_STATUS)" not in s: raise SystemExit("QUP recovery ignores the saved pre-reset controller status")
+handler=s[s.index("void LavenderQUPI2C::handleIRQ"):s.index("IOReturn LavenderQUPI2C::callPlatformFunction")]
+if not (handler.find("if(r!=kIOReturnSuccess)fFailureStatus=st") < handler.find("qwrite(fQUP,QUP_STATE,QUP_STATE_RESET)")): raise SystemExit("QUP IRQ failure snapshot is captured after controller reset")
+if "if(!fDone){\n        if(fFailureStatus==0)fFailureStatus=qread(fQUP,QUP_I2C_STATUS);" not in s: raise SystemExit("QUP completion timeout status is not captured before reset")
+stop=transfer[transfer.index("busIdle=waitBusIdle(100)"):transfer.index("unlock:")]
+if not (stop.find("if(!busIdle&&fFailureStatus==0)fFailureStatus=qread(fQUP,QUP_I2C_STATUS)") < stop.find("setState(QUP_STATE_RESET)")): raise SystemExit("QUP stalled-STOP status is not captured before reset")
+unlock=transfer[transfer.index("unlock:"):transfer.index("done:")]
+if not (unlock.find("fFailureStatus=qread(fQUP,QUP_I2C_STATUS)") < unlock.find("first client transfer error")): raise SystemExit("QUP error logging precedes failure-status capture")
 if "scl=LAVENDER_TLMM_QUP1_SCL_CTL,sda=LAVENDER_TLMM_QUP1_SDA_CTL" not in s: raise SystemExit("QUP1 recovery line mapping disagrees with DTS: GPIO3=SCL, GPIO2=SDA")
 if "LAVENDER_TLMM_QUP1_SDA_CTL LAVENDER_TLMM_GPIO2_CTL" not in h or "LAVENDER_TLMM_QUP1_SCL_CTL LAVENDER_TLMM_GPIO3_CTL" not in h: raise SystemExit("QUP1 DTS line mapping is not represented in native GPIO aliases")
 if "QUP_BUS_ACTIVE" not in s or "QUP_BUS_MASTER" not in s or "QUP_I2C_SDA" not in s: raise SystemExit("QUP recovery bus-state checks are missing")
