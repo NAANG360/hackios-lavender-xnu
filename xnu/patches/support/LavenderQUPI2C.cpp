@@ -446,14 +446,14 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
               n,z.txBytes,z.rxBytes,mode==LAVENDER_QUP_MODE_BLOCK?"BLOCK":"FIFO");
     }
 unlock:
+    if(result!=kIOReturnSuccess&&fFailureStatus==0)
+        fFailureStatus=qread(fQUP,QUP_I2C_STATUS);
     if(result!=kIOReturnSuccess&&!fFirstErrorLogged){
         fFirstErrorLogged=true;
         IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\n",
               result,fFailureStatus,qread(fQUP,QUP_OPERATIONAL),
               qread(fQUP,QUP_ERROR_FLAGS),qread(fQUP,QUP_ERROR_FLAGS_EN));
     }
-    if(result!=kIOReturnSuccess&&fFailureStatus==0)
-        fFailureStatus=qread(fQUP,QUP_I2C_STATUS);
     attemptRecovery=(result==kIOReturnTimeout||result==kIOReturnBusy||result==kIOReturnIOError)&&
                     lavender_qup_should_recover_bus(fFailureStatus)&&fIRQ&&fTLMM;
     fRecovering=attemptRecovery;
