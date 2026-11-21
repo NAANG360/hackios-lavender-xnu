@@ -26,6 +26,11 @@
 static inline bool lavender_qup_bus_is_active(uint32_t masterStatus) {
     return (masterStatus & LAVENDER_QUP_BUS_ACTIVE_FLAG) != 0;
 }
+static inline bool lavender_qup_should_recover_bus(uint32_t masterStatus) {
+    return lavender_qup_bus_is_active(masterStatus) &&
+           (masterStatus & (1U << 9)) == 0 &&
+           (masterStatus & (1U << 26)) == 0;
+}
 #define LAVENDER_QUP_MAX_MESSAGES 8U
 #define LAVENDER_QUP_MAX_MESSAGE 255U
 #define LAVENDER_QUP_MAX_FIFO_BYTES 2048U
