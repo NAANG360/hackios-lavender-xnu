@@ -171,7 +171,7 @@ bool LavenderQUPI2C::waitGPIOHigh(uint32_t controlOffset){
 bool LavenderQUPI2C::recoverBus(void){
     if(!fQUP||!fTLMM||!fClocks)return false;
     uint32_t status=fFailureStatus?fFailureStatus:qread(fQUP,QUP_I2C_STATUS);
-    if(!lavender_qup_bus_is_active(status)||(status&QUP_BUS_MASTER)||(status&QUP_I2C_SDA))
+    if(!lavender_qup_should_recover_bus(status))
         return false; /* caller should only enter recovery for a saved slave-held-low status */
     if(!setState(QUP_STATE_RESET)||!setQUPPinsGPIO())return false;
     const uint32_t scl=LAVENDER_TLMM_QUP1_SCL_CTL,sda=LAVENDER_TLMM_QUP1_SDA_CTL;
@@ -455,8 +455,7 @@ unlock:
     if(result!=kIOReturnSuccess&&fFailureStatus==0)
         fFailureStatus=qread(fQUP,QUP_I2C_STATUS);
     attemptRecovery=(result==kIOReturnTimeout||result==kIOReturnBusy||result==kIOReturnIOError)&&
-                    (fFailureStatus&QUP_BUS_ACTIVE)&&!(fFailureStatus&QUP_BUS_MASTER)&&
-                    !(fFailureStatus&QUP_I2C_SDA)&&fIRQ&&fTLMM;
+                    lavender_qup_should_recover_bus(fFailureStatus)&&fIRQ&&fTLMM;
     fRecovering=attemptRecovery;
     if(!attemptRecovery){
         if(result!=kIOReturnSuccess)setState(QUP_STATE_RESET);
