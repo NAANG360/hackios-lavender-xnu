@@ -408,3 +408,73 @@ Run `44871413803` failed because patch 0130's first hunk count was wrong (declar
 The staged-source guard verifies the driver, RPM registration, `/soc/rpm-glink` nub publication, IOKit source-list inclusion, the QUP acknowledged-vote ordering, and matching C-linkage declaration/definition for `lavender_rpm_vote_vdd_dig_low_svs`. It is invoked in the build script after patch/staging and before XNU compilation. The workflow additionally audits for `LavenderRPMGLINK.cpo` and the vote symbol in the captured build/link transcript.
 
 The object/link audit is a build artifact check, not physical proof. Acceptance still requires successful XNU 8796 compilation and ARM64 link, linked Mach-O verification, RAM-only image packaging, and manifest/SHA-256 verification. Only after those gates may a physical test use `fastboot boot iosboot.img`; never flash or write Android partitions. No RPM OPEN, ACK, voltage vote, QUP transaction or touchscreen functionality is claimed.
+
+
+## RPM/GLINK staging repair — verified repository checkpoint (21 November 2026)
+
+### Live branch and repair commit
+
+The branch was checked directly before editing. The supplied status identified `6eebcfabdbe65e76c1c4863c6181e4cad36ab902` as HEAD; that commit is the parent of the repair. The current live branch HEAD is now:
+
+- Repository: `NAANG360/hackios-lavender-xnu`
+- Branch: `ci/lavender-machine-profile`
+- Repair HEAD: `e280830dc978dc6b32c677bfcb88715a1b36670e`
+- Parent: `6eebcfabdbe65e76c1c4863c6181e4cad36ab902`
+- Commit: [`e280830`](https://github.com/NAANG360/hackios-lavender-xnu/commit/e280830dc978dc6b32c677bfcb88715a1b36670e) — `fix(lavender): repair RPM GLINK staging and link guards`
+
+The commit updates six files together: `0130-lavender-rpm-glink-v0.patch`, `tools/test-lavender-rpm-glink.py`, `tools/verify-lavender-rpm-glink.py`, `.github/workflows/xnu.yml`, `AGENTS.md`, and this chapter.
+
+### Patch accounting and integration guards
+
+The original Run 448714 failure came from incorrect unified-diff hunk accounting. The repair narrows the PlatformExpert include hunk from the malformed 5/6 declaration to 3/4, corrects the `processTopLevel` hunk from 4/19 to 6/19, and retains the other reviewed hunk counts. The updated host-test runner independently recounts declared versus actual old/new hunk lines.
+
+The repair adds:
+
+- Matching C-linkage declaration/definition verification for `lavender_rpm_vote_vdd_dig_low_svs`.
+- A staged-source guard invoked after patch/staging and before XNU compilation.
+- Checks for RPM service registration, `/soc/rpm-glink` nub publication and IOKit source-list inclusion.
+- A post-build audit for `LavenderRPMGLINK.cpo` and the voltage-vote symbol in the captured build/link transcript.
+
+**Important limitation:** the object audit is post-build. A genuine check immediately before the final linker invocation has not yet been established. Do not call this a completed pre-link object guard. The source guard before compilation does not by itself prove that the generated object is present in the final link inputs.
+
+### Validation status — do not overstate
+
+| Gate | Current result |
+|---|---|
+| Repair commit pushed | Passed — `e280830dc978dc6b32c677bfcb88715a1b36670e` |
+| Patch hunk accounting | Verified by the repair review; runner now checks counts independently |
+| Previously existing Run 448714 QUP and RPM host tests | Passed on the pre-repair source; they do not validate the new runner/repair |
+| Updated host protocol test suites | **Not rerun** after this repair |
+| Fresh exact-base patch application/staged-tree audit | **Not yet verified by a new workflow** |
+| New GitHub Actions run | **Not triggered / no new run observed** |
+| New XNU ARM64 link | **Not verified** |
+| New RAM-only `iosboot.img` | **Not produced** |
+| Physical RPM OPEN, RPM ACK, voltage transition, QUP transaction | **Not tested** |
+
+Run #400 ([workflow 44706182280](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44706182280), artifact `14615937969`) remains the latest accepted kernel/image. Preserve it unchanged. Run 448714 is still a failed run; its diagnostic artifacts are not bootable. The repair commit is an integration repair, not acceptance of a new RPM-enabled kernel.
+
+### Next engineering sequence
+
+1. Establish a genuine pre-link object-presence hook if the XNU build system exposes a safe point; otherwise make the strongest deterministic staged-object/link-input check available and describe its exact timing honestly.
+2. Run both QUP and RPM/GLINK host protocol regression suites on the repaired branch.
+3. Apply patch 0130 against the exact pinned/staged XNU source and inspect the resulting source tree, `files.arm64`, generated object list and platform-expert registration/nub publication.
+4. Trigger exactly one XNU workflow after all local/host guards pass. Avoid per-file commits and build floods.
+5. Accept only after XNU 8796 compiles, the ARM64 Mach-O link includes the RPM implementation and vote symbol, independent verification passes, the RAM-only image is packaged, and manifest/SHA-256 agree.
+6. Only then perform physical testing by `fastboot boot iosboot.img`. Record actual remote GLINK OPEN/OPEN_ACK, matching RPM-SMD ACK, voltage-vote evidence, QUP initialization and a successful I2C transaction. Never flash or write partitions.
+
+### Display and panel safety boundary
+
+The current RPM/GLINK stage is not a display implementation. The `vdd_dig` vote and QUP clock gate do not directly configure MDSS/MDP, DSI host/PHY, Tianma panel initialization, display timings, brightness or backlight. Therefore this stage has no expected direct path to screen damage. This is an engineering risk assessment, not a guarantee that all hardware faults are impossible.
+
+Keep display bring-up isolated until RPM/QUP are independently validated. When MDSS/DSI/panel work begins, derive rails, reset order, DSI commands and timings from the confirmed-working Lavender ROM/kernel sources and hardware limits; do not guess voltages or timings. Use bounded waits, explicit failure handling and conservative power sequencing. A black screen or failed panel initialization may be recoverable and is not, by itself, evidence of permanent panel damage. Do not enable experimental display sequences during RPM/QUP validation.
+
+### ROM preservation and physical-test rules
+
+- The Android 15/Lucid OS ROM is confirmed working and remains strictly read-only.
+- Do not modify its drivers, kernel modules, DTBs, boot images, vendor files/configuration or any Android partition.
+- No physical test is authorized by this source-only repair. Wait for full build/link/package acceptance.
+- Subsequent handset testing is RAM-only via `fastboot boot iosboot.img`; never use `fastboot flash`, erase, format, repartition or write any partition. Preserve the independent volume-key recovery route and `cpus=1` boot argument.
+
+### Context boundary for the next session
+
+For this active RPM/GLINK-to-QUP milestone, the next session should read only `AGENTS.md` and this Chapter 05. Do not load `PROJECT_HANDOFF.md` or Chapters 01–04 unless the user explicitly expands the scope. This chapter contains the active driver architecture, current repair status, acceptance gates and hardware-safety boundary.
