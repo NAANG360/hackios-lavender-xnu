@@ -219,3 +219,14 @@ Branch: `ci/lavender-machine-profile`
 ## ROM preservation rule — LIOS Lavender driver work (21 November 2026)
 
 The user's confirmed-booting Android 15/Lucid ROM is a read-only hardware reference. Do not alter its drivers, kernel modules, DTB, vendor image, boot image or Android configuration. Port observed hardware behavior into native XNU implementations in this repository only. The last accepted XNU baseline is Run #400; newer source changes must remain labelled unaccepted until their own CI build, linked ARM64 verification, package integrity checks and (where relevant) physical hardware test are complete.
+
+## Working QUP source follow-up — 21 November 2026
+
+- **Latest accepted CI remains Run #400** (`44706182280`, source `7a15aaad2d649f570ffe3f9ad23d1a98f659085d`, artifact `14615937969`). Do not call later source commits accepted until their own XNU compile, linked ARM64 verification, RAM-only package verification and physical checks pass.
+- **Latest QUP source checkpoint:** `b94e90b480cb51121776e663c5a369afe3dd56ce`; current handoff update: `aae69bfa476d1e446905349a43496d6e1c0b171f`.
+- The follow-up extends native QUP FIFO/BLOCK counters, 68-byte Novatek block reads and the four-byte tail drain, TLMM GPIO2=SDA/GPIO3=SCL pin states, bounded nine-pulse recovery, a 100ms BUS_ACTIVE STOP fence, saved pre-reset failure status, bounded transfer timeout and first-success/first-error runtime diagnostics.
+- Host protocol tests and source guards have been extended, but their execution and the new XNU build have **not** yet been verified. Run #400 remains the only accepted compiled/linked/package artifact.
+- The confirmed-booting Android 15/Lucid ROM remains read-only. Do not modify its kernel modules, vendor drivers, DTB, boot image, vendor partition or Android configuration.
+- QUP's `vdd_dig` vote remains a hard dependency: the pinned SDM660 path uses the RPM `rpm_requests` service over GLINK/RPMSG, with `pm660l_s3_level` / `rwcx` resource, ID 0 and `vlvl` KVP. Do not substitute a guessed PMIC MMIO write or assume a voltage vote survives RAM-only boot.
+- The QUP driver is statically compiled into the XNU kernel and matched/started by IOKit; it is not a `.kext`. It publishes `lavender-i2c-transfer`, but no Novatek client has yet been accepted or observed making a real transfer. Do not claim the provider is physically used until that client transfer is evidenced.
+- Follow Chapter 05 for the detailed reference-source audit, QUP state and the RPM/GLINK dependency. Preserve RAM-only `fastboot boot iosboot.img`, `cpus=1`, volume-key recovery and all Android partitions.
