@@ -335,7 +335,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     enum LavenderQUPTransferMode mode=LAVENDER_QUP_MODE_FIFO;
     uint32_t written=0,inPos=0,ioModes;uint8_t *out=nullptr,*in=nullptr;
     LavenderQUPRegisterCounts counts={};
-    IOReturn result=kIOReturnSuccess;AbsoluteTime deadline;int wr;bool attemptRecovery=false;
+    IOReturn result=kIOReturnSuccess;AbsoluteTime deadline;int wr;bool attemptRecovery=false,busIdle=false;
     if(!fQUP||!fLock||!fClocks)return kIOReturnNotReady;
     if(!timeout)timeout=500;
     if(!lavender_qup_measure(m,n,&z))return kIOReturnBadArgument;
@@ -420,7 +420,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     if(z.inputBytes&&!lavender_qup_consume_input(m,n,in,z.inputBytes))result=kIOReturnIOError;
     /* The final IRQ may arrive before the STOP condition reaches the pins. */
     IOLockUnlock(fLock);
-    bool busIdle=waitBusIdle(100);
+    busIdle=waitBusIdle(100);
     IOLockLock(fLock);
     if(!busIdle&&result==kIOReturnSuccess)result=kIOReturnIOError;
     if(!setState(QUP_STATE_RESET)&&result==kIOReturnSuccess)result=kIOReturnIOError;
