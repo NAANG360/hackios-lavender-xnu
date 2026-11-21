@@ -24,6 +24,12 @@ if "LavenderQUPI2CPinsConfigured" not in s: raise SystemExit("QUP TLMM pins are 
 if "LavenderI2CTransferFunction" not in s or "callPlatformFunction" not in s: raise SystemExit("QUP provider client call path is not published")
 start=s[s.index("bool LavenderQUPI2C::start"):s.index("void LavenderQUPI2C::releaseResources")]
 if not (start.find("mapTLMM()") < start.find("setQUPPins(true)") < start.find("enableClocks()")): raise SystemExit("QUP TLMM active state is not applied before controller clocks")
+if start.find("IOService::publishResource") > start.find("registerService()"): raise SystemExit("QUP transfer resource must be published before clients match")
+release=s[s.index("void LavenderQUPI2C::releaseResources"):s.index("void LavenderQUPI2C::stop")]
+if "setQUPPins(false)" not in release or release.find("disableClocks()") > release.find("setQUPPins(false)"): raise SystemExit("QUP pins are not restored to sleep state during resource release")
+if "provider matched qcom,i2c-msm-v2" not in s or "fFirstTransferLogged" not in s or "first client transaction completed" not in s: raise SystemExit("QUP match/first-client-transfer runtime instrumentation is missing")
+start=s[s.index("bool LavenderQUPI2C::start"):s.index("void LavenderQUPI2C::releaseResources")]
+if not (start.find("mapTLMM()") < start.find("setQUPPins(true)") < start.find("enableClocks()")): raise SystemExit("QUP TLMM active state is not applied before controller clocks")
 release=s[s.index("void LavenderQUPI2C::releaseResources"):s.index("void LavenderQUPI2C::stop")]
 if "setQUPPins(false)" not in release or release.find("disableClocks()") > release.find("setQUPPins(false)"): raise SystemExit("QUP pins are not restored to sleep state during resource release")
 if "fFirstTransferLogged" not in s or "first client transaction completed" not in s: raise SystemExit("QUP first-client-transfer runtime proof is missing")
