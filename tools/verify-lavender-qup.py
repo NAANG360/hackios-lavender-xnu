@@ -8,7 +8,7 @@ files=root/"iokit"/"conf"/"files.arm64"; expert=base/"LavenderPlatformExpert.cpp
 for p in (driver,header,files,expert):
  if not p.is_file(): raise SystemExit(f"missing QUP integration file: {p}")
 s=driver.read_text();h=header.read_text()
-need=("LAVENDER_QUP_I2C_BASE","GCC_QUP1_I2C_CMD_RCGR","QUP_EN_VERSION_TWO_TAG","QUP_MX_READ_COUNT","QUP_MX_WRITE_COUNT","IOInterruptEventSource::interruptEventSource","IOLockSleepDeadline","QUP_I2C_NACK","QUP_I2C_ARB_LOST","QUP_I2C_BUS_ERROR","lavender_qup_build_output","lavender_qup_consume_input","lavender_qup_choose_mode","QUP_OUT_BLOCK_WRITE_REQ","QUP_OUTPUT_MODE_SHIFT","QUP_MODE_BLOCK","waitForBlock","fTxBlockEvents","fRxBlockEvents","IOService::publishResource","LavenderQUPI2C::probe","IONameMatch","qcom,i2c-msm-v2","LAVENDER_QUP_I2C_ADDRESS")
+need=("LAVENDER_QUP_I2C_BASE","GCC_QUP1_I2C_CMD_RCGR","QUP_EN_VERSION_TWO_TAG","QUP_MX_READ_COUNT","QUP_MX_WRITE_COUNT","IOInterruptEventSource::interruptEventSource","IOLockSleepDeadline","QUP_I2C_NACK","QUP_I2C_ARB_LOST","QUP_I2C_BUS_ERROR","lavender_qup_build_output","lavender_qup_consume_input","lavender_qup_choose_mode","QUP_OUT_BLOCK_WRITE_REQ","lavender_qup_register_counts","mxInputCount","mxOutputCount","QUP_OUTPUT_MODE_SHIFT","QUP_MODE_BLOCK","waitForBlock","fTxBlockEvents","fRxBlockEvents","IOService::publishResource","LavenderQUPI2C::probe","IONameMatch","qcom,i2c-msm-v2","LAVENDER_QUP_I2C_ADDRESS")
 for x in need:
  if x not in s and x not in h: raise SystemExit(f"missing QUP implementation marker: {x}")
 adt_source=(Path(__file__).resolve().parents[1]/"tools"/"mkadt-lavender.py").read_text()
