@@ -9,13 +9,13 @@ diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/Lave
  
  extern "C" void sweet_early_trace_startup(unsigned int event, uintptr_t a,
      uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
-@@ -15,3 +16,4 @@
+@@ -15,4 +16,5 @@
  #define LAVENDER_PLATFORM_TRACE(event, a, b) \
      sweet_early_trace_startup((event), (uintptr_t)(a), (uintptr_t)(b), 0, 0, 0)
 +extern "C" void lavender_register_rpm_glink_driver(void);
  
  class LavenderPlatformExpert : public IODTPlatformExpert {
-@@ -43,7 +45,8 @@ LavenderPlatformExpert::start(IOService *provider)
+@@ -39,6 +41,7 @@ LavenderPlatformExpert::start(IOService *provider)
      if (!ok) {
          return false;
      }
@@ -23,7 +23,7 @@ diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/Lave
      lavender_register_qup_i2c_driver();
      LAVENDER_PLATFORM_TRACE(151, this, provider);
      registerService();
-@@ -66,6 +69,19 @@ LavenderPlatformExpert::processTopLevel(IORegistryEntry *root)
+@@ -72,6 +75,19 @@ LavenderPlatformExpert::processTopLevel(IORegistryEntry *root)
      createNubs(this, IODTFindMatchingEntries(root, kIODTExclusive, excludeList()));
      LAVENDER_PLATFORM_TRACE(155, root, 0);
  
@@ -46,7 +46,7 @@ diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/Lave
 diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
-@@ -24,3 +24,4 @@
+@@ -23,3 +23,4 @@
  # LAVENDER device-tree platform
  iokit/Kernel/arm/LavenderPlatformExpert.cpp optional iokitcpp
  iokit/Kernel/arm/LavenderQUPI2C.cpp optional iokitcpp
