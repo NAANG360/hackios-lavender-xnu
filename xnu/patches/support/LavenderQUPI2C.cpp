@@ -274,10 +274,10 @@ bool LavenderQUPI2C::start(IOService *p){
     uint32_t ioModes=qread(fQUP,QUP_IO_MODES);
     LavenderQUPFifoGeometry geometry={};
     if(!lavender_qup_fifo_geometry(ioModes,&geometry)){
-        IOLog("LAVENDER QUP: unsupported IO_MODES geometry 0x%08x\\n",ioModes);
+        IOLog("LAVENDER QUP: unsupported IO_MODES geometry 0x%08x\n",ioModes);
         releaseResources();super::stop(p);return false;
     }
-    IOLog("LAVENDER QUP: IO_MODES=0x%08x TX block/FIFO=%u/%u RX block/FIFO=%u/%u\\n",
+    IOLog("LAVENDER QUP: IO_MODES=0x%08x TX block/FIFO=%u/%u RX block/FIFO=%u/%u\n",
           ioModes,geometry.outputBlockBytes,geometry.outputFifoBytes,
           geometry.inputBlockBytes,geometry.inputFifoBytes);
     fLock=IOLockAlloc();fWorkLoop=getWorkLoop();if(fWorkLoop)fWorkLoop->retain();
@@ -442,7 +442,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
 unlock:
     if(result!=kIOReturnSuccess&&!fFirstErrorLogged){
         fFirstErrorLogged=true;
-        IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\\n",
+        IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\n",
               result,qread(fQUP,QUP_I2C_STATUS),qread(fQUP,QUP_OPERATIONAL),
               qread(fQUP,QUP_ERROR_FLAGS),qread(fQUP,QUP_ERROR_FLAGS_EN));
     }
