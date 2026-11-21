@@ -85,6 +85,19 @@ int main() {
     assert(lavender_rpm_decode_v0_ack(ack,sizeof(ack),&ackId,&ackStatus));
     assert(ackStatus==-1);
 
+    /* Duplicate required ring IDs and overlapping ring regions are malformed. */
+    lavender_rpm_put_le32(ram+toc+4,3);
+    lavender_rpm_put_le32(ram+toc+32,LAVENDER_RPM_RX_FIFO_ID);
+    lavender_rpm_put_le32(ram+toc+36,0x800);
+    lavender_rpm_put_le32(ram+toc+40,0x200);
+    assert(!lavender_rpm_parse_toc(ram,sizeof(ram),&rings));
+
+    lavender_rpm_put_le32(ram+toc+4,2);
+    lavender_rpm_put_le32(ram+toc+20,LAVENDER_RPM_RX_FIFO_ID);
+    lavender_rpm_put_le32(ram+toc+24,0x280);
+    lavender_rpm_put_le32(ram+toc+28,0x200);
+    assert(!lavender_rpm_parse_toc(ram,sizeof(ram),&rings));
+
     lavender_rpm_put_le32(ram+toc,0);
     assert(!lavender_rpm_parse_toc(ram,sizeof(ram),&rings));
     return 0;

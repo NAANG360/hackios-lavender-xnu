@@ -179,7 +179,7 @@ The pinned Lavender Linux tree at da9b19cb9ec452281cbe1270c5e733e20d69475a shows
 
 - qcom,glink-rpm is the GLINK transport node below /soc. It references rpm_msg_ram and mailbox channel zero on apcs_glb.
 - The message RAM node is 0x00778000, size 0x7000. The 256-byte TOC is at the end of that region, magic 0x67727430; TX FIFO ID is ap2r (0x61703272) and RX FIFO ID is r2ap (0x72326170). Each descriptor is tail, head, then FIFO bytes.
-- APCS global mailbox is 0x17911000; channel zero rings bit zero at offset 0x8 (0x17911008). The DTS also lists SPI 168. The Linux qcom_glink_rpm driver passes IRQ 0 into qcom_glink_native_probe, so this first XNU transport uses bounded polling rather than inventing an IRQ route.
+- APCS global mailbox is 0x17911000; channel zero rings bit zero at offset 0x8 (0x17911008). The DTS also lists SPI 168. In the pinned Linux source, the zero passed by qcom_glink_rpm to qcom_glink_native_probe is the GLINK feature mask (features=0), not an IRQ number; the native layer obtains IRQ index 0 from the qcom,glink-rpm device-tree node and registers it. The first XNU bring-up deliberately uses bounded polling and does not yet register SPI 168 through an XNU interrupt domain.
 - The RPM endpoint is opened dynamically by the remote as GLINK/RPMSG channel rpm_requests. The native implementation sends GLINK v1 VERSION, handles VERSION/ACK, accepts the remote OPEN, sends OPEN_ACK, sends its local OPEN request and waits for OPEN_ACK. RPM packets travel in intentless GLINK TX_DATA messages, matching the Linux qcom_glink_rpm setup (features=0, intentless=true).
 
 ### RPM-SMD v0 request for QUP's digital corner
@@ -478,3 +478,14 @@ Keep display bring-up isolated until RPM/QUP are independently validated. When M
 ### Context boundary for the next session
 
 For this active RPM/GLINK-to-QUP milestone, the next session should read only `AGENTS.md` and this Chapter 05. Do not load `PROJECT_HANDOFF.md` or Chapters 01–04 unless the user explicitly expands the scope. This chapter contains the active driver architecture, current repair status, acceptance gates and hardware-safety boundary.
+
+
+## RPM/GLINK pre-link hardening and exact staged-source validation — 21 November 2026
+
+- Patch 0130 is regenerated from the exact post-0129 XNU staged files recovered from failed Run 448714's build-tree artifact. Its source-list and PlatformExpert hunks pass `git apply --check` against those files; no hunk counts were hand-edited.
+- The RPM TOC parser rejects duplicate RX/TX IDs and overlapping descriptor/FIFO regions before writing shared message RAM. Host regressions cover both malformed cases.
+- Both QUP and RPM/GLINK protocol host suites pass in a local rebuild of the fetched C++ test sources. The RPM host suite also exercises the pre-link verifier with valid, wrong-symbol, missing-object, duplicate-object and PRE_LTO fixtures, plus idempotent MakeInc.kernel injection.
+- A new build-tool injection adds checks to XNU's actual `makedefs/MakeInc.kernel` link recipes. In the active non-LTO workflow, it runs immediately after `link.filelist` is generated and immediately before the `$(LD)` command. A PRE_LTO hook checks both split lists before that link path as well. The verifier requires exactly one `LavenderRPMGLINK.cpo` entry, confirms the object exists, and uses the selected Xcode `nm` to prove a strong global text definition of `lavender_rpm_vote_vdd_dig_low_svs`.
+- The existing post-build audit remains as a second, later check; it is not being represented as the pre-link check.
+- This validates the patch, host test logic and hook placement, not the actual ARM64 kernel build. The new source has not yet been compiled by XNU and no new linked kernel or image exists. Run #400 remains the accepted baseline. No physical GLINK OPEN, RPM ACK, voltage transition or QUP transaction is claimed.
+- The Android 15/Lucid OS ROM remains read-only. Physical testing remains blocked until the full XNU/link/Mach-O/RAM-only package/manifest/checksum acceptance sequence passes; then use only `fastboot boot iosboot.img`, never flash or write an Android partition.

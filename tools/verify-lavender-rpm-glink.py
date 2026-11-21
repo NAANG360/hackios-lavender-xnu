@@ -83,6 +83,20 @@ def main():
             "LavenderRPMGLINK.cpp" in files,
             "qcom,glink-rpm provider nub is not exposed/compiled")
 
+    require('extern "C" void lavender_register_rpm_glink_driver(void);' in expert,
+            "PlatformExpert lacks the RPM personality C-linkage declaration")
+    require('#include <libkern/c++/OSArray.h>' in expert and
+            "createNubs(this, rpmNubs)" in expert,
+            "PlatformExpert rpm-glink nub publication is incomplete")
+    require(expert.count("lavender_register_rpm_glink_driver();") == 1,
+            "PlatformExpert RPM driver registration is missing or duplicated")
+    require(files.count("iokit/Kernel/arm/LavenderRPMGLINK.cpp optional iokitcpp") == 1,
+            "RPM translation unit source-list row is missing or duplicated")
+    require("if (haveRx) return false;" in header and
+            "if (haveTx) return false;" in header and
+            "found.rx.tailOffset<txEnd && found.tx.tailOffset<rxEnd" in header,
+            "RPM TOC duplicate/overlap fail-closed checks are missing")
+
     print("PASS: native Lavender rpm_requests GLINK transport, RPM-SMD v0 LOW_SVS request, and QUP power-vote gate")
 
 

@@ -83,10 +83,22 @@ static inline bool lavender_rpm_parse_toc(const uint8_t *ram, uint32_t ramSize,
         if (length < 16U || (length & 7U) || (offset & 3U) || offset > tocOffset ||
             offset+8U > tocOffset || length > tocOffset-(offset+8U)) continue;
         struct LavenderRPMRing ring={offset,offset+4U,offset+8U,length};
-        if (id==LAVENDER_RPM_RX_FIFO_ID) { found.rx=ring; haveRx=true; }
-        if (id==LAVENDER_RPM_TX_FIFO_ID) { found.tx=ring; haveTx=true; }
+        if (id==LAVENDER_RPM_RX_FIFO_ID) {
+            if (haveRx) return false;
+            found.rx=ring;
+            haveRx=true;
+        }
+        if (id==LAVENDER_RPM_TX_FIFO_ID) {
+            if (haveTx) return false;
+            found.tx=ring;
+            haveTx=true;
+        }
     }
     if (!haveRx || !haveTx) return false;
+    /* Reject aliased RX/TX descriptors or FIFOs before touching shared RAM. */
+    const uint32_t rxEnd=found.rx.fifoOffset+found.rx.length;
+    const uint32_t txEnd=found.tx.fifoOffset+found.tx.length;
+    if (found.rx.tailOffset<txEnd && found.tx.tailOffset<rxEnd) return false;
     *rings=found;
     return true;
 }
