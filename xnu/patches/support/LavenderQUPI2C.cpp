@@ -97,7 +97,7 @@ private:
     bool readGPIO(uint32_t controlOffset); bool waitGPIOHigh(uint32_t controlOffset);
     bool recoverBus(void);
     bool enableClocks(void); void disableClocks(void);
-    bool initController(void); bool setState(uint32_t state);
+    bool initController(void); bool setState(uint32_t state); bool waitBusIdle(uint32_t timeoutMilliseconds);
     bool waitForBlock(uint32_t *events,AbsoluteTime deadline); void releaseResources(void);
     IOMemoryMap *fQUPMap=nullptr,*fGCCMap=nullptr,*fTLMMMap=nullptr;
     volatile uint8_t *fQUP=nullptr,*fGCC=nullptr,*fTLMM=nullptr;
@@ -232,6 +232,18 @@ void LavenderQUPI2C::disableClocks(void){
 bool LavenderQUPI2C::setState(uint32_t state){
     if(!fQUP)return false;qwrite(fQUP,QUP_STATE,state);
     for(uint32_t i=0;i<100;i++){uint32_t v=qread(fQUP,QUP_STATE);if((v&QUP_STATE_VALID)&&((v&QUP_STATE_MASK)==state))return true;IOSleep(1);}return false;
+}
+/* Qualcomm's transfer-complete interrupt can precede the physical STOP.
+ * Do not reset the QUP core until BUS_ACTIVE deasserts, matching the Linux
+ * post-transfer fence (I2C_MSM_MAX_POLL_MSEC = 100ms). */
+bool LavenderQUPI2C::waitBusIdle(uint32_t timeoutMilliseconds){
+    if(!fQUP)return false;
+    if(!timeoutMilliseconds)timeoutMilliseconds=100;
+    for(uint32_t elapsed=0;elapsed<timeoutMilliseconds;elapsed++){
+        if((qread(fQUP,QUP_I2C_STATUS)&QUP_BUS_ACTIVE)==0)return true;
+        IOSleep(1);
+    }
+    return (qread(fQUP,QUP_I2C_STATUS)&QUP_BUS_ACTIVE)==0;
 }
 bool LavenderQUPI2C::initController(void){
     qwrite(fQUP,QUP_SW_RESET,1);IODelay(5);
@@ -406,6 +418,11 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
         while(inPos<z.inputBytes){uint32_t w=qread(fQUP,QUP_IN_FIFO_BASE);for(uint32_t b=0;b<4&&inPos<z.inputBytes;b++)in[inPos++]=(uint8_t)(w>>(b*8));}
     }
     if(z.inputBytes&&!lavender_qup_consume_input(m,n,in,z.inputBytes))result=kIOReturnIOError;
+    /* The final IRQ may arrive before the STOP condition reaches the pins. */
+    IOLockUnlock(fLock);
+    bool busIdle=waitBusIdle(100);
+    IOLockLock(fLock);
+    if(!busIdle&&result==kIOReturnSuccess)result=kIOReturnIOError;
     if(!setState(QUP_STATE_RESET)&&result==kIOReturnSuccess)result=kIOReturnIOError;
     if(result==kIOReturnSuccess&&!fFirstTransferLogged){
         fFirstTransferLogged=true;
