@@ -17,6 +17,36 @@ struct LavenderQUPTransferSize { uint32_t outputBytes, inputBytes, txBytes, rxBy
 struct LavenderQUPFifoGeometry { uint32_t inputFifoBytes, outputFifoBytes, inputBlockBytes, outputBlockBytes; };
 enum LavenderQUPTransferMode { LAVENDER_QUP_MODE_FIFO=0, LAVENDER_QUP_MODE_BLOCK=1 };
 
+struct LavenderQUPRegisterCounts {
+    uint32_t mxInputCount, mxOutputCount, mxReadCount, mxWriteCount;
+    bool noInput, noOutput;
+};
+
+/* QUP v2 uses MX_INPUT/OUTPUT_COUNT for BLOCK mode and MX_READ/WRITE_COUNT
+ * for FIFO mode. The two register pairs are not interchangeable. */
+static inline bool lavender_qup_register_counts(const struct LavenderQUPTransferSize *size,
+                                                  enum LavenderQUPTransferMode mode,
+                                                  struct LavenderQUPRegisterCounts *counts) {
+    if (!size || !counts ||
+        (mode != LAVENDER_QUP_MODE_FIFO && mode != LAVENDER_QUP_MODE_BLOCK) ||
+        size->outputBytes > LAVENDER_QUP_MAX_FIFO_BYTES ||
+        size->inputBytes > LAVENDER_QUP_MAX_FIFO_BYTES) return false;
+    counts->noInput = size->inputBytes == 0;
+    counts->noOutput = size->outputBytes == 0;
+    if (mode == LAVENDER_QUP_MODE_BLOCK) {
+        counts->mxInputCount = size->inputBytes;
+        counts->mxOutputCount = size->outputBytes;
+        counts->mxReadCount = 0;
+        counts->mxWriteCount = 0;
+    } else {
+        counts->mxInputCount = 0;
+        counts->mxOutputCount = 0;
+        counts->mxReadCount = size->inputBytes;
+        counts->mxWriteCount = size->outputBytes;
+    }
+    return true;
+}
+
 static inline bool lavender_qup_fifo_geometry(uint32_t ioModes, struct LavenderQUPFifoGeometry *g) {
     static const uint8_t blockBytes[4]={16,16,32,0}, fifoBlocks[4]={2,4,8,16};
     if (!g) return false;
