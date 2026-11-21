@@ -31,6 +31,16 @@ int main(){
  assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(geometry.outputBlockBytes==16&&geometry.inputBlockBytes==16);
  assert(geometry.outputFifoBytes==32&&geometry.inputFifoBytes==32);
+ LavenderQUPRegisterCounts counts={};
+ assert(lavender_qup_register_counts(&z,mode,&counts));
+ assert(counts.mxInputCount==68&&counts.mxOutputCount==9);
+ assert(counts.mxReadCount==0&&counts.mxWriteCount==0);
+ assert(!counts.noInput&&!counts.noOutput);
+ enum LavenderQUPTransferMode fifoMode=LAVENDER_QUP_MODE_FIFO;
+ assert(lavender_qup_register_counts(&z,fifoMode,&counts));
+ assert(counts.mxInputCount==0&&counts.mxOutputCount==0);
+ assert(counts.mxReadCount==68&&counts.mxWriteCount==9);
+ assert(!counts.noInput&&!counts.noOutput);
  /* Linux chooses BLOCK when a transfer exactly fills the FIFO. */
  assert(lavender_qup_choose_mode(0,1,32,&mode,&geometry));assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(lavender_qup_choose_mode((2U<<7),z.outputBytes,z.inputBytes,&mode,&geometry));
