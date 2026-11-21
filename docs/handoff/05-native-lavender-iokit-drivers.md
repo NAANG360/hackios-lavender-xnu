@@ -257,3 +257,24 @@ Legacy runs created under the former per-run concurrency groups are not automati
 5. Only after a linked ARM64 kernel and RAM-only image pass all checks should the physical test begin. Record actual remote OPEN, matching RPM ACK, voltage-vote and QUP initialization evidence. No physical success is currently claimed.
 
 The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM driver, kernel module, DTB, boot image, vendor partition or Android configuration was changed. Physical validation must remain RAM-only via `fastboot boot iosboot.img`; never flash or write Android partitions.
+
+
+## Verified CI evidence addendum — Run 44871413803
+
+The run is complete, not pending. The actual job records and decoded build log were inspected on 21 November 2026.
+
+- Job `build` (ID `136746553887`): **failure**.
+- Job `Package RAM-only Lavender fastboot image` (ID `136764738517`): **skipped**.
+- QUP host protocol regression: **passed**.
+- RPM/GLINK host protocol regression: **passed**.
+- XNU 8796 compilation reached the final link stage, then failed because `_lavender_rpm_vote_vdd_dig_low_svs` was undefined from `LavenderQUPI2C::start(IOService*)`.
+- The log explicitly reports that patch `0130-lavender-rpm-glink-v0.patch` was skipped as malformed: `patch fragment without header at line 12: @@ -15,4 +16,5 @@`. This prevented the RPM implementation's `files.arm64` inclusion and platform-expert registration changes from reaching the build tree. The RPM translation unit was consequently absent from the IOKit object list.
+- This is an integration/staging failure. It does **not** establish that the RPM/GLINK implementation compiles, links, opens the remote channel, receives an RPM ACK, or changes voltage.
+- Diagnostic artifacts only: `xnu-build-log`, artifact `14696531915`, ZIP SHA-256 `f06f15dc59a6903bd33f66f7a350157cbfb0dd356cf725d10f519feca6b582b4`; `xnu-buildtree`, artifact `14696800920`, ZIP SHA-256 `26bc07525eadafb32119b02df171f91402fbfb28371a9bfb09cc7771b2da2fb4`. Neither is a bootable kernel/image.
+- Run #400 (`44706182280`, artifact `14615937969`) remains the latest accepted build and RAM-only image. Preserve it unchanged.
+
+### Revised next action
+
+Repair the malformed staging patch or replace it with a deterministic, idempotent staging script. Before another build is allowed, add hard pre-link checks that prove all three conditions: (1) `LavenderRPMGLINK.cpp` exists in the staged XNU tree, (2) `LavenderRPMGLINK.cpo` is present in the IOKit object/file list, and (3) the platform expert registers the RPM service and publishes the `/soc/rpm-glink` nub. Verify the C-linkage declaration and definition of `lavender_rpm_vote_vdd_dig_low_svs` and that the object reaches the final link list. Do not use a weak stub, remove QUP's fail-closed clock-vote gate, or change the confirmed-booting Android ROM.
+
+Keep the repair and guards in one coherent source update; do not create per-file commits or trigger a build flood. After reviewing the patch application and guards, run one coherent CI workflow. Only a successful linked ARM64 kernel plus verified RAM-only package can advance to physical testing.
