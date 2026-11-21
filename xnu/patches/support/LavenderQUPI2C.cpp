@@ -1,6 +1,7 @@
 #include <pexpert/arm64/board_config.h>
 #if defined(ARM64_BOARD_CONFIG_LAVENDER)
 #include "LavenderQUPI2C.h"
+extern "C" bool lavender_rpm_vote_vdd_dig_low_svs(void);
 #include <IOKit/IOPlatformExpert.h>
 #include <IOKit/IOInterruptEventSource.h>
 #include <IOKit/IOWorkLoop.h>
@@ -268,7 +269,14 @@ bool LavenderQUPI2C::start(IOService *p){
     fQUPMap=p->mapDeviceMemoryWithIndex(0,kIOMapInhibitCache);
     if(!fQUPMap||fQUPMap->getPhysicalAddress()!=LAVENDER_QUP_I2C_BASE||fQUPMap->getLength()<LAVENDER_QUP_I2C_LENGTH){releaseResources();super::stop(p);return false;}
     fQUP=(volatile uint8_t *)fQUPMap->getVirtualAddress();
-    if(!fQUP||!mapTLMM()||!setQUPPins(true)||!enableClocks()||!initController()){
+    if(!fQUP||!mapTLMM()||!setQUPPins(true)){
+        releaseResources();super::stop(p);return false;
+    }
+    if(!lavender_rpm_vote_vdd_dig_low_svs()){
+        IOLog("LAVENDER QUP: refusing clock enable without acknowledged vdd_dig LOW_SVS vote\n");
+        releaseResources();super::stop(p);return false;
+    }
+    if(!enableClocks()||!initController()){
         releaseResources();super::stop(p);return false;
     }
     uint32_t ioModes=qread(fQUP,QUP_IO_MODES);

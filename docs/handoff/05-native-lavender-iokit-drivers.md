@@ -167,3 +167,42 @@ This establishes kernel inclusion and IOKit registration in Run #400, but not a 
 - A new XNU 8796 compile, linked ARM64 verification and RAM-only package for these follow-up commits have not yet been confirmed. Run #400 / artifact `14615937969` remains the last accepted image.
 
 **Next:** verify the current QUP changes with host tests and the source guard, complete the native GCC `vdd_dig` vote through the correct SDM660 power-control path, then build/link/package. Keep the ROM read-only. Only after QUP is accepted and physically verified should the Novatek client begin consuming this endpoint; do not proceed to SDHCI/eMMC or display on the strength of source compilation alone.
+
+
+## Native SDM660 RPM/GLINK rpm_requests — working source follow-up
+
+**Status: source implementation staged in this branch; not yet XNU-build accepted or physically verified.** Run #400 remains the latest accepted image/build baseline. The Android 15/Lucid ROM is a read-only reference; this work changes only LIOS/XNU source and its build/test scaffolding.
+
+### Confirmed transport topology
+
+The pinned Lavender Linux tree at da9b19cb9ec452281cbe1270c5e733e20d69475a shows:
+
+- qcom,glink-rpm is the GLINK transport node below /soc. It references rpm_msg_ram and mailbox channel zero on apcs_glb.
+- The message RAM node is 0x00778000, size 0x7000. The 256-byte TOC is at the end of that region, magic 0x67727430; TX FIFO ID is ap2r (0x61703272) and RX FIFO ID is r2ap (0x72326170). Each descriptor is tail, head, then FIFO bytes.
+- APCS global mailbox is 0x17911000; channel zero rings bit zero at offset 0x8 (0x17911008). The DTS also lists SPI 168. The Linux qcom_glink_rpm driver passes IRQ 0 into qcom_glink_native_probe, so this first XNU transport uses bounded polling rather than inventing an IRQ route.
+- The RPM endpoint is opened dynamically by the remote as GLINK/RPMSG channel rpm_requests. The native implementation sends GLINK v1 VERSION, handles VERSION/ACK, accepts the remote OPEN, sends OPEN_ACK, sends its local OPEN request and waits for OPEN_ACK. RPM packets travel in intentless GLINK TX_DATA messages, matching the Linux qcom_glink_rpm setup (features=0, intentless=true).
+
+### RPM-SMD v0 request for QUP's digital corner
+
+The pinned qcom,rpm-smd node has no format-version register, so Linux defaults to RPM-SMD v0. The request builder mirrors rpm-smd.c's v0 header and KVP layout:
+
+- 40-byte message; v0 request_len=32, data length 12.
+- Message IDs 0 and 1 are reserved; the first request uses ID 2.
+- Active set is 0.
+- Resource type is the little-endian ASCII resource name rwcx (0x78637772), not the regulator-type enum; resource ID is 0.
+- KVP key is little-endian ASCII vlvl (0x6c766c76), value size 4, value 64.
+- GCC maps QUP1's 19.2 MHz XO source to VDD_DIG_LOWER; vdd-level-660.h maps LOWER to RPM_REGULATOR_LEVEL_LOW_SVS = 64.
+
+The new LavenderRPMGLINK IOKit service validates the TOC, owns the two shared-memory rings, rings the APCS mailbox, opens rpm_requests, submits the v0 active-set vote and accepts only a matching successful RPM ACK. QUP now fails closed before GCC clock enable unless this LOW_SVS request is acknowledged. The active floor vote is retained; this first implementation deliberately does not send a zero/unvote that could lower a shared supply used by another client. A future multi-client regulator layer must aggregate the highest active corner before sending updates.
+
+### Integration and acceptance gates
+
+- The platform expert explicitly publishes only the /soc/rpm-glink nub, registers the RPM/GLINK personality before QUP, and files.arm64 compiles LavenderRPMGLINK.cpp.
+- Patch 0130-lavender-rpm-glink-v0.patch and staging script 0130-lavender-rpm-glink-v0.sh copy the implementation into the XNU build tree.
+- Host protocol tests cover TOC validation, ring wrap, GLINK OPEN/TX_DATA encoding, the 40-byte RPM v0 request and ACK decoding. A source guard verifies the nub, service, voltage-vote ordering and kernel inclusion.
+- The transport is polled bring-up code, not a general-purpose GLINK framework. No physical remote OPEN, RPM ACK, voltage transition or QUP transaction is claimed yet. Run the new host tests, source guard, XNU compile/link, RAM-only package verification and then a physical fastboot boot iosboot.img test before calling it accepted.
+- Do not change the confirmed-booting Android ROM, its modules, vendor drivers, DTB, boot image or partitions. Never flash or write Android partitions.
+
+### Workflow queue note
+
+The previous per-file commits created multiple workflow runs because the old concurrency group was unique per run. This source update is batched into one Git tree commit. The workflow is changed to keep one active build per branch and replace only older pending runs; it does not cancel an in-progress build. Existing older runs have not been cancelled, and the latest pre-existing run is left untouched. Run #400 remains the accepted baseline until the new RPM/GLINK workflow passes.

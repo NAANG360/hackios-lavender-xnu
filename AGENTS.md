@@ -230,3 +230,15 @@ The user's confirmed-booting Android 15/Lucid ROM is a read-only hardware refere
 - QUP's `vdd_dig` vote remains a hard dependency: the pinned SDM660 path uses the RPM `rpm_requests` service over GLINK/RPMSG, with `pm660l_s3_level` / `rwcx` resource, ID 0 and `vlvl` KVP. Do not substitute a guessed PMIC MMIO write or assume a voltage vote survives RAM-only boot.
 - The QUP driver is statically compiled into the XNU kernel and matched/started by IOKit; it is not a `.kext`. It publishes `lavender-i2c-transfer`, but no Novatek client has yet been accepted or observed making a real transfer. Do not claim the provider is physically used until that client transfer is evidenced.
 - Follow Chapter 05 for the detailed reference-source audit, QUP state and the RPM/GLINK dependency. Preserve RAM-only `fastboot boot iosboot.img`, `cpus=1`, volume-key recovery and all Android partitions.
+
+
+## Native RPM/GLINK rpm_requests bring-up rules — 21 November 2026
+
+- Keep the confirmed-booting Android 15/Lucid ROM read-only. Use it and the pinned Lavender Linux tree only as hardware-behavior references; never modify ROM drivers, modules, DTB, boot image or Android partitions.
+- The current LIOS source implements the SDM660 qcom,glink-rpm transport over RPM message RAM and APCS mailbox, then opens the remote-created GLINK/RPMSG rpm_requests channel. This is a native XNU endpoint for the one RPM service, not transplanted Linux code and not a generic GLINK framework.
+- Use the pinned hardware values and protocol constants recorded in Chapter 05. In particular, RPM resource type is the little-endian resource-name string rwcx, resource ID 0; the vlvl KVP value 64 is LOW_SVS. Do not confuse resource-name encoding with the regulator-type enum.
+- QUP must not enable its GCC clock until a matching successful RPM ACK confirms the LOW_SVS active-set vote. If the channel, GLINK handshake, or RPM ACK is unavailable, fail closed. Do not write PMIC registers directly.
+- The first implementation uses bounded polling and retains the active LOW_SVS floor; do not add an unvote or independent per-driver voltage writes. Future RPM consumers must share a regulator-vote aggregator.
+- The RPM/GLINK follow-up is source-only until its own host tests, source guard, XNU 8796 compile/link, RAM-only package checks and physical test pass. Run #400 remains the latest accepted baseline.
+- Batch related GitHub changes into one atomic tree/commit. The workflow now protects an active run and replaces only an older pending run. Do not claim existing runs were cancelled; preserve the latest in-flight run and its artifacts.
+- Read Chapter 05 for exact transport, message layout, source references, implementation state and acceptance gates.
