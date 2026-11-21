@@ -122,3 +122,34 @@ Native implementation added under `xnu/patches/support/LavenderQUPI2C.h` and `La
 ## Next-session instruction
 
 Read this chapter and Chapter 01 (device/safety), then inspect the current branch HEAD and latest Actions runs. Continue QUP from Run #400: implement block mode, TLMM pinctrl, bus recovery and the `vdd_dig` clock vote; add tests/source guards, build and package, then physically validate via `fastboot boot iosboot.img`. Only after QUP is validated proceed to SDHCI/eMMC, Novatek touch and MDSS/DSI plus Tianma panel. Do not implement all four as one unreviewable patch, do not copy Linux code, and do not claim hardware support before physical evidence.
+
+
+## Working QUP follow-up after Run #400 — source only, not CI accepted
+
+**Working source branch head at handoff update:** `4d7773d6acdd299ae5aaf07a9bf6908c3d827e17`. Run #400 remains the latest verified build/package baseline; the changes below must not be described as CI accepted until a new build and package run succeeds.
+
+The confirmed-booting Android 15/Lucid ROM is an immutable reference for this task. No ROM driver, kernel module, boot image, DTB, vendor partition or Android configuration has been modified. The QUP implementation changes are confined to the native LIOS/XNU source tree, its host tests, source guards and this handoff.
+
+### Additional QUP source changes
+
+- QUP transfer counters now follow the hardware mode: FIFO uses `MX_READ_COUNT/MX_WRITE_COUNT`; BLOCK uses `MX_INPUT_COUNT/MX_OUTPUT_COUNT`. The Novatek report transport is 68 input bytes (66 controller report bytes plus the two-byte QUP tag), and selects BLOCK with the observed 16-byte block / 32-byte FIFO geometry when `IO_MODES=0`.
+- The block reader now drains only `ceil(remainingBytes / 4)` FIFO words for each block. This matters for the 68-byte report's final four-byte tail; reading a complete 16-byte block at that point would over-consume the FIFO. Host tests cover the four 16-byte blocks plus one 4-byte tail, and reject invalid final-block sizes.
+- Native TLMM handling maps the SOUTH tile at `0x03100000`, and programs GPIO2/GPIO3 using SDM660's per-pin control registers. Active pin state is `blsp_i2c1`, 2mA, no pull; sleep retains the I2C mux with a pull-up. Bit-bang recovery selects GPIO mode, pull-up, 2mA, input (released/open-drain) by default.
+- The exact pinned BLSP1 QUP1 DTS source is `arch/arm64/boot/dts/vendor/qcom/sdm660-blsp.dtsi` at Linux commit `da9b19cb9ec452281cbe1270c5e733e20d69475a`: `qcom,i2c-dat = <&tlmm 2 ...>` and `qcom,i2c-clk = <&tlmm 3 ...>`. Thus **GPIO2 is SDA and GPIO3 is SCL**. The XNU recovery aliases and host regression tests encode this mapping. Do not reverse the lines.
+- A bounded bus-recovery path now checks `BUS_ACTIVE`, `BUS_MASTER` and SDA state, switches to GPIO mode, releases both lines, emits at most nine SCL low/release pulses with a bounded clock-stretch wait, attempts a STOP condition, samples both lines before restoring the I2C mux, then checks the QUP bus-active status. The interrupt event source is disabled during recovery and re-enabled afterward. This is source implementation only; it has not run against the physical bus.
+- Runtime checkpoints distinguish IOKit personality/provider match, controller/pin initialization and the first successful client transaction. The shared `lavender-i2c-transfer` resource is published before `registerService()`, so a dependent IOKit client can only match after the transfer endpoint exists.
+
+### Actual service inclusion versus use
+
+`LavenderQUPI2C.cpp` is statically compiled into the XNU kernel via `files.arm64`; the Lavender platform expert registers its IOKit personality; the service probes the `qcom,i2c-msm-v2` platform node and publishes its `callPlatformFunction` transfer endpoint. It is **not** a standalone dynamically loaded `.kext`.
+
+This establishes kernel inclusion and IOKit registration in Run #400, but not a completed bus transaction: no Novatek client has yet been accepted or physically observed calling the transfer endpoint. The new first-transfer log is deliberately the runtime proof point for that next step.
+
+### Still blocking QUP acceptance
+
+- Native GCC `vdd_dig` corner voting is not implemented. The pinned `gcc-sdm660.c` source maps the 19.2MHz QUP1 source to the `LOWER` digital corner; `vdd_dig` is the `pm660l_s3_level` supply on the GCC node. Do not assume the ROM/bootloader's prior vote survives a RAM-only XNU boot.
+- The controller's actual `IO_MODES` value and FIFO geometry still need on-device confirmation.
+- The QUP GPIO recovery source path has not been built or run on hardware. No physical I2C transaction, Novatek identification or input event is claimed.
+- A new XNU 8796 compile, linked ARM64 verification and RAM-only package for these follow-up commits have not yet been confirmed. Run #400 / artifact `14615937969` remains the last accepted image.
+
+**Next:** verify the current QUP changes with host tests and the source guard, complete the native GCC `vdd_dig` vote through the correct SDM660 power-control path, then build/link/package. Keep the ROM read-only. Only after QUP is accepted and physically verified should the Novatek client begin consuming this endpoint; do not proceed to SDHCI/eMMC or display on the strength of source compilation alone.
