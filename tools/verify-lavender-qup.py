@@ -20,6 +20,7 @@ for x in ("platform_driver","i2c_adapter","devm_","readl_relaxed","writel_relaxe
  if x in s: raise SystemExit(f"Linux-only implementation leaked: {x}")
 if "QUP_TAG2_START" not in h or "QUP_TAG2_DATA_READ_N_STOP" not in h: raise SystemExit("QUP-v2 tags missing")
 if "LAVENDER_QUP_MODE_BLOCK" not in h or "lavender_qup_fifo_geometry" not in h: raise SystemExit("QUP FIFO/block geometry selection missing")
+if "lavender_qup_block_read_words(count,g.inputBlockBytes,&words)" not in s: raise SystemExit("QUP block-mode final partial input block is not drained to exact byte count")
 if "LavenderQUPI2CPinsConfigured" not in s: raise SystemExit("QUP TLMM pins are not marked configured")
 if "LavenderI2CTransferFunction" not in s or "callPlatformFunction" not in s: raise SystemExit("QUP provider client call path is not published")
 start=s[s.index("bool LavenderQUPI2C::start"):s.index("void LavenderQUPI2C::releaseResources")]
