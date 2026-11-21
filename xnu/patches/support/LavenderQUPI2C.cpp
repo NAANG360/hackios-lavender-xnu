@@ -105,7 +105,7 @@ IOService *LavenderQUPI2C::probe(IOService *p,SInt32 *score){
     IODeviceMemory *m=p->getDeviceMemoryWithIndex(0);
     if(!m||m->getPhysicalAddress()!=LAVENDER_QUP_I2C_BASE||m->getLength()<LAVENDER_QUP_I2C_LENGTH)return nullptr;
     if(score)*score=1000;
-    IOLog("LAVENDER QUP: IOKit provider matched qcom,i2c-msm-v2 at 0x%llx\\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
+    IOLog("LAVENDER QUP: IOKit provider matched qcom,i2c-msm-v2 at 0x%llx\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
     return this;
 }
 bool LavenderQUPI2C::mapTLMM(void){
@@ -329,7 +329,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     if(!setState(QUP_STATE_RESET)&&result==kIOReturnSuccess)result=kIOReturnIOError;
     if(result==kIOReturnSuccess&&!fFirstTransferLogged){
         fFirstTransferLogged=true;
-        IOLog("LAVENDER QUP: first client transaction completed (%u messages, TX=%u RX=%u, %s mode)\\n",
+        IOLog("LAVENDER QUP: first client transaction completed (%u messages, TX=%u RX=%u, %s mode)\n",
               n,z.txBytes,z.rxBytes,mode==LAVENDER_QUP_MODE_BLOCK?"BLOCK":"FIFO");
     }
 unlock:
