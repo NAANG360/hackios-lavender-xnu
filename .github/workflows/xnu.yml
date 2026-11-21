@@ -52,11 +52,11 @@ on:
       - "tools/adt.py"
       - "tests/test_lavender_adt.py"
 
-# Keep one active build per ref. Never cancel a running build; a newer commit
-# replaces only an older pending run so the latest in-flight logs/artifacts survive.
+# A newer source commit supersedes older builds on this branch. The accepted
+# Run #400 baseline and legacy runs keep their original per-run concurrency groups.
 concurrency:
   group: xnu-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   DXB_REPO: https://github.com/blacktop/darwin-xnu-build
