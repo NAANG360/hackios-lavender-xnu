@@ -82,13 +82,14 @@ with tempfile.TemporaryDirectory(prefix="lavender-rpm-prelink-") as directory:
     subprocess.run([sys.executable, str(guard), "--pre-lto", str(lto_list), str(nonlto_list)], check=True)
 
     fixture = tmp / "MakeInc.kernel"
-    fixture.write_text(
-        '\tprintf \'%s\\n\' "$lto" >ltolink.filelist; \\\n'
-        '\tprintf \'%s\\n\' "$nonlto" >nonltolink.filelist\n'
-        '\t@$(LOG_LD) "$(@F)"\n'
-        '\t$(_v)$(CAT) $(filter %.filelist,$+) < /dev/null > link.filelist\n'
-        '\t$(_v)$(LD) $(LDFLAGS_KERNEL) $(LDFLAGS_KERNEL_ONLY) -filelist link.filelist version.o $(filter %.o,$+) -o $@ $(LD_KERNEL_LIBS) $(LD_KERNEL_ARCHIVES)\n'
-    )
+    dollar = chr(36) * 2  # Make escapes shell variables with $$.
+    fixture_lines = [
+        "\tprintf '%s\\n' \"" + dollar + "nonlto\" >nonltolink.filelist",
+        '\t@$(LOG_LD) "$(@F)"',
+        '\t$(_v)$(CAT) $(filter %.filelist,$+) < /dev/null > link.filelist',
+        '\t$(_v)$(LD) $(LDFLAGS_KERNEL) $(LDFLAGS_KERNEL_ONLY) -filelist link.filelist version.o $(filter %.o,$+) -o $@ $(LD_KERNEL_LIBS) $(LD_KERNEL_ARCHIVES)',
+    ]
+    fixture.write_text("\n".join(fixture_lines) + "\n")
     subprocess.run([sys.executable, str(injector), str(fixture)], check=True)
     injected = fixture.read_text()
     subprocess.run([sys.executable, str(injector), str(fixture)], check=True)

@@ -13,15 +13,13 @@ NON_LTO_NEW = (
     '\t$(_v)$(LD) $(LDFLAGS_KERNEL) $(LDFLAGS_KERNEL_ONLY) -filelist link.filelist version.o $(filter %.o,$+) -o $@ $(LD_KERNEL_LIBS) $(LD_KERNEL_ARCHIVES)\n'
 )
 PRE_LTO_OLD = (
-    '\tprintf \'%s\\n\' "$$lto" >ltolink.filelist; \\\n'
-    '\tprintf \'%s\\n\' "$$nonlto" >nonltolink.filelist\n'
-    '\t@$(LOG_LD) "$(@F)"\n'
+    "\tprintf '%s\\n' \"$$nonlto\" >nonltolink.filelist\n"
+    "\t@$(LOG_LD) \"$(@F)\"\n"
 )
 PRE_LTO_NEW = (
-    '\tprintf \'%s\\n\' "$$lto" >ltolink.filelist; \\\n'
-    '\tprintf \'%s\\n\' "$$nonlto" >nonltolink.filelist\n'
-    '\t$(_v)python3 "$(SRCROOT)/../../tools/verify-lavender-rpm-link-input.py" --pre-lto ltolink.filelist nonltolink.filelist\n'
-    '\t@$(LOG_LD) "$(@F)"\n'
+    "\tprintf '%s\\n' \"$$nonlto\" >nonltolink.filelist\n"
+    "\t$(_v)python3 \"$(SRCROOT)/../../tools/verify-lavender-rpm-link-input.py\" --pre-lto ltolink.filelist nonltolink.filelist\n"
+    "\t@$(LOG_LD) \"$(@F)\"\n"
 )
 
 
