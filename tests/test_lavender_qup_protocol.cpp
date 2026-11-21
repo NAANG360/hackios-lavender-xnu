@@ -31,6 +31,20 @@ int main(){
  assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(geometry.outputBlockBytes==16&&geometry.inputBlockBytes==16);
  assert(geometry.outputFifoBytes==32&&geometry.inputFifoBytes==32);
+ /* Native XNU pad settings match the pinned SDM660 pinctrl DTS. */
+ const uint32_t tlmmMask=LAVENDER_TLMM_MUX_MASK|LAVENDER_TLMM_PULL_MASK|
+                         LAVENDER_TLMM_DRIVE_MASK|LAVENDER_TLMM_OE;
+ uint32_t oldControl=0xa5a55a5aU;
+ uint32_t activeControl=lavender_qup_tlmm_control(oldControl,true);
+ uint32_t sleepControl=lavender_qup_tlmm_control(oldControl,false);
+ assert(((activeControl&LAVENDER_TLMM_MUX_MASK)>>LAVENDER_TLMM_MUX_SHIFT)==3U);
+ assert((activeControl&LAVENDER_TLMM_PULL_MASK)==0U);
+ assert((activeControl&LAVENDER_TLMM_DRIVE_MASK)==0U); /* 2mA */
+ assert((activeControl&LAVENDER_TLMM_OE)==0U);
+ assert((sleepControl&LAVENDER_TLMM_PULL_MASK)==LAVENDER_TLMM_PULL_UP);
+ assert((sleepControl&LAVENDER_TLMM_DRIVE_MASK)==0U);
+ assert((activeControl&~tlmmMask)==(oldControl&~tlmmMask));
+ assert((sleepControl&~tlmmMask)==(oldControl&~tlmmMask));
  LavenderQUPRegisterCounts counts={};
  assert(lavender_qup_register_counts(&z,mode,&counts));
  assert(counts.mxInputCount==68&&counts.mxOutputCount==9);
