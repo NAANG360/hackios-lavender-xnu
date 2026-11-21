@@ -31,6 +31,10 @@ int main(){
  assert(mode==LAVENDER_QUP_MODE_BLOCK);
  assert(geometry.outputBlockBytes==16&&geometry.inputBlockBytes==16);
  assert(geometry.outputFifoBytes==32&&geometry.inputFifoBytes==32);
+ /* QUP_I2C_STATUS BUS_ACTIVE is bit 8; bus idle must be observed before reset. */
+ assert(lavender_qup_bus_is_active(1U<<8));
+ assert(!lavender_qup_bus_is_active(0U));
+ assert(!lavender_qup_bus_is_active(1U<<9));
  /* A 68-byte Novatek read consumes four full 16-byte blocks and one 4-byte tail. */
  const uint32_t expectedTailBytes[]={16,16,16,16,4};
  const uint32_t expectedWords[]={4,4,4,4,1};
