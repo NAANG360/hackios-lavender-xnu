@@ -104,7 +104,7 @@ Native implementation added under `xnu/patches/support/LavenderQUPI2C.h` and `La
 
 **Strict scope:** this is a native source/build/link/package milestone, not a functioning physical I2C bus. The current transfer path is FIFO-only. It does not yet implement QUP block mode, TLMM pinmux for GPIO2/3, bus-clear recovery, or the native `vdd_dig` vote required by the clock's voltage class. Since the Novatek read envelope is 68 bytes including the QUP input tag, block mode must be implemented or actual FIFO geometry must be independently proven sufficient before touch integration. The current driver log explicitly reports these remaining dependencies. No physical test has been performed.
 
-### Next QUP work (do not move to touch yet)
+### Run #400 backlog at acceptance time (superseded by the follow-up below)
 
 1. Implement FIFO/block mode selection from the live `QUP_IO_MODES` register, including interrupt-driven block refill/drain and bounded completion; add host tests for the 68-byte Novatek envelope and malformed/timeout cases.
 2. Implement TLMM pinctrl for QUP GPIO2/3 and safe bus-clear recovery; restore the active pinmux state on success and every failure path.
@@ -112,16 +112,30 @@ Native implementation added under `xnu/patches/support/LavenderQUPI2C.h` and `La
 4. Add first-successful-transfer/error instrumentation and verify controller ID/status and an actual I2C transaction on hardware.
 5. Only after QUP is validated, proceed to SDHCI/eMMC, then Novatek touch with the TLMM GPIO67 interrupt domain, then MDSS/DSI/Tianma.
 
-## Current status
+## Current status — superseding the Run #400 next-step list
 
-- Run #400 passed XNU 8796 build/source verification/kernel artifact verification and downstream RAM-only packaging. The accepted image and hashes are recorded above.
-- The native QUP IOKit provider is now compiled, linked and source-guarded. This is not proof of QUP bus transactions or any physical peripheral operation.
-- QUP remains incomplete: block mode, TLMM pinmux, bus-clear recovery and native `vdd_dig` vote are pending. The Novatek 68-byte tagged read must be supported before touch integration.
-- SDHCI/eMMC, Novatek HID/input and MDSS/DSI/Tianma panel drivers are not yet implemented or accepted. GPIO67 must use the TLMM/MPM interrupt chain, never a direct GIC interrupt.
+- Run #400 / artifact `14615937969` remains the latest independently verified XNU build, ARM64-linked kernel and RAM-only image. Its SHA-256 remains `f0239f08c402d0a97e95ceddbee10cf61ec7c76d94258619716d038518c84ce2`.
+- Native QUP follow-up source is now on `ci/lavender-machine-profile` through commit `b94e90b480cb51121776e663c5a369afe3dd56ce`. It is **not** yet a CI-accepted image or a physical-hardware milestone.
+- The follow-up contains mode-specific FIFO/BLOCK counters, 68-byte input block draining with an exact four-byte tail, TLMM GPIO2=SDA/GPIO3=SCL active/sleep/bit-bang states, bounded nine-pulse bus recovery, a 100ms BUS_ACTIVE STOP fence, saved pre-reset failure status, 500–5000ms bounded transfer timeouts, runtime FIFO-geometry reporting and first-success/first-error diagnostics.
+- Host tests and the source guard have been extended for the timeout clamp, bus-recovery eligibility, mode-specific counters, partial block drain, GPIO mux and failure-status ordering. Their execution and the XNU compile have not been confirmed for this follow-up commit.
+- The provider is statically compiled into XNU and is an IOKit service, not a standalone loadable `.kext`. It matches the platform node and publishes `lavender-i2c-transfer` before registering. **No dependent Novatek IOKit client has yet been implemented**, so the endpoint has not yet been observed servicing a physical transfer.
+- The confirmed-booting Android 15/Lucid ROM remains read-only. No ROM driver, module, boot image, DTB or Android configuration has been changed.
 
-## Next-session instruction
+### QUP's remaining hard dependency: the real SDM660 RPM voltage vote
 
-Read this chapter and Chapter 01 (device/safety), then inspect the current branch HEAD and latest Actions runs. Continue QUP from Run #400: implement block mode, TLMM pinctrl, bus recovery and the `vdd_dig` clock vote; add tests/source guards, build and package, then physically validate via `fastboot boot iosboot.img`. Only after QUP is validated proceed to SDHCI/eMMC, Novatek touch and MDSS/DSI plus Tianma panel. Do not implement all four as one unreviewable patch, do not copy Linux code, and do not claim hardware support before physical evidence.
+The pinned SDM660 DTS connects GCC `vdd_dig` to `pm660l_s3_level`. GCC assigns the QUP1 19.2MHz XO source to the LOWER digital corner (the pinned GCC voltage table maps LOWER to LOW_SVS). The RPM regulator uses the `rwcx` resource, ID 0, KVP key `vlvl`, with the requested voltage level sent over Qualcomm RPM messaging.
+
+Lavender's SoC DTS provides `qcom,rpm-smd` / channel `rpm_requests`, RPM interrupt SPI 168, and an RPM GLINK transport through the APCS mailbox and shared RPM message RAM. The pinned `rpm-smd` client is an RPMSG client that sends acknowledged RPM resource requests; it is not a direct PMIC MMIO register. Therefore the XNU implementation needs the appropriate native shared-memory/mailbox/GLINK-RPM transport and acknowledged RPM request path before it can safely request LOW_SVS. Do not synthesize a PMIC register write or assume the previously booted Android system's regulator vote persists across a RAM-only fastboot boot.
+
+### Acceptance and next engineering work
+
+1. Finish and host-test the native RPM/GLINK dependency needed for the `vdd_dig` LOW_SVS request, or provide an independently verified always-on power guarantee before enabling QUP for clients.
+2. Run the QUP protocol tests and source guard, then XNU 8796 compile, linked ARM64 verification, RAM-only packaging, manifest verification and SHA-256 verification on the new source head.
+3. Only after those gates, physically validate a real transfer with `fastboot boot iosboot.img`, recording the image SHA-256 and QUP match/geometry/first-transfer logs.
+4. Add the native Novatek client as a consumer of `lavender-i2c-transfer`; do not let it access QUP MMIO directly. Implement GPIO66 reset and the GPIO67 TLMM/MPM interrupt path separately.
+5. Proceed to read-only SDHCI/eMMC and then the complete MDSS/DSI/PHY/Tianma chain. Preserve CQE/ICE disabled and do not claim these devices work until physical evidence exists.
+
+Do not label this QUP follow-up accepted until its own CI and physical acceptance gates pass. Physical tests remain RAM-only; never flash, erase, format, repartition or write Android partitions.
 
 
 ## Working QUP follow-up after Run #400 — source only, not CI accepted
