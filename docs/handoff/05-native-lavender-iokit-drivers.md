@@ -489,3 +489,10 @@ For this active RPM/GLINK-to-QUP milestone, the next session should read only `A
 - The existing post-build audit remains as a second, later check; it is not being represented as the pre-link check.
 - This validates the patch, host test logic and hook placement, not the actual ARM64 kernel build. The new source has not yet been compiled by XNU and no new linked kernel or image exists. Run #400 remains the accepted baseline. No physical GLINK OPEN, RPM ACK, voltage transition or QUP transaction is claimed.
 - The Android 15/Lucid OS ROM remains read-only. Physical testing remains blocked until the full XNU/link/Mach-O/RAM-only package/manifest/checksum acceptance sequence passes; then use only `fastboot boot iosboot.img`, never flash or write an Android partition.
+
+
+## RPM patch-hunk CI correction — 21 November 2026
+
+- Run `44935573529` (source `93f8e2b1238b1c4f2a5386702c80ad54f4b19627`) passed the QUP host regression but stopped at the RPM patch hunk-accounting test. The third PlatformExpert hunk contained one extra context line relative to the exact recovered staged-source diff.
+- No XNU compilation, kernel link, image package or physical test occurred in that run. The RPM patch was corrected directly from the recovered post-0129 source diff; hunk accounting now matches 6/19 for that hunk. Do not treat Run `44935573529` as a build acceptance result.
+- Run #400 and artifact `14615937969` remain the accepted baseline. The branch still requires both host suites, the exact-source staging guard, a real pre-link object/symbol check, XNU 8796 link, independent Mach-O verification, RAM-only image packaging and manifest/checksum agreement before handset testing.

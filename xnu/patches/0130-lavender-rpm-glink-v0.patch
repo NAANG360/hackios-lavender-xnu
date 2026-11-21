@@ -44,7 +44,6 @@ diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/Lave
  
      /*
       * No AppleARMIO driver publishes /arm-io children on Lavender. Publish
-      * those platform devices directly so any matching built-in/kext driver
 diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
