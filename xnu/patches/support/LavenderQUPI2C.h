@@ -106,6 +106,14 @@ static inline bool lavender_qup_choose_mode(uint32_t ioModes, uint32_t outputByt
         ? LAVENDER_QUP_MODE_BLOCK : LAVENDER_QUP_MODE_FIFO;
     return true;
 }
+/* Number of 32-bit FIFO words required to drain a partial final block.
+ * QUP's last BLOCK-mode read may be shorter than the hardware block size. */
+static inline bool lavender_qup_block_read_words(uint32_t bytes, uint32_t blockBytes,
+                                                  uint32_t *words) {
+    if (!words || !blockBytes || (blockBytes & 3U) || bytes > blockBytes) return false;
+    *words = (bytes + 3U) / 4U;
+    return true;
+}
 
 static inline bool lavender_qup_encode_tag(uint16_t address, bool read, bool last, uint8_t length, bool start, uint8_t bytes[4], uint32_t *count) {
     uint8_t command;
