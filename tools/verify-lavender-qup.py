@@ -21,6 +21,8 @@ for x in ("platform_driver","i2c_adapter","devm_","readl_relaxed","writel_relaxe
 if "QUP_TAG2_START" not in h or "QUP_TAG2_DATA_READ_N_STOP" not in h: raise SystemExit("QUP-v2 tags missing")
 if "LAVENDER_QUP_MODE_BLOCK" not in h or "lavender_qup_fifo_geometry" not in h: raise SystemExit("QUP FIFO/block geometry selection missing")
 if "lavender_qup_block_read_words(count,g.inputBlockBytes,&words)" not in s: raise SystemExit("QUP block-mode final partial input block is not drained to exact byte count")
+transfer=s[s.index("IOReturn LavenderQUPI2C::transfer"):s.index('extern "C" void lavender_register_qup_i2c_driver')]
+if not (transfer.find("LavenderQUPRegisterCounts counts={};") < transfer.find("goto done;")): raise SystemExit("QUP transfer cleanup jumps across initialized local state")
 if "LavenderQUPI2CPinsConfigured" not in s: raise SystemExit("QUP TLMM pins are not marked configured")
 if "LavenderI2CTransferFunction" not in s or "callPlatformFunction" not in s: raise SystemExit("QUP provider client call path is not published")
 start=s[s.index("bool LavenderQUPI2C::start"):s.index("void LavenderQUPI2C::releaseResources")]
