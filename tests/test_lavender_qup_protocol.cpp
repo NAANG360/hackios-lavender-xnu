@@ -43,6 +43,10 @@ int main(){
  assert((activeControl&LAVENDER_TLMM_OE)==0U);
  assert((sleepControl&LAVENDER_TLMM_PULL_MASK)==LAVENDER_TLMM_PULL_UP);
  assert((sleepControl&LAVENDER_TLMM_DRIVE_MASK)==0U);
+ uint32_t gpioControl=lavender_qup_tlmm_gpio_control(oldControl);
+ assert(((gpioControl&LAVENDER_TLMM_MUX_MASK)>>LAVENDER_TLMM_MUX_SHIFT)==LAVENDER_TLMM_GPIO_FUNCTION);
+ assert((gpioControl&LAVENDER_TLMM_PULL_MASK)==LAVENDER_TLMM_PULL_UP);
+ assert((gpioControl&LAVENDER_TLMM_OE)==0U);
  assert((activeControl&~tlmmMask)==(oldControl&~tlmmMask));
  assert((sleepControl&~tlmmMask)==(oldControl&~tlmmMask));
  LavenderQUPRegisterCounts counts={};
