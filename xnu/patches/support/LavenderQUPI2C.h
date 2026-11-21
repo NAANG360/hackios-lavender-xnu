@@ -49,6 +49,16 @@ static inline uint32_t lavender_qup_tlmm_control(uint32_t oldValue, bool active)
     if (!active) value |= LAVENDER_TLMM_PULL_UP;
     return value;
 }
+static inline uint32_t lavender_qup_tlmm_gpio_control(uint32_t oldValue) {
+    uint32_t mask = LAVENDER_TLMM_MUX_MASK |
+                    LAVENDER_TLMM_PULL_MASK |
+                    LAVENDER_TLMM_DRIVE_MASK |
+                    LAVENDER_TLMM_OE;
+    uint32_t value = oldValue & ~mask;
+    value |= (LAVENDER_TLMM_GPIO_FUNCTION << LAVENDER_TLMM_MUX_SHIFT) |
+             LAVENDER_TLMM_PULL_UP;
+    return value;
+}
 
 /* QUP v2 uses MX_INPUT/OUTPUT_COUNT for BLOCK mode and MX_READ/WRITE_COUNT
  * for FIFO mode. The two register pairs are not interchangeable. */
