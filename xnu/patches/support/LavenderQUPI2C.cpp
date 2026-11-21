@@ -322,6 +322,7 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     LavenderQUPTransferSize z={};LavenderQUPFifoGeometry g={};
     enum LavenderQUPTransferMode mode=LAVENDER_QUP_MODE_FIFO;
     uint32_t written=0,inPos=0,ioModes;uint8_t *out=nullptr,*in=nullptr;
+    LavenderQUPRegisterCounts counts={};
     IOReturn result=kIOReturnSuccess;AbsoluteTime deadline;int wr;bool attemptRecovery=false;
     if(!fQUP||!fLock||!fClocks)return kIOReturnNotReady;
     if(!timeout)timeout=500;
@@ -341,7 +342,6 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
     fBlockMode=(mode==LAVENDER_QUP_MODE_BLOCK);fNeedInput=(z.inputBytes!=0);
     fTxBlockEvents=0;fRxBlockEvents=0;
     if(!setState(QUP_STATE_RESET)){result=kIOReturnTimeout;goto unlock;}
-    LavenderQUPRegisterCounts counts={};
     if(!lavender_qup_register_counts(&z,mode,&counts)){result=kIOReturnBadArgument;goto unlock;}
     qwrite(fQUP,QUP_MX_INPUT_COUNT,counts.mxInputCount);
     qwrite(fQUP,QUP_MX_OUTPUT_COUNT,counts.mxOutputCount);
