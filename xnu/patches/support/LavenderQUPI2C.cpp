@@ -104,7 +104,9 @@ IOService *LavenderQUPI2C::probe(IOService *p,SInt32 *score){
     if(!p||p->getResources()!=kIOReturnSuccess||!p->getDeviceMemoryCount())return nullptr;
     IODeviceMemory *m=p->getDeviceMemoryWithIndex(0);
     if(!m||m->getPhysicalAddress()!=LAVENDER_QUP_I2C_BASE||m->getLength()<LAVENDER_QUP_I2C_LENGTH)return nullptr;
-    if(score)*score=1000; return this;
+    if(score)*score=1000;
+    IOLog("LAVENDER QUP: IOKit provider matched qcom,i2c-msm-v2 at 0x%llx\\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
+    return this;
 }
 bool LavenderQUPI2C::mapTLMM(void){
     IODeviceMemory *mem=IODeviceMemory::withRange(LAVENDER_TLMM_SOUTH_BASE,LAVENDER_TLMM_SOUTH_LENGTH);
@@ -189,8 +191,8 @@ bool LavenderQUPI2C::start(IOService *p){
     setProperty("LavenderQUPI2CControllerInitialized",kOSBooleanTrue);
     setProperty("LavenderQUPI2CPinsConfigured",kOSBooleanTrue);
     setProperty("LavenderI2CTransferFunction",LAVENDER_I2C_TRANSFER_FUNCTION);
-    registerService();
     IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,this);
+    registerService();
     IOLog("LAVENDER QUP: BLSP1 QUP1 controller initialized at 0x%llx; GPIO2/3 blsp_i2c1 configured; tagged FIFO/BLOCK provider published\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
     IOLog("LAVENDER QUP: GCC vdd_dig corner vote and bus-clear recovery remain pending\n");
     return true;
