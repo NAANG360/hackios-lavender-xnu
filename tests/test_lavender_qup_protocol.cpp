@@ -42,6 +42,10 @@ int main(){
  uint32_t invalidWords=0;
  assert(!lavender_qup_block_read_words(17,16,&invalidWords));
  assert(!lavender_qup_block_read_words(4,0,&invalidWords));
+ /* BLSP1 QUP1 DTS: qcom,i2c-dat is TLMM GPIO2; qcom,i2c-clk is GPIO3. */
+ assert(LAVENDER_TLMM_QUP1_SDA_CTL==LAVENDER_TLMM_GPIO2_CTL);
+ assert(LAVENDER_TLMM_QUP1_SCL_CTL==LAVENDER_TLMM_GPIO3_CTL);
+ assert(LAVENDER_TLMM_QUP1_SDA_CTL==0x2000U&&LAVENDER_TLMM_QUP1_SCL_CTL==0x3000U);
  /* Native XNU pad settings match the pinned SDM660 pinctrl DTS. */
  const uint32_t tlmmMask=LAVENDER_TLMM_MUX_MASK|LAVENDER_TLMM_PULL_MASK|
                          LAVENDER_TLMM_DRIVE_MASK|LAVENDER_TLMM_OE;
