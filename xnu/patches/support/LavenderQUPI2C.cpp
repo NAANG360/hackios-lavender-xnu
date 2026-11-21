@@ -58,7 +58,7 @@
 #define QUP_I2C_NACK (1U<<3)
 #define QUP_I2C_ARB_LOST (1U<<4)
 #define QUP_I2C_BUS_ERROR (1U<<2)
-#define QUP_BUS_ACTIVE (1U<<8)
+#define QUP_BUS_ACTIVE LAVENDER_QUP_BUS_ACTIVE_FLAG
 #define QUP_BUS_MASTER (1U<<9)
 #define QUP_I2C_SDA (1U<<26)
 #define QUP_I2C_SCL (1U<<27)
@@ -171,7 +171,7 @@ bool LavenderQUPI2C::waitGPIOHigh(uint32_t controlOffset){
 bool LavenderQUPI2C::recoverBus(void){
     if(!fQUP||!fTLMM||!fClocks)return false;
     uint32_t status=qread(fQUP,QUP_I2C_STATUS);
-    if(!(status&QUP_BUS_ACTIVE)||(status&QUP_BUS_MASTER)||(status&QUP_I2C_SDA))
+    if(!lavender_qup_bus_is_active(status)||(status&QUP_BUS_MASTER)||(status&QUP_I2C_SDA))
         return true; /* only recover a slave-held-low bus */
     if(!setState(QUP_STATE_RESET)||!setQUPPinsGPIO())return false;
     const uint32_t scl=LAVENDER_TLMM_QUP1_SCL_CTL,sda=LAVENDER_TLMM_QUP1_SDA_CTL;
@@ -200,7 +200,7 @@ bool LavenderQUPI2C::recoverBus(void){
         return false;
     }
     status=qread(fQUP,QUP_I2C_STATUS);
-    bool clear=linesHigh&&!(status&QUP_BUS_ACTIVE);
+    bool clear=linesHigh&&!lavender_qup_bus_is_active(status);
     IOLog("LAVENDER QUP: bus-clear %s (SCL=%u SDA=%u status=0x%08x)\n",
           clear?"completed":"failed",sclHigh?1U:0U,sdaHigh?1U:0U,status);
     return clear;
@@ -240,10 +240,10 @@ bool LavenderQUPI2C::waitBusIdle(uint32_t timeoutMilliseconds){
     if(!fQUP)return false;
     if(!timeoutMilliseconds)timeoutMilliseconds=100;
     for(uint32_t elapsed=0;elapsed<timeoutMilliseconds;elapsed++){
-        if((qread(fQUP,QUP_I2C_STATUS)&QUP_BUS_ACTIVE)==0)return true;
+        if(!lavender_qup_bus_is_active(qread(fQUP,QUP_I2C_STATUS)))return true;
         IOSleep(1);
     }
-    return (qread(fQUP,QUP_I2C_STATUS)&QUP_BUS_ACTIVE)==0;
+    return !lavender_qup_bus_is_active(qread(fQUP,QUP_I2C_STATUS));
 }
 bool LavenderQUPI2C::initController(void){
     qwrite(fQUP,QUP_SW_RESET,1);IODelay(5);
