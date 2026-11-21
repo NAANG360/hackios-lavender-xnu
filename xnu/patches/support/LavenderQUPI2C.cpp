@@ -96,7 +96,7 @@ private:
     volatile uint8_t *fQUP=nullptr,*fGCC=nullptr,*fTLMM=nullptr;
     IOWorkLoop *fWorkLoop=nullptr; IOInterruptEventSource *fIRQ=nullptr; IOLock *fLock=nullptr;
     bool fActive=false; bool fDone=false,fLastRead=false,fClocks=false,fIRQAdded=false,fPinsActive=false;
-    bool fBlockMode=false,fNeedInput=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0;
+    bool fBlockMode=false,fNeedInput=false,fFirstTransferLogged=false; uint32_t fTxBlockEvents=0,fRxBlockEvents=0;
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
 OSDefineMetaClassAndStructors(LavenderQUPI2C,IOService);
@@ -324,7 +324,12 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
         while(inPos<z.inputBytes){uint32_t w=qread(fQUP,QUP_IN_FIFO_BASE);for(uint32_t b=0;b<4&&inPos<z.inputBytes;b++)in[inPos++]=(uint8_t)(w>>(b*8));}
     }
     if(z.inputBytes&&!lavender_qup_consume_input(m,n,in,z.inputBytes))result=kIOReturnIOError;
-    setState(QUP_STATE_RESET);
+    if(!setState(QUP_STATE_RESET)&&result==kIOReturnSuccess)result=kIOReturnIOError;
+    if(result==kIOReturnSuccess&&!fFirstTransferLogged){
+        fFirstTransferLogged=true;
+        IOLog("LAVENDER QUP: first client transaction completed (%u messages, TX=%u RX=%u, %s mode)\\n",
+              n,z.txBytes,z.rxBytes,mode==LAVENDER_QUP_MODE_BLOCK?"BLOCK":"FIFO");
+    }
 unlock:
     if(result!=kIOReturnSuccess)setState(QUP_STATE_RESET);
     fActive=false;fBlockMode=false;fNeedInput=false;fTxBlockEvents=0;fRxBlockEvents=0;
