@@ -422,7 +422,12 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
         wr=IOLockSleepDeadline(fLock,&fEvent,deadline,THREAD_UNINT);
         if(wr==THREAD_TIMED_OUT)break;
     }
-    if(!fDone){setState(QUP_STATE_RESET);result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;goto unlock;}
+    if(!fDone){
+        if(fFailureStatus==0)fFailureStatus=qread(fQUP,QUP_I2C_STATUS);
+        setState(QUP_STATE_RESET);
+        result=fResult==kIOReturnSuccess?kIOReturnTimeout:fResult;
+        goto unlock;
+    }
     result=fResult;if(result!=kIOReturnSuccess)goto unlock;
     if(mode==LAVENDER_QUP_MODE_FIFO){
         while(inPos<z.inputBytes){uint32_t w=qread(fQUP,QUP_IN_FIFO_BASE);for(uint32_t b=0;b<4&&inPos<z.inputBytes;b++)in[inPos++]=(uint8_t)(w>>(b*8));}
@@ -443,8 +448,8 @@ IOReturn LavenderQUPI2C::transfer(LavenderI2CMessage *m,uint32_t n,uint32_t time
 unlock:
     if(result!=kIOReturnSuccess&&!fFirstErrorLogged){
         fFirstErrorLogged=true;
-        IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\\n",
-              result,qread(fQUP,QUP_OPERATIONAL),qread(fQUP,QUP_OPERATIONAL),
+        IOLog("LAVENDER QUP: first client transfer error rc=0x%x status=0x%08x op=0x%08x error=0x%08x flags=0x%08x\n",
+              result,fFailureStatus,qread(fQUP,QUP_OPERATIONAL),
               qread(fQUP,QUP_ERROR_FLAGS),qread(fQUP,QUP_ERROR_FLAGS_EN));
     }
     if(result!=kIOReturnSuccess&&fFailureStatus==0)
