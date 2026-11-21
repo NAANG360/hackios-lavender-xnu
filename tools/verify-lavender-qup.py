@@ -35,6 +35,7 @@ if "bool LavenderQUPI2C::recoverBus" not in s or "recoverBus();" not in s: raise
 if "scl=LAVENDER_TLMM_QUP1_SCL_CTL,sda=LAVENDER_TLMM_QUP1_SDA_CTL" not in s: raise SystemExit("QUP1 recovery line mapping disagrees with DTS: GPIO3=SCL, GPIO2=SDA")
 if "LAVENDER_TLMM_QUP1_SDA_CTL LAVENDER_TLMM_GPIO2_CTL" not in h or "LAVENDER_TLMM_QUP1_SCL_CTL LAVENDER_TLMM_GPIO3_CTL" not in h: raise SystemExit("QUP1 DTS line mapping is not represented in native GPIO aliases")
 if "QUP_BUS_ACTIVE" not in s or "QUP_BUS_MASTER" not in s or "QUP_I2C_SDA" not in s: raise SystemExit("QUP recovery bus-state checks are missing")
+if "bool LavenderQUPI2C::waitBusIdle" not in s or "waitBusIdle(100)" not in s: raise SystemExit("QUP completion does not wait for BUS_ACTIVE to clear before reset")
 if "fRecovering=attemptRecovery" not in s or "fIRQ->disable()" not in s or "fIRQ->enable()" not in s: raise SystemExit("QUP recovery is not isolated from interrupt handling")
 if "setQUPPinsGPIO()" not in s or "setQUPPins(true)" not in s: raise SystemExit("QUP pin mux is not switched to GPIO and restored")
 if "for(uint32_t pulse=0;ok&&pulse<9" not in s or "waitGPIOHigh" not in s: raise SystemExit("QUP recovery lacks bounded nine-clock/clock-stretch handling")
