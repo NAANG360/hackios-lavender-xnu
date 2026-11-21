@@ -185,10 +185,14 @@ bool LavenderQUPI2C::start(IOService *p){
     fIRQ=IOInterruptEventSource::interruptEventSource(this,&LavenderQUPI2C::irqAction,p,0);
     if(!fIRQ){releaseResources();super::stop(p);return false;}
     if(fWorkLoop->addEventSource(fIRQ)!=kIOReturnSuccess){releaseResources();super::stop(p);return false;}fIRQAdded=true;
-    fIRQ->enable();setProperty("LavenderQUPI2CControllerInitialized",kOSBooleanTrue);registerService();
+    fIRQ->enable();
+    setProperty("LavenderQUPI2CControllerInitialized",kOSBooleanTrue);
+    setProperty("LavenderQUPI2CPinsConfigured",kOSBooleanTrue);
+    setProperty("LavenderI2CTransferFunction",LAVENDER_I2C_TRANSFER_FUNCTION);
+    registerService();
     IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,this);
-    IOLog("LAVENDER QUP: BLSP1 QUP1 controller initialized at 0x%llx; FIFO transport published (XO-only)\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
-    IOLog("LAVENDER QUP: native vdd_dig vote/TLMM pinctrl/bus-clear recovery are not yet implemented\n");
+    IOLog("LAVENDER QUP: BLSP1 QUP1 controller initialized at 0x%llx; GPIO2/3 blsp_i2c1 configured; tagged FIFO/BLOCK provider published\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
+    IOLog("LAVENDER QUP: GCC vdd_dig corner vote and bus-clear recovery remain pending\n");
     return true;
 }
 void LavenderQUPI2C::releaseResources(void){
