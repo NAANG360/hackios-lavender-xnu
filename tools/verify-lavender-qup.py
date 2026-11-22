@@ -18,7 +18,22 @@ if "iokit/Kernel/arm/LavenderQUPI2C.cpp optional iokitcpp" not in files.read_tex
 if "lavender_register_qup_i2c_driver();" not in expert.read_text(): raise SystemExit("QUP personality is not registered")
 for x in ("platform_driver","i2c_adapter","devm_","readl_relaxed","writel_relaxed"):
  if x in s: raise SystemExit(f"Linux-only implementation leaked: {x}")
-if "QUP_TAG2_START" not in h or "QUP_TAG2_DATA_READ_N_STOP" not in h: raise SystemExit("QUP-v2 tags missing")
+tag_names = (
+    "QUP_TAG2_START",
+    "QUP_TAG2_DATA_WRITE",
+    "QUP_TAG2_DATA_WRITE_N_STOP",
+    "QUP_TAG2_DATA_READ",
+    "QUP_TAG2_DATA_READ_N_STOP",
+)
+for name in tag_names:
+    if f"#define {name}" not in h:
+        raise SystemExit(f"QUP-v2 opcode is not explicitly defined: {name}")
+tag_start = h.index("static inline bool lavender_qup_encode_tag")
+tag_end = h.index("static inline bool lavender_qup_measure", tag_start)
+tag_encoder = h[tag_start:tag_end]
+for name in tag_names:
+    if name not in tag_encoder:
+        raise SystemExit(f"QUP-v2 encoder does not use protocol opcode: {name}")
 if "LAVENDER_QUP_MODE_BLOCK" not in h or "lavender_qup_fifo_geometry" not in h: raise SystemExit("QUP FIFO/block geometry selection missing")
 if "lavender_qup_block_read_words(count,g.inputBlockBytes,&words)" not in s: raise SystemExit("QUP block-mode final partial input block is not drained to exact byte count")
 transfer=s[s.index("IOReturn LavenderQUPI2C::transfer"):s.index('extern "C" void lavender_register_qup_i2c_driver')]
