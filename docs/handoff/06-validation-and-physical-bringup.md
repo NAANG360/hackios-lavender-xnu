@@ -66,6 +66,20 @@ This ledger records only observed evidence. Build, package, RAM boot, and subsys
 | Evidence | `iosboot.img` 16,621,568 bytes; manifest and checksum recorded in AGENTS.md / Chapter 05 |
 | Limitations | QUP physical transaction not proven; RPM/GLINK not included in this accepted build; no eMMC/touch/display/Darwin userspace operation established; no checksum-bound physical test |
 
+## 22 November 2026 — Run #471 in progress on workflow repair
+
+| Field | Value |
+|---|---|
+| Date | 2026-11-22 |
+| Commit | `d72ff5025bc66907ce3fb306bae672e90ba769d2` |
+| CI run | [Run #471 / 45028377026](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45028377026) |
+| Artifact | Pending |
+| SHA-256 | Pending |
+| Tests | Lavender ADT topology; QUP host protocol regression; RPM/GLINK host protocol regression; XNU 8796 compilation; pre-link RPM object/symbol check; final Mach-O verification |
+| Result | In progress |
+| Evidence | ADT validation, both host protocol suites, profile validation, dependency setup and cache preparation passed. XNU 8796 compilation is running. |
+| Limitations | No final-link result, final ARM64 Mach-O symbol audit, kernel artifact, RAM-only image, manifest/SHA-256 or physical test is confirmed yet. Do not package or boot until the run succeeds and all independent checks pass. |
+
 ## Physical safety status
 
 - No physical test of the current RPM iterator repair has been performed.
