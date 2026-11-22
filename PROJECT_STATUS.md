@@ -3,12 +3,12 @@
 **Status date:** 22 November 2026  
 **Repository:** https://github.com/NAANG360/hackios-lavender-xnu  
 **Branch:** `ci/lavender-machine-profile`  
-**Verified HEAD:** `6c52daeb43a9663feb133adf076e0596b2324d10`  
+**Verified HEAD:** `dc94e7353b77aa083bc5005b0cdd1de2277d36b0` (documentation-only advance beyond source commit `6c52dae`)  
 **Mission:** Bring up a functional XNU 8796-based system on Redmi Note 7/7S (`lavender`, SDM660, ARM64), progressing through native hardware services to Darwin userspace.
 
 ## Current milestone
 
-Native RPM/GLINK integration is staged in the repository. The latest observed CI build exposed an IOKit iterator type mismatch in the PlatformExpert's `/soc/rpm-glink` nub publication. A source repair is committed; it has not yet passed a new CI build.
+Native RPM/GLINK integration is staged in the repository. The PlatformExpert nub-publication iterator repair is source commit `6c52dae`; Run #470 has passed both host suites, patch application and the staged-source verifier. XNU 8796 compilation is still in progress.
 
 ## Repository state
 

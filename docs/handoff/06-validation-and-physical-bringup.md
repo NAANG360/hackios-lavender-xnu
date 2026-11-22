@@ -16,7 +16,7 @@ This ledger records only observed evidence. Build, package, RAM boot, and subsys
 | Evidence | Both host regressions passed; patch application and source verifier passed; XNU build step is still running |
 | Limitations | Final link, pre-link object verification, Mach-O verification, image packaging, checksum and physical test not yet confirmed |
 
-## 22 November 2026 — current iterator repair source review
+## 22 November 2026 — initial iterator repair source review (superseded by Run #470)
 
 | Field | Value |
 |---|---|
