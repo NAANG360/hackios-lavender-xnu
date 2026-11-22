@@ -681,3 +681,14 @@ The RPM implementation was compared against the exact pinned Lavender Linux sour
 7. Require final Mach-O and RAM-only package acceptance before any physical test. Physical evidence must show GLINK channel establishment, matching RPM ACK, QUP initialization and a real I2C transaction.
 
 No physical RPM/GLINK/RPM-SMD/QUP operation is proven by Run #470 or Run #471.
+
+
+## Run #471 QUP source-guard failure and opcode repair — 22 November 2026
+
+- Run #471 / `45028377026`, source `d72ff5025bc66907ce3fb306bae672e90ba769d2`, completed **failure**. ADT checks, QUP and RPM/GLINK host regressions, XNU 8796 compilation, and the RPM object-inclusion/pre-link object check passed. The job stopped at `python3 tools/verify-lavender-qup.py dxb/xnu` with the exact output `QUP-v2 tags missing`. RPM source verification, final Mach-O verification, and RAM-only packaging were skipped.
+- Root cause: `LavenderQUPI2C.h` encoded the QUP-v2 tag opcodes as numeric literals (0x81, 0x82, 0x83, 0x85, 0x87) and had an incomplete comment naming convention. The verifier expected `QUP_TAG2_START` and `QUP_TAG2_DATA_READ_N_STOP`; the latter symbolic name did not exist. This was a source-guard/representation mismatch, not a compiler error or a demonstrated protocol runtime failure.
+- Repair commit `8cc3017a5f978db550d1ddefa2613c84cf1b747b` defines and uses all five named opcodes in `lavender_qup_encode_tag()`, preserving the original wire values and expected byte sequences.
+- Verifier commit `a9af621d0b31356383ed549004dcd051c17655b4` requires explicit definitions for all five names and verifies that each is referenced inside the encoder body; comments alone cannot satisfy the gate.
+- Run #472 / `45054780165` tested the first repair commit but was cancelled when the verifier improvement was pushed. Run #473 / `45054790646` tests exact source HEAD `a9af621d0b31356383ed549004dcd051c17655b4`. At this documentation snapshot, the QUP and RPM/GLINK host suites passed; the XNU rebuild and subsequent gates were still in progress.
+- **Pending:** QUP source guard, RPM/GLINK source guard, final link, exactly-one strong global vote-symbol verification in the final ARM64 Mach-O, RAM-only image packaging, manifest/SHA-256 agreement. Do not treat Run #471 artifacts as a kernel or boot image.
+- **Safety:** no device test, flash, partition write, PMIC write, or panel initialization was performed or authorized. Run #400 remains the last accepted image baseline.
