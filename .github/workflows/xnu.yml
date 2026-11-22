@@ -267,11 +267,18 @@ jobs:
             echo 'ERROR: RPM object is absent from the captured XNU build/link log.'
             exit 1
           }
-          grep -Fq '_lavender_rpm_vote_vdd_dig_low_svs' xnu-build.log || {
-            echo 'ERROR: RPM voltage-vote symbol is absent from the final link transcript.'
+          # The pre-link helper inspects the exact linker input list and runs nm
+          # against LavenderRPMGLINK.cpo. Its PASS line is the authoritative
+          # evidence; the raw linker command does not print object symbol tables.
+          grep -Fq 'PASS: pre-link (non-LTO):' xnu-build.log || {
+            echo 'ERROR: the non-LTO final-link input verifier did not pass.'
             exit 1
           }
-          echo "PASS: RPM object exists ($rpm_object) and the voltage-vote symbol appears in the link transcript."
+          grep -Fq 'defines strong C symbol lavender_rpm_vote_vdd_dig_low_svs' xnu-build.log || {
+            echo 'ERROR: the pre-link verifier did not confirm the strong RPM voltage-vote definition.'
+            exit 1
+          }
+          echo "PASS: RPM object exists ($rpm_object), is a final link input, and defines the strong voltage-vote symbol."
 
       - name: Require the expected cache-aware XNU build path
         id: xnu-rebuild
@@ -920,6 +927,17 @@ jobs:
           test -s "$kernel"
           file "$kernel" | tee out/KERNEL-VERIFICATION.txt
           python3 tools/verify-lavender-kernel.py "$kernel" | tee -a out/KERNEL-VERIFICATION.txt
+          if [[ "$MACHINE_CONFIG" == "LAVENDER" ]]; then
+            # Independently prove that the strong vote entry point survived the
+            # actual final ARM64 Mach-O link, not merely the pre-link object audit.
+            symbol_count="$(nm -g "$kernel" | awk '$NF == "_lavender_rpm_vote_vdd_dig_low_svs" && $(NF-1) == "T" { n++ } END { print n+0 }')"
+            if [[ "$symbol_count" != "1" ]]; then
+              echo "ERROR: expected exactly one strong global RPM vote symbol in final Mach-O; found $symbol_count."
+              exit 1
+            fi
+            echo "PASS: final ARM64 Mach-O contains exactly one strong global lavender_rpm_vote_vdd_dig_low_svs definition."
+            echo "PASS: final ARM64 Mach-O contains exactly one strong global lavender_rpm_vote_vdd_dig_low_svs definition." >> out/KERNEL-VERIFICATION.txt
+          fi
           # Keep the platform-tool load-command view and decoded ARM64 text for
           # independent review of the exact binary that will be packaged.
           otool -l "$kernel" > out/MACHO-LOAD-COMMANDS.txt
