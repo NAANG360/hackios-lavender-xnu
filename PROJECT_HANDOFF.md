@@ -4,7 +4,7 @@
 
 - Repository: `NAANG360/hackios-lavender-xnu`
 - Branch: `ci/lavender-machine-profile`
-- Verified HEAD at checkpoint: `dc94e7353b77aa083bc5005b0cdd1de2277d36b0` (documentation-only advance beyond source commit `6c52dae`)
+- Last verified branch HEAD before this documentation-only refresh: `727e494ffa942e42892262bf2d7bc12c6a83b258` (source under validation: `6c52dae`)
 - Latest source repair: [`6c52dae`](https://github.com/NAANG360/hackios-lavender-xnu/commit/6c52daeb43a9663feb133adf076e0596b2324d10) — `fix(lavender): publish RPM nub through IOKit iterator`
 - Latest accepted kernel/image remains **Run #400**, source `7a15aaad2d649f570ffe3f9ad23d1a98f659085d`, artifact `14615937969`, `iosboot.img` 16,621,568 bytes, SHA-256 `f0239f08c402d0a97e95ceddbee10cf61ec7c76d94258619716d038518c84ce2`. This is a QUP-only source/build milestone; it is not an accepted RPM-enabled build.
 - Latest observed XNU workflow is **Run #470** (`45018828868`), source `6c52daeb43a9663feb133adf076e0596b2324d10`, currently in progress. QUP and RPM/GLINK host protocol regressions passed; patch application and staged-source verifier passed. XNU 8796 compilation is still running; no final link or artifact is yet confirmed.

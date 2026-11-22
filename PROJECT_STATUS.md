@@ -3,7 +3,7 @@
 **Status date:** 22 November 2026  
 **Repository:** https://github.com/NAANG360/hackios-lavender-xnu  
 **Branch:** `ci/lavender-machine-profile`  
-**Verified HEAD:** `dc94e7353b77aa083bc5005b0cdd1de2277d36b0` (documentation-only advance beyond source commit `6c52dae`)  
+**Last verified branch HEAD before this documentation-only refresh:** `727e494ffa942e42892262bf2d7bc12c6a83b258` (source under validation: `6c52dae`)  
 **Mission:** Bring up a functional XNU 8796-based system on Redmi Note 7/7S (`lavender`, SDM660, ARM64), progressing through native hardware services to Darwin userspace.
 
 ## Current milestone
