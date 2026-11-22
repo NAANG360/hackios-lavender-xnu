@@ -2,19 +2,27 @@
 
 This ledger records only observed evidence. Build, package, RAM boot, and subsystem operation are separate acceptance levels.
 
-## 22 November 2026 — Run #470 in progress on iterator repair
+## 22 November 2026 — Run #470 completed; false-negative link assertion
 
 | Field | Value |
 |---|---|
 | Date | 2026-11-22 |
 | Commit | `6c52daeb43a9663feb133adf076e0596b2324d10` |
 | CI run | [Run #470 / 45018828868](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45018828868) |
-| Artifact | None available at checkpoint |
-| SHA-256 | Not applicable |
-| Tests | QUP host protocol regression; RPM/GLINK host protocol regression; patch application; staged-source verifier; XNU 8796 compilation |
-| Result | In progress |
-| Evidence | Both host regressions passed; patch application and source verifier passed; XNU build step is still running |
-| Limitations | Final link, pre-link object verification, Mach-O verification, image packaging, checksum and physical test not yet confirmed |
+| Artifacts | `xnu-buildtree` ID `14753287881`; `xnu-build-log` ID `14752839688` |
+| SHA-256 | Buildtree ZIP: `782e6d7e9071dd3ab79ca3ac6e47425d570a676a50c34190b89f7abd0997d27f`; build-log ZIP: `bb34a7e59286914f9352a86bf34ddd9a533837748258ed864befd457c9c90ef0` |
+| Tests | QUP host protocol regression; RPM/GLINK host protocol regression; patch application; staged-source verifier; XNU 8796 compile/link; non-LTO RPM final-link-input verifier |
+| Result | Failed at a redundant CI assertion after compilation and pre-link verification |
+| Evidence | Both host regressions, patch application and staged-source verifier passed. XNU 8796 compiled and linked. The pre-link verifier reported that `LavenderRPMGLINK.cpo` is a final kernel link input and defines the strong global text symbol `lavender_rpm_vote_vdd_dig_low_svs`. The archived `link.filelist` contains the RPM object exactly once. |
+| Failure detail | The next shell step incorrectly grepped the raw link transcript for `_lavender_rpm_vote_vdd_dig_low_svs`. The transcript records the linker input object path; the symbol table was already checked by the pre-link helper. |
+| Limitations | The buildtree artifact is diagnostic and does not contain the final kernel Mach-O. The run stopped before the independent final-Mach-O symbol audit, ARM64 artifact verification, RAM-only image packaging, manifest/checksum verification or physical testing. No physical RPM/GLINK/QUP behavior is established. |
+
+### Follow-up CI correction
+
+- Workflow repair: [`d72ff5025bc66907ce3fb306bae672e90ba769d2`](https://github.com/NAANG360/hackios-lavender-xnu/commit/d72ff5025bc66907ce3fb306bae672e90ba769d2).
+- Replaced the invalid raw-transcript symbol grep with assertions against the pre-link verifier's explicit PASS output.
+- Added an independent final-kernel `nm` gate requiring exactly one strong global text definition of `_lavender_rpm_vote_vdd_dig_low_svs` in the ARM64 Mach-O.
+- Await the workflow triggered by this repair before treating final-link inclusion or packaging as accepted evidence.
 
 ## 22 November 2026 — initial iterator repair source review (superseded by Run #470)
 
