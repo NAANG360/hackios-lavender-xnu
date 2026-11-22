@@ -619,7 +619,7 @@ The API was checked against Apple's public XNU tag `xnu-8796.141.3`:
 
 All four unified-diff hunks in the repaired patch were independently recounted; declared and actual old/new line counts match.
 
-Run #470 (`45018828868`) is now validating this repair on source commit `6c52dae`. QUP and RPM/GLINK host regressions passed; the patch applied and the staged-source verifier passed. XNU 8796 compilation is still in progress. Final ARM64 link, linked-object verification, image package and physical RPM/QUP operation remain unverified.
+Run #470 (`45018828868`) completed on source commit `6c52dae`. QUP and RPM/GLINK host regressions passed; the patch applied and the staged-source verifier passed; XNU 8796 compiled and linked. The non-LTO pre-link verifier confirmed `LavenderRPMGLINK.cpo` in the exact final link input list and one strong definition of `lavender_rpm_vote_vdd_dig_low_svs`. The run then failed because a later shell assertion incorrectly searched the raw linker transcript for that symbol. It did not reach final Mach-O verification or packaging. Workflow repair `d72ff50` now checks the verifier's explicit PASS evidence and adds an independent final-Mach-O symbol check. See the validation ledger for artifact IDs and digests.
 
 ### Required next gates
 
@@ -633,10 +633,51 @@ Run #470 (`45018828868`) is now validating this repair on source commit `6c52dae
 No Android/Lucid ROM, partition, boot image, recovery image, DTB or vendor file was modified. No physical test was performed.
 
 
-## Run #470 live status — 22 November 2026
+## Run #470 result and workflow repair — 22 November 2026
 
 - Workflow: [Run #470 / 45018828868](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45018828868)
 - Source commit: `6c52daeb43a9663feb133adf076e0596b2324d10`
-- Passed: Lavender QUP host protocol regression, Lavender RPM/GLINK host protocol regression, patch application, staged-source verifier and build preparation.
-- In progress at checkpoint: `Build XNU 8796`.
-- No final ARM64 link, pre-link object verification, Mach-O artifact, RAM-only package, checksum-bound image or physical test is yet confirmed. Run #400 remains the latest accepted image baseline.
+- Passed: ADT validation, QUP host protocol regression, RPM/GLINK host protocol regression, patch application, staged-source verifier, XNU 8796 compilation and final link invocation.
+- Pre-link evidence: exact `link.filelist` contains `LavenderRPMGLINK.cpo` exactly once; the helper's non-LTO audit confirms the strong global `lavender_rpm_vote_vdd_dig_low_svs` definition.
+- Failure: a redundant shell assertion searched the raw link transcript for a symbol-table entry. The transcript only lists linker input paths; the pre-link helper had already checked the object symbol table.
+- Diagnostic artifacts: buildtree ID `14753287881`, ZIP SHA-256 `782e6d7e9071dd3ab79ca3ac6e47425d570a676a50c34190b89f7abd0997d27f`; build log ID `14752839688`, ZIP SHA-256 `bb34a7e59286914f9352a86bf34ddd9a533837748258ed864befd457c9c90ef0`. The buildtree does not include the final kernel Mach-O.
+- Workflow repair commit: [`d72ff5025bc66907ce3fb306bae672e90ba769d2`](https://github.com/NAANG360/hackios-lavender-xnu/commit/d72ff5025bc66907ce3fb306bae672e90ba769d2). It asserts the pre-link verifier's PASS lines and requires exactly one strong global RPM vote symbol in the final ARM64 Mach-O.
+- Follow-up: [Run #471 / 45028377026](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45028377026) is building the workflow repair. Host suites and setup passed at last observation; XNU compilation had not started yet.
+- Run #400 remains the latest accepted image baseline. No current RPM-enabled Mach-O artifact, RAM-only package, checksum-bound image or physical RPM/QUP test is accepted.
+
+## Native RPM/GLINK transport audit — 22 November 2026
+
+The RPM implementation was compared against the exact pinned Lavender Linux source at `da9b19cb9ec452281cbe1270c5e733e20d69475a`, specifically:
+
+- [`drivers/rpmsg/qcom_glink_rpm.c`](https://github.com/Lavender-Gang/kernel_xiaomi_lavender/blob/da9b19cb9ec452281cbe1270c5e733e20d69475a/drivers/rpmsg/qcom_glink_rpm.c): maps the RPM message RAM via `qcom,rpm-msg-ram`, parses the TOC, initializes the AP-owned TX head and RX tail, and delegates transport protocol to `qcom_glink_native_probe()`.
+- [`drivers/rpmsg/qcom_glink_native.c`](https://github.com/Lavender-Gang/kernel_xiaomi_lavender/blob/da9b19cb9ec452281cbe1270c5e733e20d69475a/drivers/rpmsg/qcom_glink_native.c): acquires mailbox channel 0, registers the DT IRQ, notifies the remote after TX writes, services incoming GLINK commands, and uses READ_NOTIF to manage TX-ring backpressure.
+- [`drivers/rpmsg/rpm-smd.c`](https://github.com/Lavender-Gang/kernel_xiaomi_lavender/blob/da9b19cb9ec452281cbe1270c5e733e20d69475a/drivers/rpmsg/rpm-smd.c): defines the RPM-SMD v0 request/ACK envelope and correlates acknowledgements by message ID.
+- [`drivers/i2c/busses/i2c-msm-v2.c`](https://github.com/Lavender-Gang/kernel_xiaomi_lavender/blob/da9b19cb9ec452281cbe1270c5e733e20d69475a/drivers/i2c/busses/i2c-msm-v2.c): the source reference for QUP FIFO/BLOCK state-machine sequencing, including the extra final RX block interrupt workaround.
+
+### Current XNU implementation: what is present
+
+- Shared RPM message RAM/TOC parsing and RX/TX FIFO ring handling.
+- GLINK v1 VERSION, OPEN/OPEN_ACK, TX_DATA/TX_DATA_CONT and READ_NOTIF receive-command parsing.
+- RPM-SMD v0 `rwcx` resource ID 0 / `vlvl=64` request and message-ID-correlated ACK parsing.
+- APCS doorbell write at the configured base/offset and bounded polling for the early boot vote.
+- QUP does not enable its GCC clocks unless the RPM service returns a matching successful LOW_SVS acknowledgement.
+
+### Remaining transport gaps before claiming native-equivalent GLINK
+
+- XNU currently polls the RX ring during the bounded VERSION/channel/vote waits instead of registering and servicing the target GLINK IRQ.
+- TX notification writes the APCS register directly rather than using a parsed mailbox provider/channel abstraction. The register/bit mapping must be reconciled against the actual Lavender boot DTB and APCS mailbox implementation before relying on it.
+- The RX parser consumes READ_NOTIF but does not yet implement Linux-equivalent TX-ring backpressure: when the TX ring is full, `writeTX()` fails immediately instead of sending READ_NOTIF and waiting for remote tail advancement.
+- The transport is intentionally a narrow boot-time RPM client, not a complete GLINK implementation. No general RPMsg endpoint/intent protocol, reset/recovery, remote restart handling, or asynchronous service lifecycle is claimed.
+- The hard-coded message-RAM/APCS/IRQ values need a target-specific cross-check against the exact Lavender boot DTB and the runtime DT passed to LIOS. A matching SDM660 value from a different board tree is not sufficient.
+
+### Next engineering order
+
+1. Preserve the current fail-closed QUP vote gate; do not replace ACK with a timeout success or stub.
+2. Parse and validate the GLINK RPM provider's actual DT resources (message RAM, mailbox channel, IRQ) or prove an explicitly documented polled early-boot transport against those same resources.
+3. Implement bounded TX-ring backpressure/READ_NOTIF and test wrap, full-ring, delayed-tail and malformed-message cases.
+4. Add an interrupt-driven RX path only after the Lavender GIC/IRQ route is verified; retain a bounded polling fallback only if its concurrency and timing are tested.
+5. Strengthen RPM-SMD ACK parsing to validate the V0 envelope length, service type, message ID and error payload against the pinned Linux implementation; unknown/malformed responses must never grant the vote.
+6. Extend QUP tests around the 68-byte Novatek envelope, FIFO/BLOCK boundaries, final RX block completion and STOP/BUS_ACTIVE fence.
+7. Require final Mach-O and RAM-only package acceptance before any physical test. Physical evidence must show GLINK channel establishment, matching RPM ACK, QUP initialization and a real I2C transaction.
+
+No physical RPM/GLINK/RPM-SMD/QUP operation is proven by Run #470 or Run #471.
