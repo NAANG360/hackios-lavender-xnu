@@ -588,3 +588,46 @@ This comparison was performed on 22 November 2026. External references:
 - \`sanrobin/ios-lavender\` \`docs/porting_ios16_lavender_report.md\` on \`main\`.
 
 No claim is made that the external project's reported boot state, tests, source changes, or hardware results were reproduced in LIOS.
+
+
+## RPM nub iterator compile repair — 22 November 2026
+
+### Verified failure
+
+Run #469 (`44936263614`), source commit `7abd0cf29074da5a34dee77da58fd022b6912534`, completed with failure. Its QUP and RPM/GLINK host protocol regression steps passed. XNU compilation stopped at:
+
+```
+LavenderPlatformExpert.cpp:86:51:
+error: cannot initialize a parameter of type 'OSIterator *'
+with an lvalue of type 'OSArray *'
+```
+
+The failing expression passed the one-entry `rpmNubs` array directly to `IODTPlatformExpert::createNubs()`. The XNU API requires a consumed `OSIterator *`; this was a compile-time IOKit API mismatch, not an RPM protocol failure. The package job was skipped.
+
+### Repair committed
+
+Commit [`6c52dae`](https://github.com/NAANG360/hackios-lavender-xnu/commit/6c52daeb43a9663feb133adf076e0596b2324d10) changes `xnu/patches/0130-lavender-rpm-glink-v0.patch` and `tools/verify-lavender-rpm-glink.py`.
+
+The staged PlatformExpert now creates the narrowly scoped one-entry array, constructs an `OSCollectionIterator`, releases the temporary array, and passes the iterator to `createNubs(this, rpmIterator)`. `createNubs()` owns and releases the consumed iterator. The retained `rpmGlink` and `soc` registry entries continue to be released. The source verifier requires this ownership path and rejects the invalid array call.
+
+### API evidence and validation boundary
+
+The API was checked against Apple's public XNU tag `xnu-8796.141.3`:
+- `iokit/IOKit/IOPlatformExpert.h`: `createNubs(IOService *, LIBKERN_CONSUMED OSIterator *)`.
+- `libkern/libkern/c++/OSCollectionIterator.h`: `OSCollectionIterator::withCollection(const OSCollection *)`.
+- `iokit/Kernel/IOPlatformExpert.cpp`: `createNubs()` iterates and releases its consumed iterator. `IORegistryEntry::getChildIterator()` demonstrates the same collection-to-iterator ownership pattern.
+
+All four unified-diff hunks in the repaired patch were independently recounted; declared and actual old/new line counts match.
+
+This API/source inspection and hunk validation do **not** prove the repaired patch applies to a fresh exact staged tree or that the new source compiles. No host suite, new XNU compile/link, linked-object verification, image package, or physical RPM/QUP operation has yet been verified on commit `6c52dae`. No new Actions run was visible at checkpoint.
+
+### Required next gates
+
+1. Re-fetch live HEAD and Actions before continuing.
+2. Run QUP and RPM/GLINK host tests on the exact live checkout.
+3. Apply patch 0130 to a fresh exact post-0129 staged XNU tree; run source verifier and inspect PlatformExpert source plus `files.arm64`.
+4. Verify non-LTO and PRE_LTO pre-link guard placement and object/symbol inputs.
+5. Run one XNU build; require final link, independent Mach-O verification, RAM-only packaging and matching manifest/SHA-256.
+6. Keep Run #400 artifact unchanged. Do not physically test until the complete acceptance ladder passes.
+
+No Android/Lucid ROM, partition, boot image, recovery image, DTB or vendor file was modified. No physical test was performed.

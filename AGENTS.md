@@ -1,3 +1,44 @@
+# LIOS live continuation checkpoint — 22 November 2026
+
+**Re-verify the live branch and Actions before every new change.** This is an observed snapshot, not a substitute for a fresh GitHub query.
+
+- Repository: `NAANG360/hackios-lavender-xnu`
+- Branch: `ci/lavender-machine-profile`
+- Verified HEAD at checkpoint: `6c52daeb43a9663feb133adf076e0596b2324d10`
+- Latest source repair: [`6c52dae`](https://github.com/NAANG360/hackios-lavender-xnu/commit/6c52daeb43a9663feb133adf076e0596b2324d10) — `fix(lavender): publish RPM nub through IOKit iterator`
+- Latest accepted kernel/image remains **Run #400**, source `7a15aaad2d649f570ffe3f9ad23d1a98f659085d`, artifact `14615937969`, `iosboot.img` 16,621,568 bytes, SHA-256 `f0239f08c402d0a97e95ceddbee10cf61ec7c76d94258619716d038518c84ce2`. This is a QUP-only source/build milestone; it is not an accepted RPM-enabled build.
+- Latest observed XNU workflow is Run #469 (`44936263614`), source `7abd0cf29074da5a34dee77da58fd022b6912534`, completed/failure. QUP and RPM host regression steps passed; XNU compile failed in `LavenderPlatformExpert.cpp:86` because an `OSArray *` was passed to `createNubs()`, which requires a consumed `OSIterator *`. The package job was skipped.
+- Repair commit `6c52dae` changes `xnu/patches/0130-lavender-rpm-glink-v0.patch` and `tools/verify-lavender-rpm-glink.py`: it creates an `OSCollectionIterator` over the one-entry array, passes the iterator to `createNubs()`, and releases the temporary array. The verifier enforces this shape.
+- Apple's XNU 8796.141.3 headers confirm `IODTPlatformExpert::createNubs(IOService *, OSIterator *)`; `OSCollectionIterator::withCollection(const OSCollection *)` returns an iterator-compatible object in this C++14 build configuration.
+- All four patch hunk counts on `6c52dae` were independently checked and match their bodies. This is patch-structure validation, not XNU compilation.
+- **Not yet verified on `6c52dae`:** QUP/RPM host suites, fresh exact-base patch application, staged-source guard, XNU compile/link, pre-link object check, Mach-O verification, RAM-only image packaging, manifest/checksum, or physical operation. No new Actions run was visible at checkpoint.
+- No physical RPM OPEN, OPEN_ACK, RPM-SMD ACK, LOW_SVS voltage transition, QUP transaction, eMMC read, touchscreen input, or display operation is established.
+- Preserve Run #400 unchanged as the accepted baseline. Do not test an image unless it is built from the exact current source, independently verified, and packaged with matching manifest and SHA-256.
+
+## Active route
+
+1. Recheck live branch HEAD and newest Actions runs.
+2. Run the QUP and RPM host suites on the exact current checkout.
+3. Apply patch 0130 to the exact post-0129 XNU staged tree and run the staged-source verifier.
+4. Confirm the injected non-LTO and PRE_LTO checks inspect the exact final-link file lists and strong symbol immediately before linking.
+5. Trigger one XNU build only after the preceding gates pass. Require final ARM64 link, independent Mach-O verification, RAM-only package and matching manifest/SHA-256.
+6. Only after package acceptance consider physical RAM-only boot, `fastboot boot iosboot.img`. Capture actual GLINK/RPM/QUP evidence; do not flash or write partitions.
+
+## Hard safety invariants
+
+- Confirmed Android 15/Lucid OS remains strictly read-only.
+- Never flash, erase, format, repartition, or write any Android partition.
+- Physical testing is RAM-only via `fastboot boot iosboot.img`; preserve `cpus=1` and the independent volume-key recovery path.
+- Do not add weak vote-symbol stubs, fake ACKs, bypass the acknowledged `vdd_dig` vote, or write PMIC registers directly.
+- Do not integrate the Novatek client before a real acknowledged RPM vote and successful physical I2C transaction.
+- Do not start display/panel bring-up during this RPM/QUP milestone.
+- Never equate compilation, image packaging, framebuffer output, or an IOKit nub with a functioning OS or Darwin userspace.
+
+Detailed record: `docs/handoff/05-native-lavender-iokit-drivers.md`.
+Validation ledger: `docs/handoff/06-validation-and-physical-bringup.md`.
+
+---
+
 ## Latest accepted CI image — Run #400 (20 November 2026)
 
 - **Branch:** `ci/lavender-machine-profile`; source commit `7a15aaad2d649f570ffe3f9ad23d1a98f659085d`.
