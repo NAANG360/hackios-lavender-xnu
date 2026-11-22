@@ -39,7 +39,7 @@ Native RPM/GLINK integration remains under validation. The PlatformExpert nub-pu
 - Buildtree artifact `xnu-buildtree` ID `14753287881`, ZIP SHA-256 `782e6d7e9071dd3ab79ca3ac6e47425d570a676a50c34190b89f7abd0997d27f`; diagnostic only. Its archived `link.filelist` includes the RPM object exactly once. The buildtree archive does not contain the final kernel Mach-O.
 - Build log artifact `xnu-build-log` ID `14752839688`, ZIP SHA-256 `bb34a7e59286914f9352a86bf34ddd9a533837748258ed864befd457c9c90ef0`.
 - Final ARM64 Mach-O symbol audit, image packaging, manifest and independent image checksum were not reached.
-- Workflow repair commit `d72ff5025bc66907ce3fb306bae672e90ba769d2` fixes the false-negative assertion and adds a separate final-Mach-O symbol audit. Await its new Actions run.
+- Workflow repair commit `d72ff5025bc66907ce3fb306bae672e90ba769d2` fixes the false-negative assertion and adds a separate final-Mach-O symbol audit. Follow-up [Run #471](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45028377026) is currently compiling XNU; ADT, both host suites, and build setup have passed. Final link, final-Mach-O symbol check, kernel artifact, package and checksum remain pending.
 
 ## Latest failed validation
 
