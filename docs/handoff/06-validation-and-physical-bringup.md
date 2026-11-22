@@ -2,7 +2,21 @@
 
 This ledger records only observed evidence. Build, package, RAM boot, and subsystem operation are separate acceptance levels.
 
-## 22 November 2026 — current iterator repair
+## 22 November 2026 — Run #470 in progress on iterator repair
+
+| Field | Value |
+|---|---|
+| Date | 2026-11-22 |
+| Commit | `6c52daeb43a9663feb133adf076e0596b2324d10` |
+| CI run | [Run #470 / 45018828868](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45018828868) |
+| Artifact | None available at checkpoint |
+| SHA-256 | Not applicable |
+| Tests | QUP host protocol regression; RPM/GLINK host protocol regression; patch application; staged-source verifier; XNU 8796 compilation |
+| Result | In progress |
+| Evidence | Both host regressions passed; patch application and source verifier passed; XNU build step is still running |
+| Limitations | Final link, pre-link object verification, Mach-O verification, image packaging, checksum and physical test not yet confirmed |
+
+## 22 November 2026 — current iterator repair source review
 
 | Field | Value |
 |---|---|

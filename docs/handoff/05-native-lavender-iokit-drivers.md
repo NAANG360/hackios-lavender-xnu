@@ -619,7 +619,7 @@ The API was checked against Apple's public XNU tag `xnu-8796.141.3`:
 
 All four unified-diff hunks in the repaired patch were independently recounted; declared and actual old/new line counts match.
 
-This API/source inspection and hunk validation do **not** prove the repaired patch applies to a fresh exact staged tree or that the new source compiles. No host suite, new XNU compile/link, linked-object verification, image package, or physical RPM/QUP operation has yet been verified on commit `6c52dae`. No new Actions run was visible at checkpoint.
+Run #470 (`45018828868`) is now validating this repair on source commit `6c52dae`. QUP and RPM/GLINK host regressions passed; the patch applied and the staged-source verifier passed. XNU 8796 compilation is still in progress. Final ARM64 link, linked-object verification, image package and physical RPM/QUP operation remain unverified.
 
 ### Required next gates
 
@@ -631,3 +631,12 @@ This API/source inspection and hunk validation do **not** prove the repaired pat
 6. Keep Run #400 artifact unchanged. Do not physically test until the complete acceptance ladder passes.
 
 No Android/Lucid ROM, partition, boot image, recovery image, DTB or vendor file was modified. No physical test was performed.
+
+
+## Run #470 live status — 22 November 2026
+
+- Workflow: [Run #470 / 45018828868](https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45018828868)
+- Source commit: `6c52daeb43a9663feb133adf076e0596b2324d10`
+- Passed: Lavender QUP host protocol regression, Lavender RPM/GLINK host protocol regression, patch application, staged-source verifier and build preparation.
+- In progress at checkpoint: `Build XNU 8796`.
+- No final ARM64 link, pre-link object verification, Mach-O artifact, RAM-only package, checksum-bound image or physical test is yet confirmed. Run #400 remains the latest accepted image baseline.

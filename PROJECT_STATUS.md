@@ -27,6 +27,15 @@ Native RPM/GLINK integration is staged in the repository. The latest observed CI
 - This accepted image contains the QUP source/build milestone, not the currently staged RPM/GLINK integration. Preserve it unchanged.
 - No physical RPM/QUP operation or full Darwin userspace is proven by this image.
 
+## Current validation in progress
+
+- Run #470: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/45018828868
+- Source commit: `6c52daeb43a9663feb133adf076e0596b2324d10`
+- QUP and RPM/GLINK host protocol regression: passed.
+- Patch application and staged-source verifier: passed.
+- XNU 8796 compilation: in progress.
+- Final ARM64 link, pre-link object audit, Mach-O verification, image packaging and checksum: not yet confirmed.
+
 ## Latest failed validation
 
 - Run #469: https://github.com/NAANG360/hackios-lavender-xnu/actions/runs/44936263614
@@ -55,10 +64,10 @@ Commit `6c52dae` changes the RPM patch and verifier:
 | RPM/GLINK host tests on Run #469 source | Passed |
 | Patch hunk counts on current HEAD | Passed |
 | XNU API signature/source inspection | Passed |
-| QUP/RPM host tests on current HEAD | Not rerun |
-| Fresh exact-base patch application on current HEAD | Not yet verified |
-| Staged PlatformExpert verifier on current HEAD | Not yet verified |
-| XNU 8796 compilation after iterator repair | Not run |
+| QUP/RPM host tests on current source commit (`6c52dae`) | Passed in Run #470 |
+| Patch application in Run #470 | Passed |
+| Staged PlatformExpert verifier in Run #470 | Passed |
+| XNU 8796 compilation after iterator repair | In progress in Run #470 |
 | Final ARM64 link with RPM object and strong vote symbol | Not verified |
 | Independent Mach-O verification | Not run |
 | RAM-only package and manifest/SHA-256 | Not produced for current HEAD |
