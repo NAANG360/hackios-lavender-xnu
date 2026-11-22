@@ -1,11 +1,12 @@
 diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
 --- a/iokit/Kernel/arm/LavenderPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/LavenderPlatformExpert.cpp
-@@ -9,12 +9,14 @@
+@@ -9,12 +9,15 @@
  #include <IOKit/IOPlatformExpert.h>
  #include <IOKit/IODeviceTreeSupport.h>
  #include <IOKit/IOLib.h>
 +#include <libkern/c++/OSArray.h>
++#include <libkern/c++/OSCollectionIterator.h>
  
  extern "C" void sweet_early_trace_startup(unsigned int event, uintptr_t a,
      uintptr_t b, uintptr_t c, uintptr_t d, uintptr_t e);
@@ -24,7 +25,7 @@ diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/Lave
      lavender_register_qup_i2c_driver();
      LAVENDER_PLATFORM_TRACE(151, this, provider);
      registerService();
-@@ -72,6 +75,19 @@
+@@ -72,6 +76,23 @@
      }
      createNubs(this, IODTFindMatchingEntries(root, kIODTExclusive, excludeList()));
      LAVENDER_PLATFORM_TRACE(155, root, 0);
@@ -36,7 +37,11 @@ diff --git a/iokit/Kernel/arm/LavenderPlatformExpert.cpp b/iokit/Kernel/arm/Lave
 +        IORegistryEntry *rpmGlink = soc->childFromPath("rpm-glink", gIODTPlane);
 +        if (rpmGlink != NULL) {
 +            OSArray *rpmNubs = OSArray::withObjects((const OSObject **)&rpmGlink, 1, 1);
-+            if (rpmNubs != NULL) createNubs(this, rpmNubs);
++            if (rpmNubs != NULL) {
++                OSIterator *rpmIterator = OSCollectionIterator::withCollection(rpmNubs);
++                rpmNubs->release();
++                if (rpmIterator != NULL) createNubs(this, rpmIterator);
++            }
 +            rpmGlink->release();
 +        }
 +        soc->release();

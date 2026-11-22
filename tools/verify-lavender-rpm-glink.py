@@ -86,8 +86,13 @@ def main():
     require('extern "C" void lavender_register_rpm_glink_driver(void);' in expert,
             "PlatformExpert lacks the RPM personality C-linkage declaration")
     require('#include <libkern/c++/OSArray.h>' in expert and
-            "createNubs(this, rpmNubs)" in expert,
-            "PlatformExpert rpm-glink nub publication is incomplete")
+            '#include <libkern/c++/OSCollectionIterator.h>' in expert,
+            "PlatformExpert RPM nub iterator headers are missing")
+    require("OSIterator *rpmIterator = OSCollectionIterator::withCollection(rpmNubs);" in expert and
+            "rpmNubs->release();" in expert and
+            "if (rpmIterator != NULL) createNubs(this, rpmIterator);" in expert and
+            "createNubs(this, rpmNubs)" not in expert,
+            "PlatformExpert must transfer a real OSIterator to createNubs and release the temporary array")
     require(expert.count("lavender_register_rpm_glink_driver();") == 1,
             "PlatformExpert RPM driver registration is missing or duplicated")
     require(files.count("iokit/Kernel/arm/LavenderRPMGLINK.cpp optional iokitcpp") == 1,
