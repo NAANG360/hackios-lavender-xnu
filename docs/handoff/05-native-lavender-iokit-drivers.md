@@ -504,3 +504,87 @@ For this active RPM/GLINK-to-QUP milestone, the next session should read only `A
 - It then stopped in the RPM host runner's MakeInc injection fixture: the fixture used shell variables `$lto` / `$nonlto`, while the real Makefile recipe uses Make-escaped `$$lto` / `$$nonlto`. The injector's expected PRE_LTO anchor matched the real XNU `MakeInc.kernel`; the regression fixture did not model that syntax.
 - Corrected the fixture to use the exact doubled-dollar Make syntax. No XNU compilation, link, packaging or physical test occurred in Run `44935844499`. Run #400 remains the accepted phone-test baseline.
 - Rebuilt both host suites locally after the fixture change; QUP and RPM/GLINK tests pass, including the PRE_LTO injection/idempotence test. The revised injector also passes against the recovered full `MakeInc.kernel` and inserts exactly one guard per final-link path. A fresh CI run is still required.
+
+
+## RPM/GLINK validation update — corrected patch diagnosis and recovered staged-tree evidence (22 November 2026)
+
+The exact failure description is narrower than the earlier checkpoint's wording: in patch 0130, the offending unprefixed blank lines are **inside the second and fourth unified-diff hunks**, not merely separators between hunks. The RPM host runner counts hunk body lines and rejects lines that are not valid context/addition/deletion (apart from the no-newline marker). Do not weaken that validation to accept malformed patch structure.
+
+The supplied engineering update reports that the patch was regenerated from the staged XNU build-tree recovered from failed Run 44871413803, specifically from the post-0129 state containing the Lavender PlatformExpert and QUP integration. The report says the regenerated four-hunk patch:
+- Adds RPM driver registration in the platform expert.
+- Publishes only the \`/soc/rpm-glink\` nub.
+- Adds \`LavenderRPMGLINK.cpp\` to \`iokit/conf/files.arm64\`.
+- Passes \`git apply --check\` against a fresh copy of that recovered staged tree.
+
+Treat those as **reported exact-tree validation results from the supplied continuation**, not as a new GitHub Actions build, final ARM64 link, or physical RPM communication. The source branch should be rechecked before further changes; the live branch has advanced since the prior \`e280830\` checkpoint.
+
+### Current pre-link enforcement — source-level confirmation
+
+The current branch includes:
+- \`tools/inject-lavender-rpm-link-guard.py\`, which injects checks in both the non-LTO and PRE_LTO recipes in XNU's \`makedefs/MakeInc.kernel\`.
+- \`tools/verify-lavender-rpm-link-input.py\`, which reads the generated final-link file list(s), requires exactly one \`LavenderRPMGLINK.cpo\` input, checks that the object exists and is non-empty, and uses \`nm\` to require exactly one strong global text definition of \`lavender_rpm_vote_vdd_dig_low_svs\`.
+- \`tools/test-lavender-rpm-glink.py\`, which tests valid, missing-object, duplicate-object and wrong-symbol cases and exercises hook injection/idempotence using a MakeInc fixture.
+
+The intended hook timing is immediately after XNU generates \`link.filelist\` and immediately before \`$(LD)\` for the non-LTO recipe. For PRE_LTO, it checks the aggregate LTO and non-LTO file lists before the PRE_LTO linker path is entered. The post-build audit in \`.github/workflows/xnu.yml\` remains a separate, later diagnostic check.
+
+The supplied continuation reports:
+- Both QUP and RPM/GLINK host suites compiled and passed locally after the Make-escaped \`$$lto\` / \`$$nonlto\` fixture correction.
+- The RPM runner's valid/wrong-symbol/missing-object/duplicate-object and PRE_LTO fixtures passed.
+- Patch application and staging checks passed against a fresh copy of the recovered post-0129 build tree.
+- The link-hook injector was exercised against the recovered \`MakeInc.kernel\` and inserted one guard per final-link path.
+
+These results are host/staging evidence. They do **not** prove that the current GitHub branch has completed a fresh XNU build, that an ARM64 kernel was linked with this object, or that the RPM remote endpoint acknowledged a request.
+
+### Remaining acceptance gates
+
+1. Re-fetch the live branch HEAD and verify the patch/test/tool file hashes before the next source change.
+2. Re-run QUP and RPM host suites on the exact live checkout; keep warnings-as-errors and negative fixtures.
+3. Re-apply patch 0130 to a fresh copy of the exact post-0129 staged XNU source and inspect \`LavenderRPMGLINK.cpp\`, \`files.arm64\`, generated IOKit object list, PlatformExpert registration and \`/soc/rpm-glink\` publication.
+4. Verify the real MakeInc hook placement against the pinned build-tool revision. For both non-LTO and PRE_LTO, show the command ordering and confirm the file lists are the same inputs consumed by the immediately following linker invocation.
+5. Trigger exactly one XNU workflow only after the above gates pass. Require XNU 8796 build, final ARM64 link, independent Mach-O verification, RAM-only package creation and matching manifest/SHA-256.
+6. Only after package acceptance may a RAM-only physical test use \`fastboot boot iosboot.img\`. Capture remote GLINK OPEN/OPEN_ACK, matching RPM-SMD ACK, accepted LOW_SVS vote, QUP initialization and a successful I2C transaction. No physical success is implied by host tests.
+
+### Fail-closed and preservation invariants
+
+- No weak vote-symbol stub; no fake or bypassed RPM ACK; no removal of QUP's acknowledged-voltage-vote gate; no direct PMIC register workaround.
+- RPM/GLINK remains limited to the SDM660 shared message RAM/TOC/FIFO, APCS mailbox, GLINK v1 \`rpm_requests\` OPEN/OPEN_ACK, RPM-SMD v0 request/ACK and the initial \`rwcx\` resource ID 0 / \`vlvl=64\` LOW_SVS vote.
+- No Novatek client integration until the RPM vote and a physical I2C transaction are independently demonstrated.
+- Android 15/Lucid remains read-only. Do not modify Android/Linux drivers, modules, DTBs, boot images, vendor configuration or partitions.
+- No display/panel bring-up in this milestone. Keep MDSS, DSI, panel timings, brightness and Tianma commands separate.
+- Preserve \`cpus=1\`, the independent volume-key recovery path and RAM-only boot. Never flash, erase, format, repartition or write an Android partition.
+
+
+## Engineering process cross-check — public Lavender/SWEET comparison (22 November 2026)
+
+A public comparison was made against [sanrobin/ios-lavender](https://github.com/sanrobin/ios-lavender), including its README, agent instructions, and Lavender porting report. This is an independent reference project and is **not** part of LIOS, not a source of accepted LIOS build evidence, and not a basis for importing its patches or claims.
+
+### What is useful to adopt as engineering practice
+
+- Keep a source-backed device matrix that distinguishes SDM660/Lavender values from SM7150/Sweet values. Every MMIO base, interrupt, memory bank, panel mode, and storage interface must cite a target-specific DTS/source revision or an observed boot artifact.
+- Record each bring-up milestone as an evidence ladder: source inspection, host test, staged-source validation, kernel compilation, final link, Mach-O verification, image packaging, RAM-only physical boot, and actual subsystem operation. Never collapse these into one "works" status.
+- Preserve failure archaeology: exact image/source SHA, last visible marker, relevant log excerpt, hypothesis, falsifying test, and whether a change was actually confirmed on the device.
+- Treat diagnostics as first-class engineering output. Prefer bounded, stage-specific markers and retrievable logs over conclusions inferred from a static screen or a successful compiler exit.
+- Document unsupported capabilities explicitly. A working framebuffer or IOKit provider does not imply GPU acceleration, a working touch client, a complete storage stack, or Darwin userspace.
+
+These practices are incorporated as documentation discipline only. No external source files, code, device constants, userland modifications, or claims of physical success were copied into LIOS.
+
+### Explicit non-transfer boundary
+
+The reference project README describes \`sweet\`/SM7150 as well as \`lavender\`/SDM660 material, and reports a separate writable \`userdata\` root-filesystem path. Its described installation and storage policy conflicts with LIOS's preservation requirements. LIOS therefore does **not** adopt its userdata flashing/root strategy, security relaxations, device identity, SM7150 constants, Goodix/GENI hardware assumptions, display parameters, IRQ mappings, RAM layout, or claims of full userland operation.
+
+For LIOS, the confirmed Android 15/Lucid ROM remains read-only. All future phone testing remains RAM-only via \`fastboot boot iosboot.img\`; no Android partition writes are authorized. Retain \`cpus=1\` and the independent volume-key recovery route.
+
+### Technical comparison result
+
+The external report contains potentially useful Lavender-specific topics for future source audits: SDM660 GICv3 redistributor placement, the upper DRAM bank and framebuffer mapping under a 4 KiB page regime, the eMMC/SDHCI path, and the distinction between the Lavender framebuffer and Sweet's. These are **audit leads only**, not accepted hardware facts for LIOS. Before any implementation uses them, independently reconcile each value with LIOS's pinned bootloader DTB, Android 15 DT sources and/or the pinned Lavender Linux source at the exact commit. Do not copy an external report's numerical values without checking the exact target source and range/semantics.
+
+The external README states that project has a separate iOS 16.7.16 userland path and documents several incomplete or disabled subsystems. That status belongs exclusively to that repository. LIOS's own acceptance language remains tied to its own image hash, logs and device observations.
+
+### Provenance
+
+This comparison was performed on 22 November 2026. External references:
+- \`sanrobin/ios-lavender\` README on \`main\`.
+- \`sanrobin/ios-lavender\` AGENTS.md on \`main\`.
+- \`sanrobin/ios-lavender\` \`docs/porting_ios16_lavender_report.md\` on \`main\`.
+
+No claim is made that the external project's reported boot state, tests, source changes, or hardware results were reproduced in LIOS.
