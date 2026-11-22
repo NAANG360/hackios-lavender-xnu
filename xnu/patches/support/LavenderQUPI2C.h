@@ -134,13 +134,20 @@ static inline bool lavender_qup_block_read_words(uint32_t bytes, uint32_t blockB
     return true;
 }
 
+/* Qualcomm QUP-v2 protocol tag opcodes. Keep the names aligned with
+ * the protocol terminology so source guards can verify the encoder itself. */
+#define QUP_TAG2_START                 0x81U
+#define QUP_TAG2_DATA_WRITE            0x82U
+#define QUP_TAG2_DATA_WRITE_N_STOP     0x83U
+#define QUP_TAG2_DATA_READ             0x85U
+#define QUP_TAG2_DATA_READ_N_STOP      0x87U
+
 static inline bool lavender_qup_encode_tag(uint16_t address, bool read, bool last, uint8_t length, bool start, uint8_t bytes[4], uint32_t *count) {
     uint8_t command;
     if (address>0x7f || length==0 || bytes==NULL || count==NULL) return false;
-    command=read?(last?0x87:0x85):(last?0x83:0x82);
-    /* QUP_TAG2_START=0x81; DATA_WRITE=0x82; DATA_WRITE_N_STOP=0x83;
-     * DATA_READ=0x85; DATA_READ_N_STOP=0x87. */
-    if (start) { bytes[0]=0x81; bytes[1]=(uint8_t)((address<<1)|(read?1U:0U)); bytes[2]=command; bytes[3]=length; *count=4; }
+    command=read?(last?QUP_TAG2_DATA_READ_N_STOP:QUP_TAG2_DATA_READ)
+                :(last?QUP_TAG2_DATA_WRITE_N_STOP:QUP_TAG2_DATA_WRITE);
+    if (start) { bytes[0]=QUP_TAG2_START; bytes[1]=(uint8_t)((address<<1)|(read?1U:0U)); bytes[2]=command; bytes[3]=length; *count=4; }
     else { bytes[0]=command; bytes[1]=length; *count=2; }
     return true;
 }
