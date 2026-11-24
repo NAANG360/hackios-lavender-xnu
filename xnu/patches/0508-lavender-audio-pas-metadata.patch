@@ -1,0 +1,569 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index f7b70b4..0817b44 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -1,9 +1,17 @@
+ /*
+- * lavender: audio platform probe, A0..A5. Boot-arg gated.
++ * lavender: audio platform probe, A0..A6. Boot-arg gated.
+  *
+  * Device log (0505 kernel, lavaud=3): the LPASS ADSP GDSC is collapsed
+  * (`0x00000001`) and voting the SMMU branch first leaves `80000001` (EN, OFF);
+- * A5 fixes the order: GDSC first, then the SMMU branch.
++ * 0507 fixes the order: GDSC first, then the SMMU branch. The same log exposed
++ * two loader bugs fixed here (A6): the MDT hash segment is identified by
++ * p_flags (phdr+24, bits 26:24 == 2), not by p_type and not by phdr+28, and a
++ * PAS call can return success in x0 with a non-zero SCM status in x1. The
++ * phone's hash table is the vendor 40-byte header plus 32-byte digests (opaque
++ * to the AP) and the MDT is header+phdrs+hash even though the hash phdr's
++ * p_offset says otherwise, so INIT_IMAGE gets that block assembled explicitly.
++ * The image also ends in a pure-BSS phdr (filesz 0, memsz 0x23a000) that the
++ * old walk skipped; it is now loaded (zeroed) and included in MEM_SETUP.
+  *
+  *   lavaud=1        run the read-only probe (A0)
+  *   lavaud=2        also power up the LPASS ADSP domain if the bootloader
+@@ -112,6 +120,14 @@ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ #define ADSP_CARVE_PA       0x92a00000u
+ #define ADSP_CARVE_SIZE     0x01e00000u
+ #define ADSP_MDT_MAX        (256u << 10)
++#define ADSP_HASH_MAX       (32u << 10)
++
++/* ELF32 program header fields the MDT shares with a normal ELF (vendor
++ * peripheral-loader.c: segment_is_hash()/segment_is_loadable()). */
++#define ELF_PT_LOAD         1u
++#define MDT_TYPE_MASK       (7u << 24)
++#define MDT_TYPE_HASH       (2u << 24)
++#define MDT_RELOCATABLE     (1u << 27)
+ 
+ /* TrustZone PAS (same command numbers as the GPU zap path, 0241). */
+ #define SCM_FN(svc, cmd)    (0x42000000u | ((uint32_t)(svc) << 8) | \
+@@ -234,6 +250,7 @@ static int lpass_on;
+ static uint32_t audio_step;
+ static int audio_chan;
+ static uint8_t *fat_fat, *fat_root, *fat_image, *fat_bounce, *adsp_mdt;
++static uint8_t *adsp_hash;
+ static uint32_t fat_image_len;
+ static int fat_ready;
+ static int audio_force;
+@@ -670,6 +687,11 @@ audio_check_segment(const char *name, uint32_t paddr, uint32_t filesz,
+ 		(*bad)++;
+ 		return EINVAL;
+ 	}
++	if (filesz == 0) {
++		printf("SWEET AUDIO: %-11s %08x memsz %06x bss (no blob)\n",
++		    name, paddr, memsz);
++		return 0;
++	}
+ 	err = audio_fat_peek(name, peek, sizeof(peek), &fat_size);
+ 	if (err) {
+ 		printf("SWEET AUDIO: %s: no readable blob (%d)\n", name, err);
+@@ -688,21 +710,130 @@ audio_check_segment(const char *name, uint32_t paddr, uint32_t filesz,
+ 	return 0;
+ }
+ 
++/*
++ * The MDT hash segment is a normal program header whose p_flags bits 26:24
++ * are 2 (vendor peripheral-loader.c: segment_is_hash()). It is usually
++ * PT_NULL, so looking only at p_type misses it; its p_flags live at phdr+24,
++ * not phdr+28 (p_align). When p_offset escapes the MDT (the phone's
++ * ADSP.MDT does this: the hash is a separate ADSP.Bnn blob), INIT_IMAGE
++ * still needs the table physically after the program headers.
++ */
++struct audio_mdt_hash {
++	uint32_t index;         /* program header index of the hash segment */
++	uint32_t phoff;         /* ELF e_phoff */
++	uint32_t phnum;         /* ELF e_phnum */
++	uint32_t phdr_off;      /* hash phdr offset in the MDT */
++	uint32_t table_off;     /* phoff + phnum*32: hash data when inline */
++	uint32_t offset;        /* hash phdr p_offset (vendor, not trusted) */
++	uint32_t length;        /* hash data length */
++	int      external;      /* table is not the MDT tail */
++};
++
++static int
++audio_mdt_hash(const uint8_t *mdt, uint32_t mdt_len,
++    struct audio_mdt_hash *out)
++{
++	uint32_t phoff, phent, phnum, i;
++
++	if (mdt_len < 0x34 || memcmp(mdt, "\177ELF", 4) != 0) {
++		return EINVAL;
++	}
++	phoff = audio_le32(mdt + 28);
++	phent = audio_le16(mdt + 42);
++	phnum = audio_le16(mdt + 44);
++	if (phent != 32 || phoff > mdt_len || phnum == 0 ||
++	    phoff + (uint64_t)phnum * 32 > mdt_len) {
++		return EINVAL;
++	}
++	for (i = 0; i < phnum; i++) {
++		const uint8_t *ph = mdt + phoff + i * 32;
++
++		if ((audio_le32(ph + 24) & MDT_TYPE_MASK) != MDT_TYPE_HASH) {
++			continue;
++		}
++		out->index = i;
++		out->phoff = phoff;
++		out->phnum = phnum;
++		out->phdr_off = phoff + i * 32;
++		out->table_off = phoff + phnum * 32;
++		out->offset = audio_le32(ph + 4);
++		out->length = audio_le32(ph + 16);
++		/* The vendor MDT is header+phdrs+hash even when the hash phdr's
++		 * p_offset points somewhere else (p_offset is not trusted). */
++		out->external = (uint64_t)out->table_off + out->length >
++		    mdt_len;
++		return 0;
++	}
++	return ENOENT;
++}
++
++static int
++audio_mdt_hash_data(const uint8_t *mdt, uint32_t mdt_len,
++    const struct audio_mdt_hash *h, const uint8_t **data)
++{
++	char name[16];
++	uint32_t size = 0;
++	int err;
++
++	(void)mdt_len;
++	if (!h->external) {
++		*data = mdt + h->table_off;
++		return 0;
++	}
++	if (h->length == 0 || h->length > ADSP_HASH_MAX) {
++		printf("SWEET AUDIO: hash segment B%02u is %u bytes (max %u)\n",
++		    h->index, h->length, ADSP_HASH_MAX);
++		return EINVAL;
++	}
++	if (adsp_hash == NULL &&
++	    kmem_alloc(kernel_map, (vm_offset_t *)&adsp_hash, ADSP_HASH_MAX,
++	    KMA_DATA | KMA_ZERO, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++		printf("SWEET AUDIO: no memory for the ADSP hash table\n");
++		return ENOMEM;
++	}
++	snprintf(name, sizeof(name), "ADSP.B%02u", h->index);
++	err = audio_fat_read(name, adsp_hash, ADSP_HASH_MAX, &size);
++	if (err) {
++		return err;
++	}
++	if (size != h->length) {
++		printf("SWEET AUDIO: %s hash blob is %u bytes, phdr says %u\n",
++		    name, size, h->length);
++		return EINVAL;
++	}
++	*data = adsp_hash;
++	return 0;
++}
++
++static int
++audio_phdr_loadable(const uint8_t *ph)
++{
++	uint32_t flags = audio_le32(ph + 24);
++
++	return audio_le32(ph) == ELF_PT_LOAD &&
++	    (flags & MDT_TYPE_MASK) != MDT_TYPE_HASH &&
++	    audio_le32(ph + 20) != 0;
++}
++
+ /*
+  * A2: read the ADSP metadata from the modem partition and validate it against
+  * the reserved region. Nothing is written to the carve-out and TrustZone is
+- * not called; this is the loader's dry run. The hash segment names the blobs
+- * (adsp.bNN); if it is missing or malformed, the phdr index naming is used.
++ * not called; this is the loader's dry run. The hash segment is only located
++ * and validated here; its contents are opaque to the AP (the vendor table is
++ * not the topaz 8+40*N format), and the blobs are named by phdr index, as
++ * Linux does.
+  */
+ static void
+ audio_firmware(void)
+ {
+-	const uint8_t *mdt;
++	const uint8_t *mdt, *hash = NULL;
++	struct audio_mdt_hash mh;
+ 	uint32_t mdt_len = 0, phoff, phnum, phent, i;
+-	uint32_t hash_off = 0, hash_len = 0, entries = 0, bad = 0, found = 0;
++	uint32_t bad = 0, found = 0, reloc = 0;
+ 	uint64_t total = 0;
+ 	int err;
+ 
++	memset(&mh, 0, sizeof(mh));
+ 	if (audio_fat_open() != 0) {
+ 		return;
+ 	}
+@@ -732,88 +863,44 @@ audio_firmware(void)
+ 		printf("SWEET AUDIO: ADSP.MDT program headers are invalid\n");
+ 		return;
+ 	}
++	if (audio_mdt_hash(mdt, mdt_len, &mh) == 0) {
++		printf("SWEET AUDIO: ADSP.MDT hash phdr %u off %u len %u "
++		    "memsz %u (%s)\n", mh.index, mh.offset, mh.length,
++		    audio_le32(mdt + mh.phdr_off + 20),
++		    mh.external ? "external" : "inline");
++		err = audio_mdt_hash_data(mdt, mdt_len, &mh, &hash);
++		if (err == 0 && mh.length >= 16) {
++			printf("SWEET AUDIO: hash data %08x %08x %08x %08x "
++			    "(vendor table, opaque to the AP)\n",
++			    audio_le32(hash), audio_le32(hash + 4),
++			    audio_le32(hash + 8), audio_le32(hash + 12));
++		}
++	} else {
++		printf("SWEET AUDIO: ADSP.MDT has no hash segment\n");
++	}
+ 	for (i = 0; i < phnum; i++) {
+ 		const uint8_t *ph = mdt + phoff + i * 32;
++		char name[16];
++		uint32_t flags, paddr, filesz, memsz;
+ 
+-		if (audio_le32(ph) == 1 &&
+-		    ((audio_le32(ph + 28) >> 24) & 7u) == 2u) {
+-			hash_off = audio_le32(ph + 4);
+-			hash_len = audio_le32(ph + 16);
+-			break;
+-		}
+-	}
+-	if (hash_len >= 8 && hash_off + (uint64_t)hash_len <= mdt_len &&
+-	    audio_le32(mdt + hash_off) == 1) {
+-		entries = audio_le32(mdt + hash_off + 4);
+-	}
+-	printf("SWEET AUDIO: ADSP.MDT hash at %u+%u, %u entries\n", hash_off,
+-	    hash_len, entries);
+-	if (entries > 64) {
+-		entries = 0;
+-	}
+-	if (entries != 0) {
+-		for (i = 0; i < entries; i++) {
+-			const uint8_t *e = mdt + hash_off + 8 + i * 40;
+-			const uint8_t *ph;
+-			char name[33];
+-			uint32_t off, len, paddr, filesz, memsz;
+-
+-			if ((uint64_t)(i + 1) * 40 + 8 > hash_len) {
+-				printf("SWEET AUDIO: hash entry %u is truncated\n",
+-				    i);
+-				bad++;
+-				break;
+-			}
+-			len = audio_le32(e);
+-			off = audio_le32(e + 4);
+-			memcpy(name, e + 8, 32);
+-			name[32] = '\0';
+-			if (off + 32 > mdt_len) {
+-				printf("SWEET AUDIO: %s phdr offset %u is "
+-				    "outside the MDT\n", name, off);
+-				bad++;
+-				continue;
+-			}
+-			ph = mdt + off;
+-			paddr = audio_le32(ph + 12);
+-			filesz = audio_le32(ph + 16);
+-			memsz = audio_le32(ph + 20);
+-			if (len != filesz) {
+-				printf("SWEET AUDIO: %s hash len %u != "
+-				    "filesz %u\n", name, len, filesz);
+-				bad++;
+-				continue;
+-			}
+-			found++;
+-			total += memsz;
+-			(void)audio_check_segment(name, paddr, filesz, memsz,
+-			    &bad);
++		if (!audio_phdr_loadable(ph)) {
++			continue;
+ 		}
+-	} else {
+-		printf("SWEET AUDIO: no usable hash table; using phdr index "
+-		    "names\n");
+-		for (i = 0; i < phnum; i++) {
+-			const uint8_t *ph = mdt + phoff + i * 32;
+-			char name[16];
+-			uint32_t paddr, filesz, memsz;
+-
+-			if (audio_le32(ph) != 1 ||
+-			    ((audio_le32(ph + 28) >> 24) & 7u) == 2u ||
+-			    audio_le32(ph + 16) == 0) {
+-				continue;
+-			}
+-			paddr = audio_le32(ph + 12);
+-			filesz = audio_le32(ph + 16);
+-			memsz = audio_le32(ph + 20);
+-			snprintf(name, sizeof(name), "ADSP.B%02u", i);
+-			found++;
+-			total += memsz;
+-			(void)audio_check_segment(name, paddr, filesz, memsz,
+-			    &bad);
++		flags = audio_le32(ph + 24);
++		paddr = audio_le32(ph + 12);
++		filesz = audio_le32(ph + 16);
++		memsz = audio_le32(ph + 20);
++		snprintf(name, sizeof(name), "ADSP.B%02u", i);
++		if (flags & MDT_RELOCATABLE) {
++			reloc++;
+ 		}
++		found++;
++		total += memsz;
++		(void)audio_check_segment(name, paddr, filesz, memsz, &bad);
+ 	}
+ 	printf("SWEET AUDIO: ADSP firmware dry run: %u segments, %llu bytes, "
+-	    "%u bad\n", found, (unsigned long long)total, bad);
++	    "%u bad, %u relocatable\n", found, (unsigned long long)total, bad,
++	    reloc);
+ 	if (bad != 0) {
+ 		printf("SWEET AUDIO: NOT loading ADSP (validation failed)\n");
+ 	}
+@@ -965,7 +1052,9 @@ audio_adsp_stale(void)
+ 	return 0;
+ }
+ 
+-/* Walk the MDT entries once, calling cb for every loadable segment. */
++/* Walk the MDT entries once, calling cb for every loadable segment. The hash
++ * segment is opaque to the AP; Linux loads every PT_LOAD phdr that is not the
++ * hash and names the blob after the phdr index. */
+ typedef int (*audio_mdt_seg_cb)(const char *name, uint32_t paddr,
+     uint32_t filesz, uint32_t memsz, void *arg);
+ 
+@@ -973,8 +1062,8 @@ static int
+ audio_mdt_walk(const uint8_t *mdt, uint32_t mdt_len, audio_mdt_seg_cb cb,
+     void *arg)
+ {
+-	uint32_t phoff, phnum, phent, i, hash_off = 0, hash_len = 0, entries;
+-	int err = 0;
++	uint32_t phoff, phnum, phent, i;
++	int err;
+ 
+ 	if (mdt_len < 0x34 || memcmp(mdt, "\177ELF", 4) != 0) {
+ 		return EINVAL;
+@@ -986,63 +1075,12 @@ audio_mdt_walk(const uint8_t *mdt, uint32_t mdt_len, audio_mdt_seg_cb cb,
+ 	    phoff + (uint64_t)phnum * 32 > mdt_len) {
+ 		return EINVAL;
+ 	}
+-	for (i = 0; i < phnum; i++) {
+-		const uint8_t *ph = mdt + phoff + i * 32;
+-
+-		if (audio_le32(ph) == 1 &&
+-		    ((audio_le32(ph + 28) >> 24) & 7u) == 2u) {
+-			hash_off = audio_le32(ph + 4);
+-			hash_len = audio_le32(ph + 16);
+-			break;
+-		}
+-	}
+-	entries = 0;
+-	if (hash_len >= 8 && hash_off + (uint64_t)hash_len <= mdt_len &&
+-	    audio_le32(mdt + hash_off) == 1) {
+-		entries = audio_le32(mdt + hash_off + 4);
+-	}
+-	if (entries > 64) {
+-		entries = 0;
+-	}
+-	if (entries != 0) {
+-		for (i = 0; i < entries; i++) {
+-			const uint8_t *e = mdt + hash_off + 8 + i * 40;
+-			const uint8_t *ph;
+-			char name[33];
+-			uint32_t off, len, paddr, filesz, memsz;
+-
+-			if ((uint64_t)(i + 1) * 40 + 8 > hash_len) {
+-				break;
+-			}
+-			len = audio_le32(e);
+-			off = audio_le32(e + 4);
+-			memcpy(name, e + 8, 32);
+-			name[32] = '\0';
+-			if (off + 32 > mdt_len) {
+-				return EINVAL;
+-			}
+-			ph = mdt + off;
+-			paddr = audio_le32(ph + 12);
+-			filesz = audio_le32(ph + 16);
+-			memsz = audio_le32(ph + 20);
+-			if (len != filesz) {
+-				return EINVAL;
+-			}
+-			err = cb(name, paddr, filesz, memsz, arg);
+-			if (err) {
+-				return err;
+-			}
+-		}
+-		return 0;
+-	}
+ 	for (i = 0; i < phnum; i++) {
+ 		const uint8_t *ph = mdt + phoff + i * 32;
+ 		char name[16];
+ 		uint32_t paddr, filesz, memsz;
+ 
+-		if (audio_le32(ph) != 1 ||
+-		    ((audio_le32(ph + 28) >> 24) & 7u) == 2u ||
+-		    audio_le32(ph + 16) == 0) {
++		if (!audio_phdr_loadable(ph)) {
+ 			continue;
+ 		}
+ 		paddr = audio_le32(ph + 12);
+@@ -1060,6 +1098,8 @@ audio_mdt_walk(const uint8_t *mdt, uint32_t mdt_len, audio_mdt_seg_cb cb,
+ struct pas_range {
+ 	uint32_t start, end;
+ 	uint32_t bad;
++	uint32_t entry;
++	int entry_ok;
+ };
+ 
+ static int
+@@ -1081,6 +1121,9 @@ audio_range_cb(const char *name, uint32_t paddr, uint32_t filesz,
+ 	if (paddr + memsz > r->end) {
+ 		r->end = paddr + memsz;
+ 	}
++	if (r->entry >= paddr && r->entry < paddr + memsz) {
++		r->entry_ok = 1;
++	}
+ 	return 0;
+ }
+ 
+@@ -1097,11 +1140,13 @@ audio_copy_cb(const char *name, uint32_t paddr, uint32_t filesz,
+ 	struct pas_copy *c = arg;
+ 	int err;
+ 
+-	err = audio_fat_blob_to_va(name, c->region + (paddr - c->start),
+-	    filesz);
+-	if (err) {
+-		c->bad++;
+-		return err;
++	if (filesz != 0) {
++		err = audio_fat_blob_to_va(name,
++		    c->region + (paddr - c->start), filesz);
++		if (err) {
++			c->bad++;
++			return err;
++		}
+ 	}
+ 	if (memsz > filesz) {
+ 		audio_io_zero(c->region + (paddr - c->start) + filesz,
+@@ -1121,13 +1166,16 @@ audio_copy_cb(const char *name, uint32_t paddr, uint32_t filesz,
+ static void
+ audio_pas_load(void)
+ {
+-	struct pas_range range = { 0xffffffffu, 0, 0 };
++	struct pas_range range = { 0xffffffffu, 0, 0, 0, 0 };
++	struct audio_mdt_hash mh;
++	const uint8_t *hash = NULL;
+ 	struct pas_copy copy;
+ 	vm_offset_t meta_va = 0, region_va = 0;
+ 	uint64_t meta_pa = 0, res = 0, ret;
+-	uint32_t mdt_len = 0;
++	uint32_t mdt_len = 0, hsz = 0, meta_size = 0;
+ 	int err;
+ 
++	memset(&mh, 0, sizeof(mh));
+ 	if (audio_step < 4) {
+ 		return;
+ 	}
+@@ -1157,6 +1205,31 @@ audio_pas_load(void)
+ 	if (audio_fat_read("ADSP.MDT", adsp_mdt, ADSP_MDT_MAX, &mdt_len)) {
+ 		return;
+ 	}
++	if (audio_mdt_hash(adsp_mdt, mdt_len, &mh) != 0) {
++		printf("SWEET AUDIO: ADSP.MDT has no hash segment; refusing "
++		    "PAS\n");
++		return;
++	}
++	err = audio_mdt_hash_data(adsp_mdt, mdt_len, &mh, &hash);
++	if (err) {
++		printf("SWEET AUDIO: ADSP hash table is not readable (%d); "
++		    "refusing PAS\n", err);
++		return;
++	}
++	hsz = mh.table_off;
++	/* The vendor metadata block is ELF header + program headers + hash
++	 * table; the MDT is exactly that concatenation on this firmware even
++	 * though the hash phdr's p_offset says otherwise. */
++	meta_size = hsz + mh.length;
++	if (mh.length == 0 || (uint64_t)hsz + mh.length > ADSP_MDT_MAX) {
++		printf("SWEET AUDIO: ADSP metadata %u+%u does not fit; "
++		    "refusing PAS\n", hsz, mh.length);
++		return;
++	}
++	printf("SWEET AUDIO: ADSP metadata %u bytes (phdrs %u + hash B%02u "
++	    "%u, %s)\n", meta_size, hsz, mh.index, mh.length,
++	    mh.external ? "external" : "inline");
++	range.entry = audio_le32(adsp_mdt + 24);
+ 	if (audio_mdt_walk(adsp_mdt, mdt_len, audio_range_cb, &range) ||
+ 	    range.bad != 0) {
+ 		printf("SWEET AUDIO: segment ranges are not usable; refusing "
+@@ -1169,15 +1242,24 @@ audio_pas_load(void)
+ 	}
+ 	range.start &= ~0xfffu;
+ 	range.end = (range.end + 0xfffu) & ~0xfffu;
+-	printf("SWEET AUDIO: ADSP image %08x..%08x (%u bytes)\n", range.start,
+-	    range.end, range.end - range.start);
++	printf("SWEET AUDIO: ADSP image %08x..%08x (%u bytes), entry %08x "
++	    "%s\n", range.start, range.end, range.end - range.start,
++	    range.entry, range.entry_ok ? "in range" : "OUTSIDE");
++	if (!range.entry_ok) {
++		printf("SWEET AUDIO: entry is outside every segment; refusing "
++		    "PAS\n");
++		return;
++	}
+ 
+-	if (audio_contig(ADSP_MDT_MAX, &meta_va, &meta_pa)) {
++	if (audio_contig((meta_size + 0xfffu) & ~0xfffu, &meta_va, &meta_pa)) {
+ 		printf("SWEET AUDIO: no contiguous MDT buffer\n");
+ 		return;
+ 	}
+-	memcpy((void *)meta_va, adsp_mdt, mdt_len);
+-	flush_dcache64((addr64_t)meta_pa, mdt_len, TRUE);
++	/* INIT_IMAGE wants the ELF header + program headers + hash table as
++	 * one contiguous block (vendor pil_init_image_trusted). */
++	memcpy((void *)meta_va, adsp_mdt, hsz);
++	memcpy((void *)(meta_va + hsz), hash, mh.length);
++	flush_dcache64((addr64_t)meta_pa, meta_size, TRUE);
+ 
+ 	region_va = ml_io_map_unmappable(range.start, range.end - range.start,
+ 	    VM_WIMG_IO);
+@@ -1191,7 +1273,7 @@ audio_pas_load(void)
+ 	    2 | (SCM_ARG_RW << 6), PAS_ID_ADSP, meta_pa, 0, &res);
+ 	printf("SWEET AUDIO: PAS init_image: ret %llx res %llx\n",
+ 	    (unsigned long long)ret, (unsigned long long)res);
+-	if (ret != 0) {
++	if (ret != 0 || res != 0) {
+ 		return;
+ 	}
+ 	audio_announce("SCM PIL MEM_SETUP (ADSP carve-out)");
+@@ -1199,7 +1281,7 @@ audio_pas_load(void)
+ 	    range.start, range.end - range.start, &res);
+ 	printf("SWEET AUDIO: PAS mem_setup: ret %llx res %llx\n",
+ 	    (unsigned long long)ret, (unsigned long long)res);
+-	if (ret != 0) {
++	if (ret != 0 || res != 0) {
+ 		return;
+ 	}
+ 
+@@ -1220,16 +1302,19 @@ audio_pas_load(void)
+ 	    0, 0, &res);
+ 	printf("SWEET AUDIO: PAS auth_and_reset: ret %llx res %llx\n",
+ 	    (unsigned long long)ret, (unsigned long long)res);
+-	if (ret != 0) {
++	if (ret != 0 || res != 0) {
+ 		printf("SWEET AUDIO: TrustZone refused the ADSP image\n");
+ 		return;
+ 	}
+ 	audio_wait(100);
+-	if (q6ss != 0) {
++	if (q6ss != 0 && lpass_on) {
+ 		printf("SWEET AUDIO: after auth: q6 reset %08x pwr %08x "
+ 		    "bhs62 %08x\n", audio_rd(q6ss, Q6SS_RESET),
+ 		    audio_rd(q6ss, Q6SS_PWR_CTL),
+ 		    audio_rd(q6ss, Q6V62_BHS_STATUS));
++	} else {
++		printf("SWEET AUDIO: not reading the Q6SS after auth (LPASS "
++		    "domain reported off)\n");
+ 	}
+ 	printf("SWEET AUDIO: ADSP started; next step is SMP2P/GLINK\n");
+ }
+@@ -1386,7 +1471,7 @@ audio_adsp_inventory(void)
+ 	    audio_item_present(SMEM_ITEM_GLINK_DESC),
+ 	    audio_item_present(SMEM_ITEM_GLINK_FIFO0),
+ 	    audio_item_present(SMEM_ITEM_GLINK_FIFO1));
+-	if (q6ss != 0) {
++	if (q6ss != 0 && lpass_on) {
+ 		printf("SWEET AUDIO: q6 after start: reset %08x pwr %08x "
+ 		    "bhs62 %08x\n", audio_rd(q6ss, Q6SS_RESET),
+ 		    audio_rd(q6ss, Q6SS_PWR_CTL),

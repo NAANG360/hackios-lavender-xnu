@@ -1,0 +1,179 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 47029f5..639026c 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -801,7 +801,7 @@ step9_smmu_s1(void)
+ #define RING_BYTES              0x8000u
+ #define UCODE_BYTES             0x5000u
+ 
+-static uint64_t ring_pa, rptr_pa, fence_pa;
++static uint64_t ring_pa, rptr_pa, fence_pa, ucode_pm4_pa, ucode_pfp_pa;
+ static vm_offset_t ring_va, rptr_va;
+ 
+ static int
+@@ -843,6 +843,8 @@ step10_ucode_ring(void)
+ 		return;
+ 	}
+ 	fence_pa = rptr_pa + 0x100;
++	ucode_pm4_pa = pm4_pa;
++	ucode_pfp_pa = pfp_pa;
+ 	printf("LAVGPU: ring pa %llx, rptr shadow pa %llx, fence pa %llx\n",
+ 	    (unsigned long long)ring_pa, (unsigned long long)rptr_pa,
+ 	    (unsigned long long)fence_pa);
+@@ -1017,6 +1019,146 @@ step11_cp_start(void)
+ 	    *fence == 0xcafe0001u ? "CP WROTE IT" : "not written");
+ }
+ 
++/*
++ * Step 12: is the fence repeatable, and can the GPU be recovered from a hang
++ * without a reboot? (a) 16 fences with different values; (b) a deliberate
++ * hang: a CP_NOP whose length is larger than the data that follows swallows
++ * the next packet and leaves the CP waiting for the rest, so a fence queued
++ * behind it never lands; (c) RBBM software reset, the same bring-up again
++ * (microcode and ring registers, setup, un-halt, ME_INIT, secure mode off;
++ * the zap stays loaded), and a fence that must land again.
++ */
++#define A5_RBBM_SW_RESET_CMD    (0x0043u * 4)
++
++static int
++fence_test(uint32_t val, unsigned wait_ms)
++{
++	volatile uint32_t *fence = (volatile uint32_t *)(rptr_va + 0x100);
++
++	*fence = 0;
++	flush_dcache64((addr64_t)fence_pa, 64, TRUE);
++	ring_pkt7(CP_MEM_WRITE, 3);
++	ring_put((uint32_t)fence_pa);
++	ring_put((uint32_t)(fence_pa >> 32));
++	ring_put(val);
++	flush_dcache64((addr64_t)ring_pa, RING_BYTES, TRUE);
++	wr(gpu, A5_CP_RB_WPTR, ring_wptr);
++	for (unsigned i = 0; i < wait_ms / 5; i++) {
++		lav_wait(5);
++		flush_dcache64((addr64_t)fence_pa, 64, TRUE);
++		if (*fence == val) {
++			return 0;
++		}
++	}
++	return -1;
++}
++
++/* Everything the CP needs after a reset, same order as steps 10-11. */
++static int
++cp_bringup(void)
++{
++	ring_wptr = 0;
++	wr(gpu, A5_CP_PFP_INSTR_BASE, (uint32_t)ucode_pfp_pa);
++	wr(gpu, A5_CP_PFP_INSTR_BASE + 4, (uint32_t)(ucode_pfp_pa >> 32));
++	wr(gpu, A5_CP_ME_INSTR_BASE, (uint32_t)ucode_pm4_pa);
++	wr(gpu, A5_CP_ME_INSTR_BASE + 4, (uint32_t)(ucode_pm4_pa >> 32));
++	wr(gpu, A5_CP_RB_BASE, (uint32_t)ring_pa);
++	wr(gpu, A5_CP_RB_BASE + 4, (uint32_t)(ring_pa >> 32));
++	wr(gpu, A5_CP_RB_RPTR_ADDR, (uint32_t)rptr_pa);
++	wr(gpu, A5_CP_RB_RPTR_ADDR + 4, (uint32_t)(rptr_pa >> 32));
++	wr(gpu, A5_CP_RB_CNTL, 12u | (2u << 8) | RB_NO_UPDATE);
++	wr(gpu, A5_SECVID_TSB_CNTL, 0);
++	wr(gpu, A5_SECVID_TSB_BASE_LO, 0);
++	wr(gpu, A5_SECVID_TSB_BASE_LO + 4, 0);
++	wr(gpu, A5_SECVID_TSB_SIZE, 0);
++	wr(gpu, A5_CP_ADDR_MODE_CNTL, 1);
++	wr(gpu, A5_SECVID_TSB_ADDR_MODE, 1);
++	wr(gpu, A5_CP_MEQ_THRESHOLDS, 0x40);
++	wr(gpu, A5_CP_MERCIU_SIZE, 0x400);
++	wr(gpu, A5_CP_ROQ_THRESH_2, 0x80000060);
++	wr(gpu, A5_CP_ROQ_THRESH_1, 0x40201b16);
++	wr(gpu, A5_CP_CHICKEN_DBG, 0x02000000);
++	wr(gpu, A5_RBBM_INT_0_MASK, 0);
++	wr(gpu, A5_CP_PFP_ME_CNTL, 0);
++	lav_wait(50);
++	ring_pkt7(CP_ME_INIT, 8);
++	ring_put(0x0000002f);
++	ring_put(0x00000003);
++	ring_put(0x20000000);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	if (ring_submit("re-ME_INIT") != 0) {
++		return -1;
++	}
++	ring_pkt7(CP_SET_SECURE_MODE, 1);
++	ring_put(0);
++	return ring_submit("re-SET_SECURE_MODE");
++}
++
++static void
++step12_fence_reset(void)
++{
++	unsigned ok = 0;
++	uint32_t trust;
++
++	if (ring_va == 0 || ring_pa == 0) {
++		printf("LAVGPU: step 12 needs steps 10 and 11\n");
++		return;
++	}
++	lav_announce("step 12: 16 fences with different values");
++	for (unsigned i = 0; i < 16; i++) {
++		if (fence_test(0xcafe0100u + i, 100) == 0) {
++			ok++;
++		} else {
++			printf("LAVGPU: fence %u did not land\n", i);
++		}
++	}
++	printf("LAVGPU: fence burst: %u of 16 landed, RPTR %u WPTR %u\n", ok,
++	    rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR));
++	if (ok != 16) {
++		return;
++	}
++
++	lav_announce("step 12: deliberate hang (short CP_NOP swallows the next packet)");
++	ring_pkt7(CP_NOP, 64);
++	ring_put(0);
++	ring_put(0);
++	if (fence_test(0xdead0001u, 500) == 0) {
++		printf("LAVGPU: the hang did NOT hang the CP, stopping\n");
++		return;
++	}
++	printf("LAVGPU: CP is stuck as intended: RPTR %u WPTR %u RBBM_STATUS %08x "
++	    "INT_0 %08x\n", rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR),
++	    rd(gpu, A5_RBBM_STATUS), rd(gpu, A5_RBBM_INT_0_STATUS));
++
++	lav_announce("step 12: RBBM software reset");
++	wr(gpu, A5_RBBM_SW_RESET_CMD, 1);
++	(void)rd(gpu, A5_RBBM_SW_RESET_CMD);
++	lav_wait(5);
++	wr(gpu, A5_RBBM_SW_RESET_CMD, 0);
++	lav_wait(5);
++	trust = rd(gpu, A5_RBBM_SECVID_TRUST);
++	printf("LAVGPU: after reset: RBBM_STATUS %08x SECVID_TRUST_CNTL %08x "
++	    "RPTR %u WPTR %u CP_PFP_ME_CNTL %08x\n", rd(gpu, A5_RBBM_STATUS),
++	    trust, rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR),
++	    rd(gpu, A5_CP_PFP_ME_CNTL));
++
++	lav_announce("step 12: bring the CP up again");
++	if (cp_bringup() != 0) {
++		printf("LAVGPU: recovery failed in the bring-up\n");
++		return;
++	}
++	if (fence_test(0xcafe0200u, 200) == 0) {
++		printf("LAVGPU: RECOVERED: a fence landed after the reset, "
++		    "SECVID_TRUST_CNTL %08x\n", rd(gpu, A5_RBBM_SECVID_TRUST));
++	} else {
++		printf("LAVGPU: recovery failed: the fence did not land\n");
++	}
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -1074,6 +1216,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 11) {
+ 		step11_cp_start();
+ 	}
++	if (step >= 12) {
++		step12_fence_reset();
++	}
+ 	printf("LAVGPU: ladder finished\n");
+ }
+ 

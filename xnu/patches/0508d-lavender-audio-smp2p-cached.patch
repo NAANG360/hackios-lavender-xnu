@@ -1,0 +1,94 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 8ded648..01d55f6 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -274,6 +274,10 @@ static int fat_ready;
+ static int audio_force;
+ static int audio_copy = 1;
+ static int audio_probe;
++/* The ADSP's item 443 is cached before the 429 kick; after the kick the
++ * partition scan can stall, and the item does not move once allocated. */
++static uint8_t *smp2p_in;
++static uint32_t smp2p_in_len;
+ 
+ static inline uint32_t
+ audio_rd(vm_offset_t base, uint32_t off)
+@@ -1577,6 +1581,7 @@ audio_smem_get_item(uint16_t want, uint32_t *payload)
+ {
+ 	struct smem_part *p = audio_smem_find_part();
+ 	uint8_t *e, *end;
++	uint32_t n = 0;
+ 
+ 	if (p == NULL) {
+ 		return NULL;
+@@ -1586,6 +1591,10 @@ audio_smem_get_item(uint16_t want, uint32_t *payload)
+ 	while (e + sizeof(struct smem_item) <= end) {
+ 		const struct smem_item *h = (const struct smem_item *)e;
+ 
++		if (++n > 64) {
++			printf("SWEET AUDIO: SMEM item scan did not terminate\n");
++			break;
++		}
+ 		if (h->canary != SMEM_ITEM_CANARY) {
+ 			break;
+ 		}
+@@ -1729,6 +1738,10 @@ audio_smp2p_out_init(void)
+ 	audio_io_copy((vm_offset_t)data + sizeof(h) + sizeof(e), &e,
+ 	    sizeof(e));
+ 
++	smp2p_in = audio_smem_get_item(SMEM_ITEM_SMP2P_IN, &smp2p_in_len);
++	printf("SWEET AUDIO: cached ADSP item 443: %s payload %u magic %08x\n",
++	    smp2p_in != NULL ? "yes" : "no", smp2p_in_len,
++	    smp2p_in != NULL ? audio_le32(smp2p_in) : 0);
+ 	printf("SWEET AUDIO: smp2p out item %u ready; kicking APCS bit 10\n",
+ 	    SMEM_ITEM_SMP2P_OUT);
+ 	audio_wr(apcs, 0x008, 0x400u);
+@@ -1737,14 +1750,22 @@ audio_smp2p_out_init(void)
+ static uint32_t
+ audio_smp2p_in_value(const char *name, int *found)
+ {
+-	const uint8_t *data = audio_smem_get_item(SMEM_ITEM_SMP2P_IN, NULL);
+-	const struct smp2p_hdr *h = (const struct smp2p_hdr *)data;
++	const uint8_t *data = smp2p_in;
++	const struct smp2p_hdr *h;
+ 	uint32_t fv, rl, vt, valid;
+ 
+ 	if (found != NULL) {
+ 		*found = 0;
+ 	}
+-	if (data == NULL || h->magic != SMP2P_MAGIC) {
++	if (data == NULL || smp2p_in_len < sizeof(*h)) {
++		/* Fallback for a boot that did not cache it yet. */
++		data = audio_smem_get_item(SMEM_ITEM_SMP2P_IN, NULL);
++	}
++	if (data == NULL) {
++		return 0;
++	}
++	h = (const struct smp2p_hdr *)data;
++	if (h->magic != SMP2P_MAGIC) {
+ 		return 0;
+ 	}
+ 	fv = h->feature_version;
+@@ -1780,9 +1801,22 @@ audio_smp2p_wait_ready(void)
+ 		return;
+ 	}
+ 	audio_announce("wait for ADSP item 443 and slave-kernel READY");
++	if (smp2p_in != NULL) {
++		const struct smp2p_hdr *h = (const struct smp2p_hdr *)smp2p_in;
++
++		printf("SWEET AUDIO: cached 443 hdr magic %08x fv %08x rl %08x "
++		    "vt %08x\n", h->magic, h->feature_version,
++		    h->rem_loc_proc_id, h->valid_total_ent);
++	}
++	/* The ADSP only fills the 443 entries after it has seen the AP's 429. */
++	audio_wait(3000);
+ 	for (int i = 0; i < 50; i++) {
+ 		uint32_t v = audio_smp2p_in_value("slave-kernel", &found);
+ 
++		if (audio_probe && (i % 5) == 0) {
++			printf("SWEET AUDIO: 443 wait t=%d found %d v %08x\n",
++			    i, found, v);
++		}
+ 		if (found && v != last) {
+ 			last = v;
+ 			printf("SWEET AUDIO: smp2p in 443 slave-kernel %08x "

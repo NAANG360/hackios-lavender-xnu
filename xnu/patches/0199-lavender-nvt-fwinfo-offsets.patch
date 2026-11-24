@@ -1,0 +1,62 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -840,8 +840,7 @@
+ /*
+  * Firmware xdata read: select the 24-bit address with 0xFF/high/mid
+  * (nt36xxx.c nvt_get_fw_info) and then read the low register. The
+- * bootloader trim ID selects the map: 0xAA... is NT36772, whose
+- * EVENT_BUF_ADDR is 0x11E00 (NT36672A uses 0x21C00).
++ * NT36672A EVENT_BUF_ADDR in the stock driver is 0x21C00.
+  */
+-#define NVT_XDATA_BUF	0x11E00u
++#define NVT_XDATA_BUF	0x21C00u
+ #define NVT_XDATA_FWINFO	0x78u
+@@ -900,13 +899,13 @@
+ 	printf("WHYRED TOUCH: nvt fwinfo err=%d: ver=%02x/%02x xnum=%u "
+-	    "ynum=%u w=%u h=%u buttons=%u\n", err, p[1], p[2], p[3], p[4],
+-	    ((unsigned)p[5] << 8) | p[6], ((unsigned)p[7] << 8) | p[8], p[11]);
++	    "ynum=%u w=%u h=%u buttons=%u\n", err, p[0], p[1], p[2], p[3],
++	    ((unsigned)p[4] << 8) | p[5], ((unsigned)p[6] << 8) | p[7], p[10]);
+ 	if (err) {
+ 		return err;
+ 	}
+-	if ((unsigned)p[1] + p[2] != 0xffu) {
++	if ((unsigned)p[0] + p[1] != 0xffu) {
+ 		printf("WHYRED TOUCH: nvt fwinfo invalid\n");
+ 		return EIO;
+ 	}
+-	*w = ((uint32_t)p[5] << 8) | p[6];
+-	*h = ((uint32_t)p[7] << 8) | p[8];
++	*w = ((uint32_t)p[4] << 8) | p[5];
++	*h = ((uint32_t)p[6] << 8) | p[7];
+ 	*max = 10;
+@@ -919,6 +918,6 @@
+ /*
+  * Poll the xdata event buffer for SECONDS and draw each contact. The frame
+- * starts with one status byte, then 6 bytes per slot (nt36xxx.c
+- * nvt_ts_work_func); the first slot record is at offset 1.
++ * is 6 bytes per slot (nt36xxx.c nvt_ts_work_func); the first slot record
++ * is at offset 0.
+  */
+ static void
+@@ -927,4 +926,4 @@
+-	uint8_t buf[1 + 6 * 10];
++	uint8_t buf[6 * 10];
+ 	int last_x[10], last_y[10], last_type[10];
+ 	uint32_t polls = 0, reports = 0, i;
+ 	uint32_t ticks;
+@@ -944,5 +943,5 @@
+ 	while (polls < ticks) {
+ 		int err = nvt_read_xdata(addr, NVT_XDATA_BUF, 0x00, buf,
+-		    (int)(1u + 6u * max));
++		    (int)(6u * max));
+ 
+ 		if (err) {
+@@ -955,5 +954,5 @@
+ 		for (i = 0; i < max; i++) {
+-			const uint8_t *p = buf + 1 + 6 * i;
++			const uint8_t *p = buf + 6 * i;
+ 			unsigned slot, type, px, py;
+ 
+ 			slot = p[0] >> 3;

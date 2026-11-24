@@ -1,0 +1,148 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index d0ef57b..00000ed 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -1,5 +1,5 @@
+ /*
+- * lavender: audio platform probe, A0/A1/A2/A3. Boot-arg gated.
++ * lavender: audio platform probe, A0..A4. Boot-arg gated.
+  *
+  *   lavaud=1        run the read-only probe (A0)
+  *   lavaud=2        also power up the LPASS ADSP domain if the bootloader
+@@ -9,6 +9,8 @@
+  *                   against the ADSP carve-out (A2, read only)
+  *   lavaud=4        also load the firmware through TrustZone PAS (A3):
+  *                   INIT_IMAGE, MEM_SETUP, copy the segments, AUTH_AND_RESET
++ *   lavaud=5        also wait for the ADSP and inventory its SMEM/SMP2P items
++ *                   and the GLINK fifo candidates (A4, read only)
+  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
+  *   lavauddelay=S   seconds to wait after boot before it (default 25), so the
+  *                   console ring flusher and the USB live log are up
+@@ -1195,6 +1197,117 @@ audio_pas_load(void)
+ 	printf("SWEET AUDIO: ADSP started; next step is SMP2P/GLINK\n");
+ }
+ 
++/* --- A4: read-only inventory of what the ADSP published after PAS --------- */
++
++static void audio_smem_part(const char *tag,
++    const struct smem_toc_entry *te);
++
++static int
++audio_adsp_smp2p_present(void)
++{
++	const struct smem_toc *toc = (const struct smem_toc *)
++	    (smem + SMEM_TOC_OFF);
++	const struct smem_toc_entry *te = (const struct smem_toc_entry *)
++	    (toc + 1);
++
++	if (smem == 0 || memcmp(toc->magic, "$TOC", 4) != 0 ||
++	    toc->num_entries > SMEM_TOC_ENTRIES) {
++		return 0;
++	}
++	for (uint32_t i = 0; i < toc->num_entries; i++) {
++		const struct smem_part *p;
++		uint8_t *e, *end;
++
++		if (te[i].offset == 0 || te[i].host0 != SMEM_APPS_HOST ||
++		    te[i].host1 != SMEM_ADSP_PID) {
++			continue;
++		}
++		p = (const struct smem_part *)(smem + te[i].offset);
++		if (memcmp(p->magic, "$PRT", 4) != 0 ||
++		    p->free_uncached > p->size) {
++			return 0;
++		}
++		e = (uint8_t *)p + sizeof(*p);
++		end = (uint8_t *)p + p->free_uncached;
++		while (e + sizeof(struct smem_item) <= end) {
++			const struct smem_item *h = (const struct smem_item *)e;
++			uint32_t magic;
++
++			if (h->canary != SMEM_ITEM_CANARY) {
++				break;
++			}
++			if (h->pad_data <= h->size && h->size != 0) {
++				memcpy(&magic, e + sizeof(*h) + h->pad_hdr, 4);
++				if (magic == SMP2P_MAGIC) {
++					return 1;
++				}
++			}
++			e += sizeof(*h) + h->pad_hdr + h->size;
++		}
++	}
++	return 0;
++}
++
++/*
++ * A4: after AUTH_AND_RESET the ADSP creates its own SMP2P item and, once the
++ * AP side exists, marks slave-kernel ready. This step only reads: it waits up
++ * to 3 s for the item, then dumps the whole apps<->ADSP partition (item ids,
++ * sizes, $SMP headers and entry values) and the GLINK candidates. Those ids
++ * are what A5 (SMP2P out + GLINK) needs and they are firmware-specific.
++ */
++static void
++audio_adsp_inventory(void)
++{
++	const struct smem_toc *toc = (const struct smem_toc *)
++	    (smem + SMEM_TOC_OFF);
++	const struct smem_toc_entry *te = (const struct smem_toc_entry *)
++	    (toc + 1);
++	uint32_t found = 0;
++	int present = 0;
++
++	if (audio_step < 5) {
++		return;
++	}
++	if (smem == 0) {
++		printf("SWEET AUDIO: no SMEM mapping; no ADSP inventory\n");
++		return;
++	}
++	audio_announce("wait for the ADSP SMP2P item after PAS (read only)");
++	for (int i = 0; i < 30; i++) {
++		if (audio_adsp_smp2p_present()) {
++			present = 1;
++			break;
++		}
++		audio_wait(100);
++	}
++	printf("SWEET AUDIO: ADSP SMP2P item %s after 3 s\n",
++	    present ? "present" : "absent");
++	if (memcmp(toc->magic, "$TOC", 4) != 0 ||
++	    toc->num_entries > SMEM_TOC_ENTRIES) {
++		printf("SWEET AUDIO: no SMEM TOC; no inventory\n");
++		return;
++	}
++	for (uint32_t i = 0; i < toc->num_entries; i++) {
++		if (te[i].offset == 0 || te[i].host0 != SMEM_APPS_HOST ||
++		    te[i].host1 != SMEM_ADSP_PID) {
++			continue;
++		}
++		audio_smem_part("adsp-after-start", &te[i]);
++		found++;
++	}
++	printf("SWEET AUDIO: ADSP inventory: %u partition(s)\n", found);
++	if (q6ss != 0) {
++		printf("SWEET AUDIO: q6 after start: reset %08x pwr %08x "
++		    "bhs62 %08x\n", audio_rd(q6ss, Q6SS_RESET),
++		    audio_rd(q6ss, Q6SS_PWR_CTL),
++		    audio_rd(q6ss, Q6V62_BHS_STATUS));
++	}
++	if (!present) {
++		printf("SWEET AUDIO: the ADSP did not publish SMP2P; A5 must "
++		    "create the AP-side item and kick\n");
++	}
++}
++
+ static void
+ audio_q6ss(void)
+ {
+@@ -1487,6 +1600,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (audio_step >= 4) {
+ 		audio_pas_load();
+ 	}
++	if (audio_step >= 5) {
++		audio_adsp_inventory();
++	}
+ 
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }

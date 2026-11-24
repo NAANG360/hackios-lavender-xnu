@@ -1,0 +1,233 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 3286124..6a6145b 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -43,6 +43,8 @@
+  *                   for item 443's slave-kernel READY (A5, first SMEM write)
+  *   lavaud=7        also bring up GLINK lpass (descriptor 478, TX 479, RX 480),
+  *                   open the apr_audio_svc channel and send the APR core query
++ *   lavaud=8        also read the PM660L analog codec over SPMI (SID 3,
++ *                   peripheral 0xf0) read-only
+  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
+  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
+  *   lavaudprobe=1   A3: read the carve-out and print copy progress every 256K
+@@ -103,6 +105,12 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+  * uses it for the framebuffer, because io_submap is only 8 MiB. */
+ extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
+ extern int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
++/* SPMI observer read path shared with SweetBattery (extended to SID 3). */
++extern int sweet_spmi_init(void);
++extern int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
++/* 0510: lavender arbiter v3 path (SID 3 = PM660L analog codec). */
++extern int sweet_spmi_lavender_read(unsigned sid, unsigned addr,
++    uint8_t *out);
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ 
+ #define GCC_PA              0x00100000u
+@@ -2358,6 +2366,33 @@ audio_glink_apr(void)
+ 	    glink_tx_msgs, glink_rx_msgs);
+ }
+ 
++/*
++ * F4: PM660L analog codec read-only probe. The codec is the SPMI device at
++ * SID 3, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
++ * path is extended for that peripheral in sweet_spmi.c (0510).
++ */
++static void
++audio_pm660l(void)
++{
++	static const uint16_t regs[] = {
++		0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006,
++		0x0007, 0x0100, 0x0101,
++	};
++
++	if (audio_step < 8) {
++		return;
++	}
++	audio_announce("read the PM660L analog codec over SPMI (SID 3, 0xf000)");
++	for (uint32_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
++		uint8_t v = 0;
++		int err = sweet_spmi_lavender_read(3, 0xf000u + regs[i], &v);
++
++		printf("SWEET AUDIO: PM660L[%04x] = %02x (%d)\n", regs[i], v,
++		    err);
++		audio_wait(20);
++	}
++}
++
+ static void
+ audio_q6ss(void)
+ {
+@@ -2696,6 +2731,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 		audio_wait(3000);
+ 		audio_glink_apr();
+ 	}
++	if (audio_step >= 8) {
++		audio_pm660l();
++	}
+ 
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }
+diff --git a/bsd/dev/sweet_spmi.c b/bsd/dev/sweet_spmi.c
+index 1981490..7543c7c 100644
+--- a/bsd/dev/sweet_spmi.c
++++ b/bsd/dev/sweet_spmi.c
+@@ -86,11 +86,20 @@ sweet_spmi_init(void)
+ int
+ sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+ {
+-	/* Restrict access to the battery blocks; keys retain their own lanes. */
++	/*
++	 * 0510: SID 0 is the PM660 battery/charger blocks; SID 3 / peripheral
++	 * 0xf0 is the PM660L analog codec (the audio F4 probe). Keep the
++	 * battery's read-only lanes untouched.
++	 */
+ 	unsigned peripheral = addr >> 8;
+-	if (!sp_ready || !out || sid != 0 || addr > 0xffffu ||
+-	    (peripheral != 0x10 && peripheral != 0x11 && peripheral != 0x12 &&
+-	    peripheral != 0x13 && peripheral != 0x48)) {
++	bool allowed = sid == 0 &&
++	    (peripheral == 0x10 || peripheral == 0x11 ||
++	    peripheral == 0x12 || peripheral == 0x13 || peripheral == 0x48);
++
++	if (sid == 3 && peripheral == 0xf0) {
++		allowed = true;
++	}
++	if (!sp_ready || !out || addr > 0xffffu || !allowed) {
+ 		return -1;
+ 	}
+ 	IOLockLock(sp_lock);
+@@ -123,4 +132,133 @@ sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+ 	IOLockUnlock(sp_lock);
+ 	return -1;
+ }
++/*
++ * 0510: lavender (SDM660) SPMI arbiter v2/v3, isolated from the SM6225 path.
++ * The DTB gives core 0x0800f000, observer 0x09400000, config 0x0800a000, ee 0;
++ * the APID table is at core + 0x800 and an observer channel is at
++ * obsrvr + 0x8000 * apid (one page). PM660L analog codec is SID 3 (pm660l@3; the keys GPIO is the pm660l@2 instance).
++ */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#define LSP_CORE_PA     0x0800f000u
++#define LSP_OBS_PA      0x09400000u
++#define LSP_APID_MAP    0x800u
++#define LSP_OBS_STRIDE  0x8000u
++#define LSP_MAX_APIDS   512u
++#define LSP_NO_APID     0xffffu
++#define LSP_ARB_MIN     0x20000000u
++#define LSP_ARB_END     0x50000000u
++
++static vm_offset_t lsp_core;
++static vm_offset_t lsp_chan[LSP_MAX_APIDS];
++static IOLock *lsp_lock;
++static bool lsp_attempted, lsp_ready;
++static bool lsp_poisoned[LSP_MAX_APIDS];
++
++static uint16_t
++lsp_find_apid(uint16_t ppid)
++{
++	for (uint32_t i = 0; i < LSP_MAX_APIDS; i++) {
++		uint32_t map = sp_rd(lsp_core, LSP_APID_MAP + 4u * i);
++
++		if (map && ((map >> 8) & 0xfffu) == ppid) {
++			return (uint16_t)i;
++		}
++	}
++	return LSP_NO_APID;
++}
++
++static vm_offset_t
++lsp_map_chan(uint16_t apid)
++{
++	if (apid == LSP_NO_APID) {
++		return 0;
++	}
++	if (lsp_chan[apid] == 0) {
++		lsp_chan[apid] = ml_io_map(LSP_OBS_PA +
++		    LSP_OBS_STRIDE * apid, 0x1000);
++	}
++	return lsp_chan[apid];
++}
++
++static int
++lsp_init(void)
++{
++	uint32_t version;
++
++	if (lsp_attempted) {
++		return lsp_ready ? 0 : -1;
++	}
++	lsp_attempted = true;
++	lsp_lock = IOLockAlloc();
++	if (!lsp_lock) {
++		return -1;
++	}
++	lsp_core = ml_io_map(LSP_CORE_PA, 0x1000);
++	if (!lsp_core) {
++		printf("SWEET AUDIO: lavender SPMI core map failed\n");
++		return -1;
++	}
++	version = sp_rd(lsp_core, 0);
++	if (version < LSP_ARB_MIN || version >= LSP_ARB_END) {
++		printf("SWEET AUDIO: lavender SPMI arb %#x unsupported\n",
++		    version);
++		return -1;
++	}
++	lsp_ready = true;
++	printf("SWEET AUDIO: lavender SPMI arb %#x, 512 APIDs\n", version);
++	return 0;
++}
++
++int
++sweet_spmi_lavender_read(unsigned sid, unsigned addr, uint8_t *out)
++{
++	unsigned peripheral, off;
++	uint16_t apid;
++	vm_offset_t chan;
++	uint32_t cmd;
++
++	if (lsp_init() != 0) {
++		return -1;
++	}
++	if (!out || addr > 0xffffu) {
++		return -1;
++	}
++	peripheral = addr >> 8;
++	IOLockLock(lsp_lock);
++	apid = lsp_find_apid((uint16_t)((sid << 8) | peripheral));
++	if (apid == LSP_NO_APID || lsp_poisoned[apid]) {
++		IOLockUnlock(lsp_lock);
++		return -1;
++	}
++	chan = lsp_map_chan(apid);
++	if (chan == 0) {
++		IOLockUnlock(lsp_lock);
++		return -1;
++	}
++	cmd = (1u << 27) | ((addr & 0xffu) << 4);       /* EXT_READL, BC=0 */
++	__asm__ volatile("dmb oshst" ::: "memory");
++	*(volatile uint32_t *)(chan + 0x00) = cmd;
++	__asm__ volatile("dsb osh" ::: "memory");
++	for (off = 0; off < 1000; off++) {
++		uint32_t status = sp_rd(chan, 0x08u);
++
++		if (status & 1u) {
++			if (status & 0x0eu) {
++				IOLockUnlock(lsp_lock);
++				return -1;
++			}
++			*out = (uint8_t)sp_rd(chan, 0x18u);
++			IOLockUnlock(lsp_lock);
++			return 0;
++		}
++		delay(1);
++	}
++	lsp_poisoned[apid] = true;
++	printf("SWEET AUDIO: lavender SPMI timeout sid=%u addr=%#x APID=%u\n",
++	    sid, addr, apid);
++	IOLockUnlock(lsp_lock);
++	return -1;
++}
++#endif /* ARM64_BOARD_CONFIG_LAVENDER */
++
+ #endif /* ARM64_BOARD_CONFIG_SWEET */

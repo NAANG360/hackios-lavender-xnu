@@ -1,0 +1,529 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 5eb4b07..5295ce8 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -1,9 +1,12 @@
+ /*
+- * lavender: audio platform probe, A0/A1. Boot-arg gated.
++ * lavender: audio platform probe, A0/A1/A2. Boot-arg gated.
+  *
+  *   lavaud=1        run the read-only probe (A0)
+  *   lavaud=2        also power up the LPASS ADSP domain if the bootloader
+  *                   left it off, then read the Q6SS (A1)
++ *   lavaud=3        also read adsp.mdt from the modem partition's FAT16,
++ *                   parse its ELF/hash table and check every segment blob
++ *                   against the ADSP carve-out (A2, read only)
+  *   lavauddelay=S   seconds to wait after boot before it (default 25), so the
+  *                   console ring flusher and the USB live log are up
+  *
+@@ -25,12 +28,15 @@
+  *     GLINK item ids, which are not SM6225's 429/443/478-480.
+  *   - what does the APCS IPC register (0x17911008) show for the ADSP bits?
+  *
+- * It READS ONLY at lavaud=1. A clock-gated LPASS block is not touched: if the
+- * ADSP domain is off, the Q6SS, codec and SMMU sections are skipped instead of
+- * risking a bus hang. lavaud=2 clears the LPASS ADSP GDSC's SW_COLLAPSE (after
+- * voting the LPASS SMMU clock) and re-reads the Q6SS; if the domain does not
+- * come on it is put back and the rest is skipped. Every access is announced
+- * 2 s in advance so the log leaves the machine even if the access kills it.
++ * It READS ONLY at lavaud=1 and lavaud=3. A clock-gated LPASS block is not
++ * touched: if the ADSP domain is off, the Q6SS, codec and SMMU sections are
++ * skipped instead of risking a bus hang. lavaud=2 clears the LPASS ADSP GDSC's
++ * SW_COLLAPSE (after voting the LPASS SMMU clock) and re-reads the Q6SS; if the
++ * domain does not come on it is put back and the rest is skipped. lavaud=3
++ * adds the ADSP firmware dry run from the modem FAT16: the MDT is parsed and
++ * every segment is checked against the carve-out, but nothing is written and
++ * TrustZone is not called. Every access is announced 2 s in advance so the log
++ * leaves the machine even if the access kills it.
+  *
+  * Register meanings: Linux gcc-sdm660.c, subsys-pil-tz.c and pil-q6v5.c, the
+  * SDM660 DTB and the SMEM partition layout already used by the topaz port,
+@@ -48,11 +54,13 @@
+ #include <pexpert/pexpert.h>
+ #include <libkern/libkern.h>
+ #include <vm/memory_types.h>
++#include <vm/vm_kern.h>
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ /* osfmk/arm/machine_routines.h, not exported to the BSD layer: 0177 already
+  * uses it for the framebuffer, because io_submap is only 8 MiB. */
+ extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
++extern int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
+ 
+ #define GCC_PA              0x00100000u
+ #define GCC_SIZE            0x94000u
+@@ -73,6 +81,28 @@ extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
+ #define APCS_IPC_PA         0x17911000u
+ #define APCS_IPC_SIZE       0x00001000u
+ 
++/* The phone's modem partition is FAT16 at GPT LBA 786432 (same layout the
++ * modem driver validates: 512 B sectors, 32 sectors/cluster, 1 reserved,
++ * 2 FATs, 512 root entries, 49 FAT sectors). */
++#define MODEM_LBA           786432ull
++#define FAT_SECTOR          512u
++#define FAT_SPC             32u
++#define FAT_ROOT_ENTRIES    512u
++#define FAT_SIZE_SECTORS    49u
++#define FAT_CLUSTER_BYTES   (FAT_SPC * FAT_SECTOR)
++#define FAT_ROOT_LBA        (MODEM_LBA + 1 + 2 * FAT_SIZE_SECTORS)
++#define FAT_DATA_LBA        (FAT_ROOT_LBA + \
++    (FAT_ROOT_ENTRIES * 32 / FAT_SECTOR))
++#define FAT_MAX_CLUSTER     0xfff8u
++#define ADSP_CARVE_PA       0x92a00000u
++#define ADSP_CARVE_SIZE     0x01e00000u
++#define ADSP_MDT_MAX        (256u << 10)
++
++struct elf32_phdr {
++	uint32_t p_type, p_offset, p_vaddr, p_paddr;
++	uint32_t p_filesz, p_memsz, p_flags, p_align;
++} __attribute__((packed));
++
+ /* GCC byte offsets from GCC_PA (gcc-sdm660.c) */
+ #define GCC_LPASS_SMMU_CBCR     0x7d014u  /* hlos1_vote_lpass_adsp_smmu_clk */
+ #define GCC_LPASS_ADSP_GDSCR    0x7d034u  /* hlos1_vote_lpass_adsp_gdsc */
+@@ -155,6 +185,9 @@ static vm_offset_t gcc, q6ss, smmu, codec, pinctrl, mclk, avtimer, smem, apcs;
+ static int lpass_on;
+ static uint32_t audio_step;
+ static int audio_chan;
++static uint8_t *fat_fat, *fat_root, *fat_image, *fat_bounce, *adsp_mdt;
++static uint32_t fat_image_len;
++static int fat_ready;
+ 
+ static inline uint32_t
+ audio_rd(vm_offset_t base, uint32_t off)
+@@ -273,6 +306,424 @@ audio_power_up(void)
+ 	return lpass_on ? 0 : EIO;
+ }
+ 
++/* --- A2: adsp.mdt and the segment blobs in the modem FAT16 ---------------- */
++
++static inline uint16_t
++audio_le16(const uint8_t *p)
++{
++	return (uint16_t)(p[0] | (p[1] << 8));
++}
++
++static inline uint32_t
++audio_le32(const uint8_t *p)
++{
++	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
++	    ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
++}
++
++/* The eMMC is shared with the root and the console flusher; retry like the
++ * modem driver does instead of hammering the controller. */
++static int
++audio_emmc_read(uint64_t lba, uint32_t count, void *buf)
++{
++	int err = EIO;
++
++	for (int attempt = 0; attempt < 5; attempt++) {
++		err = santoni_emmc_read(lba, count, buf);
++		if (err == 0) {
++			return 0;
++		}
++		printf("SWEET AUDIO: eMMC read 0x%llx+%u failed %d (attempt "
++		    "%d/5)\n", (unsigned long long)lba, count, err,
++		    attempt + 1);
++		audio_wait(100);
++	}
++	return err;
++}
++
++/* Build the 8.3 name of a FAT directory entry, without the trailing dot. */
++static void
++audio_fat_name(const uint8_t *e, char *out, size_t outlen)
++{
++	size_t n = 0;
++
++	for (int i = 0; i < 8 && e[i] != ' '; i++) {
++		if (n + 1 < outlen) {
++			out[n++] = (char)e[i];
++		}
++	}
++	if (e[8] != ' ' && n + 1 < outlen) {
++		out[n++] = '.';
++		for (int i = 8; i < 11 && e[i] != ' '; i++) {
++			if (n + 1 < outlen) {
++				out[n++] = (char)e[i];
++			}
++		}
++	}
++	out[n] = '\0';
++}
++
++static uint32_t
++audio_fat_next(uint32_t cluster)
++{
++	if (cluster * 2 + 2 > 32u * 1024u) {
++		return FAT_MAX_CLUSTER;
++	}
++	return audio_le16(fat_fat + cluster * 2);
++}
++
++static int
++audio_fat_open(void)
++{
++	const uint8_t *b;
++	uint32_t fat_bytes, cluster, off;
++	int err;
++
++	if (fat_ready) {
++		return 0;
++	}
++	if (fat_fat == NULL) {
++		if (kmem_alloc(kernel_map, (vm_offset_t *)&fat_fat,
++		    32u * 1024u, KMA_DATA | KMA_ZERO,
++		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS ||
++		    kmem_alloc(kernel_map, (vm_offset_t *)&fat_root,
++		    FAT_CLUSTER_BYTES, KMA_DATA | KMA_ZERO,
++		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS ||
++		    kmem_alloc(kernel_map, (vm_offset_t *)&fat_image,
++		    FAT_CLUSTER_BYTES, KMA_DATA | KMA_ZERO,
++		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS ||
++		    kmem_alloc(kernel_map, (vm_offset_t *)&fat_bounce,
++		    FAT_CLUSTER_BYTES, KMA_DATA | KMA_ZERO,
++		    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++			printf("SWEET AUDIO: no memory for the FAT cache\n");
++			return ENOMEM;
++		}
++	}
++	audio_announce("read the modem FAT16 and its IMAGE/ directory");
++	err = audio_emmc_read(MODEM_LBA, 1, fat_bounce);
++	if (err) {
++		return err;
++	}
++	b = fat_bounce;
++	if (audio_le16(b + 0x0b) != FAT_SECTOR || b[0x0d] != FAT_SPC ||
++	    audio_le16(b + 0x0e) != 1 || b[0x10] != 2 ||
++	    audio_le16(b + 0x11) != FAT_ROOT_ENTRIES ||
++	    audio_le16(b + 0x16) != FAT_SIZE_SECTORS) {
++		printf("SWEET AUDIO: unexpected modem BPB (%u/%u/%u/%u/%u/%u)\n",
++		    audio_le16(b + 0x0b), b[0x0d], audio_le16(b + 0x0e),
++		    b[0x10], audio_le16(b + 0x11), audio_le16(b + 0x16));
++		return EINVAL;
++	}
++
++	fat_bytes = FAT_SIZE_SECTORS * FAT_SECTOR;
++	if (fat_bytes > 32u * 1024u) {
++		return EINVAL;
++	}
++	err = audio_emmc_read(MODEM_LBA + 1, FAT_SIZE_SECTORS, fat_fat);
++	if (err) {
++		return err;
++	}
++	err = audio_emmc_read(FAT_ROOT_LBA, FAT_ROOT_ENTRIES * 32 / FAT_SECTOR,
++	    fat_root);
++	if (err) {
++		return err;
++	}
++
++	cluster = 0;
++	for (uint32_t i = 0; i < FAT_ROOT_ENTRIES; i++) {
++		const uint8_t *e = fat_root + i * 32;
++		char name[13];
++
++		if (e[0] == 0x00) {
++			break;
++		}
++		if (e[0] == 0xe5 || e[0x0b] == 0x0f) {
++			continue;
++		}
++		audio_fat_name(e, name, sizeof(name));
++		if (strcasecmp(name, "IMAGE") == 0 && (e[0x0b] & 0x10)) {
++			cluster = audio_le16(e + 0x1a) |
++			    (audio_le16(e + 0x14) << 16);
++			break;
++		}
++	}
++	if (cluster < 2 || cluster >= FAT_MAX_CLUSTER) {
++		printf("SWEET AUDIO: IMAGE/ not found in the modem FAT\n");
++		return ENOENT;
++	}
++	off = FAT_DATA_LBA + (cluster - 2) * FAT_SPC;
++	err = audio_emmc_read(off, FAT_SPC, fat_image);
++	if (err) {
++		return err;
++	}
++	fat_image_len = FAT_CLUSTER_BYTES;
++	fat_ready = 1;
++	printf("SWEET AUDIO: modem FAT16 open, IMAGE/ cluster %u, %u bytes "
++	    "cached\n", cluster, fat_image_len);
++	return 0;
++}
++
++static int
++audio_fat_lookup(const char *name, uint32_t *cluster, uint32_t *size)
++{
++	if (!fat_ready) {
++		return ENOENT;
++	}
++	for (uint32_t i = 0; i < fat_image_len / 32; i++) {
++		const uint8_t *e = fat_image + i * 32;
++		char entry[13];
++
++		if (e[0] == 0x00) {
++			break;
++		}
++		if (e[0] == 0xe5 || e[0x0b] == 0x0f || (e[0x0b] & 0x10)) {
++			continue;
++		}
++		audio_fat_name(e, entry, sizeof(entry));
++		if (strcasecmp(entry, name) == 0) {
++			*cluster = audio_le16(e + 0x1a) |
++			    (audio_le16(e + 0x14) << 16);
++			*size = audio_le32(e + 0x1c);
++			return 0;
++		}
++	}
++	return ENOENT;
++}
++
++static int
++audio_fat_read(const char *name, void *dst, uint32_t max, uint32_t *out)
++{
++	uint32_t cluster, size, off = 0;
++	int err;
++
++	err = audio_fat_lookup(name, &cluster, &size);
++	if (err) {
++		printf("SWEET AUDIO: %s not found in IMAGE/\n", name);
++		return err;
++	}
++	if (size > max) {
++		printf("SWEET AUDIO: %s is %u bytes, max %u\n", name, size, max);
++		return EINVAL;
++	}
++	while (off < size) {
++		uint32_t n = MIN(size - off, FAT_CLUSTER_BYTES);
++
++		err = audio_emmc_read(FAT_DATA_LBA + (cluster - 2) * FAT_SPC,
++		    FAT_SPC, fat_bounce);
++		if (err) {
++			printf("SWEET AUDIO: %s read failed %d at %u\n", name,
++			    err, off);
++			return err;
++		}
++		memcpy((uint8_t *)dst + off, fat_bounce, n);
++		off += n;
++		if (off < size) {
++			cluster = audio_fat_next(cluster);
++			if (cluster < 2 || cluster >= FAT_MAX_CLUSTER) {
++				printf("SWEET AUDIO: %s chain ends at %u/%u\n",
++				    name, off, size);
++				return EIO;
++			}
++		}
++	}
++	if (out != NULL) {
++		*out = size;
++	}
++	return 0;
++}
++
++/* Read only the first n bytes of a blob: enough to prove the chain reads. */
++static int
++audio_fat_peek(const char *name, void *dst, uint32_t n, uint32_t *size)
++{
++	uint32_t cluster, fsize, off;
++	int err;
++
++	err = audio_fat_lookup(name, &cluster, &fsize);
++	if (err) {
++		printf("SWEET AUDIO: %s not found in IMAGE/\n", name);
++		return err;
++	}
++	if (size != NULL) {
++		*size = fsize;
++	}
++	if (fsize < n || n > FAT_CLUSTER_BYTES) {
++		return EINVAL;
++	}
++	off = FAT_DATA_LBA + (cluster - 2) * FAT_SPC;
++	err = audio_emmc_read(off, FAT_SPC, fat_bounce);
++	if (err || !fat_ready) {
++		return err ? err : EIO;
++	}
++	memcpy(dst, fat_bounce, n);
++	return 0;
++}
++
++static int
++audio_check_segment(const char *name, uint32_t paddr, uint32_t filesz,
++    uint32_t memsz, unsigned *bad)
++{
++	uint8_t peek[8] = { 0 };
++	uint32_t fat_size = 0;
++	int err;
++
++	if ((uint64_t)paddr < ADSP_CARVE_PA ||
++	    (uint64_t)paddr + memsz > ADSP_CARVE_PA + ADSP_CARVE_SIZE ||
++	    memsz < filesz) {
++		printf("SWEET AUDIO: %s outside the carve-out: %08x+%08x "
++		    "(file %u)\n", name, paddr, memsz, filesz);
++		(*bad)++;
++		return EINVAL;
++	}
++	err = audio_fat_peek(name, peek, sizeof(peek), &fat_size);
++	if (err) {
++		printf("SWEET AUDIO: %s: no readable blob (%d)\n", name, err);
++		(*bad)++;
++		return err;
++	}
++	printf("SWEET AUDIO: %-11s %08x memsz %06x file %06x fat %06x "
++	    "first %08x\n", name, paddr, memsz, filesz, fat_size,
++	    audio_le32(peek));
++	if (fat_size != filesz) {
++		printf("SWEET AUDIO: %s FAT size %u != filesz %u\n", name,
++		    fat_size, filesz);
++		(*bad)++;
++		return EINVAL;
++	}
++	return 0;
++}
++
++/*
++ * A2: read the ADSP metadata from the modem partition and validate it against
++ * the reserved region. Nothing is written to the carve-out and TrustZone is
++ * not called; this is the loader's dry run. The hash segment names the blobs
++ * (adsp.bNN); if it is missing or malformed, the phdr index naming is used.
++ */
++static void
++audio_firmware(void)
++{
++	const uint8_t *mdt;
++	uint32_t mdt_len = 0, phoff, phnum, phent, i;
++	uint32_t hash_off = 0, hash_len = 0, entries = 0, bad = 0, found = 0;
++	uint64_t total = 0;
++	int err;
++
++	if (audio_fat_open() != 0) {
++		return;
++	}
++	if (adsp_mdt == NULL &&
++	    kmem_alloc(kernel_map, (vm_offset_t *)&adsp_mdt, ADSP_MDT_MAX,
++	    KMA_DATA | KMA_ZERO, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++		printf("SWEET AUDIO: no memory for the ADSP MDT\n");
++		return;
++	}
++	audio_announce("read ADSP.MDT from the modem FAT16");
++	err = audio_fat_read("ADSP.MDT", adsp_mdt, ADSP_MDT_MAX, &mdt_len);
++	if (err) {
++		return;
++	}
++	mdt = adsp_mdt;
++	if (mdt_len < 0x34 || memcmp(mdt, "\177ELF", 4) != 0) {
++		printf("SWEET AUDIO: ADSP.MDT is not the expected ELF\n");
++		return;
++	}
++	phoff = audio_le32(mdt + 28);
++	phent = audio_le16(mdt + 42);
++	phnum = audio_le16(mdt + 44);
++	printf("SWEET AUDIO: ADSP.MDT %u bytes, entry %08x phoff %u phnum %u "
++	    "phent %u\n", mdt_len, audio_le32(mdt + 24), phoff, phnum, phent);
++	if (phent != 32 || phoff > mdt_len || phnum == 0 ||
++	    phoff + (uint64_t)phnum * 32 > mdt_len) {
++		printf("SWEET AUDIO: ADSP.MDT program headers are invalid\n");
++		return;
++	}
++	for (i = 0; i < phnum; i++) {
++		const uint8_t *ph = mdt + phoff + i * 32;
++
++		if (audio_le32(ph) == 1 &&
++		    ((audio_le32(ph + 28) >> 24) & 7u) == 2u) {
++			hash_off = audio_le32(ph + 4);
++			hash_len = audio_le32(ph + 16);
++			break;
++		}
++	}
++	if (hash_len >= 8 && hash_off + (uint64_t)hash_len <= mdt_len &&
++	    audio_le32(mdt + hash_off) == 1) {
++		entries = audio_le32(mdt + hash_off + 4);
++	}
++	printf("SWEET AUDIO: ADSP.MDT hash at %u+%u, %u entries\n", hash_off,
++	    hash_len, entries);
++	if (entries > 64) {
++		entries = 0;
++	}
++	if (entries != 0) {
++		for (i = 0; i < entries; i++) {
++			const uint8_t *e = mdt + hash_off + 8 + i * 40;
++			const uint8_t *ph;
++			char name[33];
++			uint32_t off, len, paddr, filesz, memsz;
++
++			if ((uint64_t)(i + 1) * 40 + 8 > hash_len) {
++				printf("SWEET AUDIO: hash entry %u is truncated\n",
++				    i);
++				bad++;
++				break;
++			}
++			len = audio_le32(e);
++			off = audio_le32(e + 4);
++			memcpy(name, e + 8, 32);
++			name[32] = '\0';
++			if (off + 32 > mdt_len) {
++				printf("SWEET AUDIO: %s phdr offset %u is "
++				    "outside the MDT\n", name, off);
++				bad++;
++				continue;
++			}
++			ph = mdt + off;
++			paddr = audio_le32(ph + 12);
++			filesz = audio_le32(ph + 16);
++			memsz = audio_le32(ph + 20);
++			if (len != filesz) {
++				printf("SWEET AUDIO: %s hash len %u != "
++				    "filesz %u\n", name, len, filesz);
++				bad++;
++				continue;
++			}
++			found++;
++			total += memsz;
++			(void)audio_check_segment(name, paddr, filesz, memsz,
++			    &bad);
++		}
++	} else {
++		printf("SWEET AUDIO: no usable hash table; using phdr index "
++		    "names\n");
++		for (i = 0; i < phnum; i++) {
++			const uint8_t *ph = mdt + phoff + i * 32;
++			char name[16];
++			uint32_t paddr, filesz, memsz;
++
++			if (audio_le32(ph) != 1 ||
++			    ((audio_le32(ph + 28) >> 24) & 7u) == 2u ||
++			    audio_le32(ph + 16) == 0) {
++				continue;
++			}
++			paddr = audio_le32(ph + 12);
++			filesz = audio_le32(ph + 16);
++			memsz = audio_le32(ph + 20);
++			snprintf(name, sizeof(name), "ADSP.B%02u", i);
++			found++;
++			total += memsz;
++			(void)audio_check_segment(name, paddr, filesz, memsz,
++			    &bad);
++		}
++	}
++	printf("SWEET AUDIO: ADSP firmware dry run: %u segments, %llu bytes, "
++	    "%u bad\n", found, (unsigned long long)total, bad);
++	if (bad != 0) {
++		printf("SWEET AUDIO: NOT loading ADSP (validation failed)\n");
++	}
++}
++
+ static void
+ audio_q6ss(void)
+ {
+@@ -559,6 +1010,10 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 		printf("SWEET AUDIO: APCS map failed\n");
+ 	}
+ 
++	if (audio_step >= 3) {
++		audio_firmware();
++	}
++
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }
+ 

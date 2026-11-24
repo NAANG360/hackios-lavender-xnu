@@ -1,0 +1,170 @@
+From: port_ios lavender
+Subject: [PATCH 0211] lavender: DWC3 core bring-up from Linux (UTMI as PIPE, core+PHY reset, HS quirks)
+
+USB test boot with 0210 (log sweetlog-usbtest-0210): the QUSB2 PHY powers
+up (POWERDOWN 0x23 -> 0x22, PLL locked in 10 us) and the hold mode works,
+but DEPCMD SETEPCONFIG on ep0 times out after DEPSTARTCFG completed, so
+RUN_STOP is never set and the host sees nothing. The Poco F1 had the same
+DWC3 3.00a (GSNPSID 0x5533300a) and the same symptom; bergamota fixed it
+with Linux's bring-up (NOTES 2026-10-20, boot 0108l). Ported for LAVENDER:
+
+1 QSCRATCH GENERAL_CFG: UTMI clock as the PIPE clock
+  (dwc3_qcom_select_utmi_clk); the QMP SS PHY is never started.
+2 dwc3_core_soft_reset: GCTL.CORESOFTRESET + PHYSOFTRST on GUSB2PHYCFG
+  and GUSB3PIPECTL, 100 ms; GCTL restored with RAMCLKSEL 0, device mode.
+3 HS quirks: GUCTL1 PARKMODE_DISABLE_SS + DEV_FORCE_20_CLK_FOR_30_CLK,
+  DCTL INITU1/U2ENA = 0, GUSB2PHYCFG SUSPHY/ENBLSLPM = 0.
+
+Boot-arg sweetusbfix = mask of the steps (default 7, 0 = off) for one
+sweetusbhold boot per variant. An endpoint command timeout now dumps
+DEPCMD/GCTL/GSTS/GUCTL1/GUSB2PHYCFG/GUSB3PIPECTL/DCTL/DSTS.
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index 7874d96..c275a09 100644
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -463,7 +463,10 @@ ud_epcmd(unsigned ep, uint32_t cmd, uint32_t p0, uint32_t p1, uint32_t p2)
+ 		}
+ 		delay(1);
+ 	}
+-	printf("SWEET USB: ep%u cmd 0x%x timeout\n", ep, cmd & 0xf);
++	printf("SWEET USB: ep%u cmd 0x%x timeout: DEPCMD 0x%08x GCTL 0x%08x GSTS 0x%08x "
++	    "GUCTL1 0x%08x GUSB2PHYCFG 0x%08x GUSB3PIPECTL 0x%08x DCTL 0x%08x DSTS 0x%08x\n",
++	    ep, cmd & 0xf, dwc_rd(DEPCMD(ep)), dwc_rd(GCTL), dwc_rd(0xc118), dwc_rd(0xc11c),
++	    dwc_rd(0xc200), dwc_rd(0xc2c0), dwc_rd(DCTL), dwc_rd(DSTS));
+ 	return -1;
+ }
+ 
+@@ -1002,6 +1005,107 @@ ud_log_thread(void *arg __unused, wait_result_t wr __unused)
+ 	}
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++/*
++ * 0211: the first lavender test boot with 0210 (sweetusbhold) powered the
++ * QUSB2 PHY (PLL locked in 10 us), but the core still behaved like the
++ * Poco F1 before its fix (bergamota NOTES 2026-10-20, same DWC3 3.00a,
++ * GSNPSID 0x5533300a): DEPSTARTCFG completes, DEPCMD SETEPCONFIG on ep0
++ * never does. SETEPCONFIG writes the endpoint context RAM, which runs from
++ * the PHY side. What made the F1 enumerate, all from Linux:
++ *
++ *   1 UTMI clock as the PIPE clock (dwc3-qcom dwc3_qcom_select_utmi_clk,
++ *     QSCRATCH GENERAL_CFG): the USB3 side's QMP PHY is never started and
++ *     the port is USB 2.0 only.
++ *   2 the full dwc3_core_soft_reset: GCTL.CORESOFTRESET with both PHY
++ *     interfaces in PHYSOFTRST, 100 ms, so the core resyncs to the now
++ *     running PHY; then the DCTL.CSFTRST below. GCTL is restored with
++ *     RAMCLKSEL = 0 (bus clock) and PrtCapDir = device.
++ *   3 high-speed-only quirks (dwc3_core_init / sdm660 DT): GUCTL1
++ *     PARKMODE_DISABLE_SS (17) and DEV_FORCE_20_CLK_FOR_30_CLK (26), DCTL
++ *     INITU1ENA/INITU2ENA = 0, GUSB2PHYCFG SUSPHY/ENBLSLPM = 0 (the logs
++ *     show 0x2500: ENBLSLPM set).
++ *
++ * Boot-arg sweetusbfix: mask of the steps above (1, 2, 4); default 7 on
++ * LAVENDER, 0 turns them off. One quick sweetusbhold boot per variant.
++ */
++#define QSCRATCH_GENERAL_CFG    0x08
++#define   PIPE_UTMI_CLK_SEL     (1u << 0)
++#define   PIPE3_PHYSTATUS_SW    (1u << 3)
++#define   PIPE_UTMI_CLK_DIS     (1u << 8)
++#define GUCTL1                  0xc11c
++#define   GUCTL1_PARKMODE_DISABLE_SS (1u << 17)
++#define   GUCTL1_DEV_FORCE_20_CLK    (1u << 26)
++#define GUSB2PHYCFG             0xc200
++#define   GUSB2PHYCFG_SUSPHY    (1u << 6)
++#define   GUSB2PHYCFG_ENBLSLPM  (1u << 8)
++#define GUSB3PIPECTL            0xc2c0
++#define   GUSBPHYCFG_PHYSOFTRST (1u << 31)
++#define GCTL_CORESOFTRESET      (1u << 11)
++#define GCTL_RAMCLKSEL_MASK     (3u << 6)
++#define DCTL_INITU1ENA          (1u << 10)
++#define DCTL_INITU2ENA          (1u << 12)
++
++static int
++lavender_usb_fix_mask(void)
++{
++	int fix = 7;
++
++	PE_parse_boot_argn("sweetusbfix", &fix, sizeof(fix));
++	fix &= 7;
++	printf("SWEET USB: dwc3 bring-up mask %d (1 utmi-as-pipe, 2 core reset, 4 hs quirks)\n", fix);
++	return fix;
++}
++
++static void
++lavender_usb_utmi_as_pipe(void)
++{
++	vm_offset_t qs = ml_io_map(QSCRATCH_PA, 0x100);
++
++	if (qs == 0) {
++		return;
++	}
++	uint32_t before = usb_rd(qs, QSCRATCH_GENERAL_CFG);
++	usb_wr(qs, QSCRATCH_GENERAL_CFG, before | PIPE_UTMI_CLK_DIS);
++	delay(100);
++	usb_wr(qs, QSCRATCH_GENERAL_CFG, usb_rd(qs, QSCRATCH_GENERAL_CFG) | PIPE_UTMI_CLK_SEL | PIPE3_PHYSTATUS_SW);
++	delay(100);
++	usb_wr(qs, QSCRATCH_GENERAL_CFG, usb_rd(qs, QSCRATCH_GENERAL_CFG) & ~PIPE_UTMI_CLK_DIS);
++	delay(100);
++	printf("SWEET USB: UTMI clock as PIPE clock: GENERAL_CFG 0x%08x -> 0x%08x\n",
++	    before, usb_rd(qs, QSCRATCH_GENERAL_CFG));
++}
++
++static void
++lavender_usb_core_reset(void)
++{
++	uint32_t gctl = dwc_rd(GCTL);
++	uint32_t u3 = dwc_rd(GUSB3PIPECTL), u2 = dwc_rd(GUSB2PHYCFG);
++
++	dwc_wr(GCTL, gctl | GCTL_CORESOFTRESET);
++	dwc_wr(GUSB3PIPECTL, u3 | GUSBPHYCFG_PHYSOFTRST);
++	dwc_wr(GUSB2PHYCFG, u2 | GUSBPHYCFG_PHYSOFTRST);
++	delay(1000);
++	dwc_wr(GUSB3PIPECTL, u3 & ~GUSBPHYCFG_PHYSOFTRST);
++	dwc_wr(GUSB2PHYCFG, u2 & ~GUSBPHYCFG_PHYSOFTRST);
++	delay(100000);                                  /* Linux: msleep(100) */
++	gctl = (gctl & ~(GCTL_CORESOFTRESET | GCTL_RAMCLKSEL_MASK | (3u << 12))) | (2u << 12);
++	dwc_wr(GCTL, gctl);
++	printf("SWEET USB: core+PHY soft reset done: GCTL 0x%08x GUSB3PIPECTL 0x%08x GUSB2PHYCFG 0x%08x\n",
++	    dwc_rd(GCTL), dwc_rd(GUSB3PIPECTL), dwc_rd(GUSB2PHYCFG));
++}
++
++static void
++lavender_usb_hs_quirks(void)
++{
++	dwc_wr(GUCTL1, dwc_rd(GUCTL1) | GUCTL1_PARKMODE_DISABLE_SS | GUCTL1_DEV_FORCE_20_CLK);
++	dwc_wr(DCTL, dwc_rd(DCTL) & ~(DCTL_INITU1ENA | DCTL_INITU2ENA));
++	dwc_wr(GUSB2PHYCFG, dwc_rd(GUSB2PHYCFG) & ~(GUSB2PHYCFG_SUSPHY | GUSB2PHYCFG_ENBLSLPM));
++	printf("SWEET USB: hs quirks: GUCTL1 0x%08x DCTL 0x%08x GUSB2PHYCFG 0x%08x\n",
++	    dwc_rd(GUCTL1), dwc_rd(DCTL), dwc_rd(GUSB2PHYCFG));
++}
++#endif /* ARM64_BOARD_CONFIG_LAVENDER */
++
+ static void
+ sweet_usb_gadget_start(vm_offset_t dwc)
+ {
+@@ -1027,6 +1131,13 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+ 		printf("SWEET USB: GCTL 0x%08x not in device mode; forcing PrtCapDir=device\n", dwc_rd(GCTL));
+ 		dwc_wr(GCTL, (dwc_rd(GCTL) & ~(3u << 12)) | (2u << 12));
+ 	}
++	int fix = lavender_usb_fix_mask();
++	if (fix & 1) {
++		lavender_usb_utmi_as_pipe();
++	}
++	if (fix & 2) {
++		lavender_usb_core_reset();
++	}
+ #endif
+ 	/* Device controller soft reset (PHY and global setup stay as ABL left them). */
+ 	dwc_wr(DCTL, DCTL_CSFTRST);
+@@ -1039,6 +1150,11 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+ 	if (dwc_rd(DCTL) & DCTL_CSFTRST) {
+ 		return;
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (fix & 4) {
++		lavender_usb_hs_quirks();
++	}
++#endif
+ 
+ 	dwc_wr(GEVNTADRLO, (uint32_t)(ud.dma_pa + UD_EVT));
+ 	dwc_wr(GEVNTADRHI, (uint32_t)((ud.dma_pa + UD_EVT) >> 32));

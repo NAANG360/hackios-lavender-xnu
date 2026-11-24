@@ -1,0 +1,125 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -81,8 +81,8 @@
+ #define WHYRED_RST		66
+ #define WHYRED_IRQ		67
+ 
+-#define TOUCH_I2C_DELAY_US	10	/* half a bit, ~50 kHz: the internal
+-					 * pull-up makes the edges slow */
++#define TOUCH_I2C_DELAY_US	5	/* half a bit, ~100 kHz: the internal
++					 * pull-up still sets the edge rate */
+ 
+ static inline uint32_t
+ tlmm_rd(vm_offset_t addr)
+@@ -617,6 +617,7 @@
+ {
+ 	if (!touch_irq_ready) {
+ 		pin_setup(&touch_irq, north, WHYRED_IRQ);
++		pin_in(&touch_irq);
+ 		touch_irq_ready = 1;
+ 	}
+ }
+@@ -946,7 +947,8 @@
+ 	uint8_t buf[65];
+ 	int last_x[10], last_y[10], last_type[10];
+ 	uint32_t polls = 0, reports = 0, i;
+-	uint32_t ticks;
++	int irq_level, irq_edges = 0;
++	uint64_t deadline;
+ 
+ 	if (max == 0u || max > 10u) {
+ 		return;
+@@ -954,7 +956,9 @@
+ 	if (seconds > 60u) {
+ 		seconds = 60u;
+ 	}
+-	ticks = seconds * 100u;	/* 10 ms per poll */
++	nanoseconds_to_deadline((uint64_t)seconds * 1000000000ULL, &deadline);
++	irq_level = touch_irq_ready ? pin_read(&touch_irq) : 1;
++	printf("WHYRED TOUCH: nvt poll irq %d\n", irq_level);
+ 	for (i = 0; i < 10u; i++) {
+ 		last_x[i] = -1;
+ 		last_y[i] = -1;
+@@ -964,13 +968,29 @@
+ 		printf("WHYRED TOUCH: nvt xdata select failed\n");
+ 		return;
+ 	}
+-	while (polls < ticks) {
+-		int err = nvt_read_fw(addr, 0x00, buf, (int)sizeof(buf));
++	while (mach_absolute_time() < deadline) {
++		int err;
++
++		if (touch_irq_ready) {
++			int level = pin_read(&touch_irq);
++
++			if (level != irq_level) {
++				irq_edges++;
++				printf("WHYRED TOUCH: nvt irq %d -> %d (edge %d)\n",
++				    irq_level, level, irq_edges);
++				irq_level = level;
++			}
++			if (level != 0) {
++				delay(1000);
++				continue;
++			}
++		}
++		err = nvt_read_fw(addr, 0x00, buf, (int)sizeof(buf));
+ 
+ 		if (err) {
+ 			printf("WHYRED TOUCH: nvt report read err=%d poll=%u\n",
+ 			    err, polls);
+-			delay(10000);
++			delay(1000);
+ 			polls++;
+ 			continue;
+ 		}
+@@ -1016,7 +1036,7 @@
+ 			}
+ 			panel_dot((int)px, (int)py, 0xff0000ff);
+ 		}
+-		delay(10000);
++		delay(1000);
+ 		polls++;
+ 	}
+ 	printf("WHYRED TOUCH: nvt poll done polls=%u reports=%u\n", polls,
+@@ -1037,6 +1057,7 @@
+ {
+ 	uint8_t buf[65];
+ 	int active[10], last_x[10], last_y[10];
++	int irq_level;
+ 	unsigned i;
+ 
+ 	(void)arg;
+@@ -1049,9 +1070,22 @@
+ 	if (nvt_set_xdata(touch_fw_addr, NVT_XDATA_BUF) != 0) {
+ 		printf("WHYRED TOUCH: poll xdata select failed\n");
+ 	}
++	irq_level = touch_irq_ready ? pin_read(&touch_irq) : 1;
++	printf("WHYRED TOUCH: poll irq %d\n", irq_level);
+ 	for (;;) {
+ 		uint32_t mask = 0;
+-		int err = nvt_read_fw(touch_fw_addr, 0x00, buf, (int)sizeof(buf));
++		int err;
++
++		if (touch_irq_ready) {
++			int level = pin_read(&touch_irq);
++
++			if (level == irq_level && level != 0) {
++				delay(1000);
++				continue;
++			}
++			irq_level = level;
++		}
++		err = nvt_read_fw(touch_fw_addr, 0x00, buf, (int)sizeof(buf));
+ 
+ 		if (err == 0) {
+ 			for (i = 0; i < 10u; i++) {
+@@ -1232,6 +1266,7 @@
+ 	touch_s = 0;
+ 	(void)PE_parse_boot_argn("sweetouchtouch", &touch_s, sizeof(touch_s));
+ 	if (nvt_addr != 0) {
++		touch_irq_setup(north);
+ 		uint8_t nvt_p[17];
+ 		unsigned nvt_max = 0;
+ 		uint32_t nvt_w = 0, nvt_h = 0;

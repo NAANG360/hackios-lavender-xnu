@@ -1,0 +1,273 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index ccecb94..a190182 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -32,7 +32,17 @@
+ #include <kern/sched_prim.h>
+ #include <machine/machine_routines.h>
+ #include <pexpert/pexpert.h>
+-
++#include <sys/vnode.h>
++#include <sys/fcntl.h>
++#include <sys/uio.h>
++#include <sys/kauth.h>
++#include <arm/caches_internal.h>
++#include <vm/memory_types.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++#include <libkern/libkern.h>
++
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ 
+ #define GCC_PA          0x00100000u
+@@ -97,6 +107,7 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ #define GDSC_COLLAPSE   (1u << 0)
+ 
+ static vm_offset_t gcc, gpucc, gpu;
++static int gx_on;
+ static int lav_chan;
+ 
+ static inline uint32_t
+@@ -367,6 +378,7 @@ step4_gx(void)
+ 	}
+ 	lav_announce("step 4: READ the GPU block at 0x05000000");
+ 	dump_gpu();
++	gx_on = 1;
+ 	printf("LAVGPU: step 4 done, the GPU block answered\n");
+ }
+ 
+@@ -383,10 +395,11 @@ step4_gx(void)
+ #define PIL_IS_SUPPORTED        0x07
+ 
+ static uint64_t
+-lav_scm(uint32_t fn, uint64_t arginfo, uint64_t a, uint64_t *res1)
++lav_scm(uint32_t fn, uint64_t arginfo, uint64_t a, uint64_t b, uint64_t c,
++    uint64_t *res1)
+ {
+ 	register uint64_t x0 __asm__("x0") = fn, x1 __asm__("x1") = arginfo,
+-	    x2 __asm__("x2") = a, x3 __asm__("x3") = 0, x4 __asm__("x4") = 0,
++	    x2 __asm__("x2") = a, x3 __asm__("x3") = b, x4 __asm__("x4") = c,
+ 	    x5 __asm__("x5") = 0, x6 __asm__("x6") = 0, x7 __asm__("x7") = 0;
+ 
+ 	for (int n = 0; n < 1000; n++) {
+@@ -403,8 +416,8 @@ lav_scm(uint32_t fn, uint64_t arginfo, uint64_t a, uint64_t *res1)
+ 		x0 = 1;
+ 		x1 = arginfo;
+ 		x2 = a;
+-		x3 = 0;
+-		x4 = 0;
++		x3 = b;
++		x4 = c;
+ 		x5 = 0;
+ 		x7 = 0;
+ 	}
+@@ -422,12 +435,12 @@ step5_scm(void)
+ 
+ 	lav_announce("step 5: SCM INFO is_call_available(PIL IS_SUPPORTED)");
+ 	ret = lav_scm(SCM_FN(SCM_SVC_INFO, SCM_INFO_IS_CALL_AVAIL), 1,
+-	    SCM_FN(SCM_SVC_PIL, PIL_IS_SUPPORTED), &res);
++	    SCM_FN(SCM_SVC_PIL, PIL_IS_SUPPORTED), 0, 0, &res);
+ 	printf("LAVGPU: SCM is_call_available: ret %llx res %llx\n",
+ 	    (unsigned long long)ret, (unsigned long long)res);
+ 	for (unsigned i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
+ 		lav_announce("step 5: SCM PIL IS_SUPPORTED for the next id");
+-		ret = lav_scm(SCM_FN(SCM_SVC_PIL, PIL_IS_SUPPORTED), 1, ids[i],
++		ret = lav_scm(SCM_FN(SCM_SVC_PIL, PIL_IS_SUPPORTED), 1, ids[i], 0, 0,
+ 		    &res);
+ 		printf("LAVGPU: SCM PAS id %u (%s) supported: ret %llx res %llx\n",
+ 		    ids[i], names[i], (unsigned long long)ret,
+@@ -435,6 +448,183 @@ step5_scm(void)
+ 	}
+ }
+ 
++/*
++ * Step 6: load the GPU zap shader through TrustZone. Same sequence the vendor
++ * PIL driver runs (Linux qcom_mdt_load + qcom_scm_pas_*, behaviour reference):
++ *   INIT_IMAGE   metadata = a512_zap.mdt (ELF header + hash segment), in a
++ *                physically contiguous non-secure buffer
++ *   MEM_SETUP    the region the image will be placed in (relocatable image)
++ *   copy         the PT_LOAD segment (a512_zap.b02) into that region
++ *   AUTH_AND_RESET
++ * After AUTH_AND_RESET the region belongs to the secure side: it is kept
++ * allocated (permanent) and never touched again.
++ */
++#define GPU_FW_DIR              "/usr/share/firmware/lavender/gpu/"
++#define PAS_ID_GPU_ZAP          13
++#define PIL_INIT_IMAGE          0x01
++#define PIL_MEM_SETUP           0x02
++#define PIL_AUTH_RESET          0x05
++#define SCM_ARG_RW              2
++#define ZAP_META_MAX            0x2000u
++#define ZAP_CODE_MAX            0x10000u
++
++struct lav_elf32_ehdr {
++	uint8_t  e_ident[16];
++	uint16_t e_type, e_machine;
++	uint32_t e_version, e_entry, e_phoff, e_shoff, e_flags;
++	uint16_t e_ehsize, e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx;
++};
++
++struct lav_elf32_phdr {
++	uint32_t p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags,
++	    p_align;
++};
++
++static int
++lav_alloc(vm_size_t size, vm_offset_t mask, vm_offset_t *va, uint64_t *pa)
++{
++	ppnum_t pn;
++
++	*va = 0;
++	if (kmem_alloc_contig(kernel_map, va, size, mask, 0, 0,
++	    KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) !=
++	    KERN_SUCCESS) {
++		return ENOMEM;
++	}
++	pn = pmap_find_phys(kernel_pmap, (addr64_t)*va);
++	if (pn == 0) {
++		return ENOMEM;
++	}
++	*pa = ptoa_64(pn);
++	return 0;
++}
++
++/* Read a whole file (at most max bytes) into buf; *len gets its size. */
++static int
++lav_read_file(const char *name, void *buf, uint32_t max, uint32_t *len)
++{
++	char path[128];
++	vnode_t vp = NULLVP;
++	vfs_context_t ctx = vfs_context_kernel();
++	int err, resid = 0;
++
++	snprintf(path, sizeof(path), "%s%s", GPU_FW_DIR, name);
++	err = vnode_open(path, FREAD, 0, 0, &vp, ctx);
++	if (err) {
++		printf("LAVGPU: open %s failed: %d\n", path, err);
++		return err;
++	}
++	err = vn_rdwr(UIO_READ, vp, (caddr_t)buf, (int)max, 0, UIO_SYSSPACE,
++	    IO_NODELOCKED, vfs_context_ucred(ctx), &resid, vfs_context_proc(ctx));
++	(void)vnode_close(vp, FREAD, ctx);
++	if (err) {
++		printf("LAVGPU: read %s failed: %d\n", path, err);
++		return err;
++	}
++	*len = max - (uint32_t)resid;
++	return 0;
++}
++
++static void
++step6_zap(void)
++{
++	vm_offset_t meta = 0, code = 0, region = 0;
++	uint64_t meta_pa = 0, code_pa = 0, region_pa = 0, ret, res = 0;
++	uint32_t meta_len = 0, code_len = 0, fw_len = 0;
++	const struct lav_elf32_ehdr *eh;
++	const struct lav_elf32_phdr *ph, *load = NULL;
++	uint32_t min_addr, max_addr, size;
++
++	lav_announce("step 6: read the zap firmware from the root filesystem");
++	if (lav_alloc(ZAP_META_MAX, PAGE_MASK, &meta, &meta_pa) ||
++	    lav_alloc(ZAP_CODE_MAX, PAGE_MASK, &code, &code_pa)) {
++		printf("LAVGPU: no contiguous memory for the zap image\n");
++		return;
++	}
++	if (lav_read_file("a512_zap.mdt", (void *)meta, ZAP_META_MAX, &meta_len) ||
++	    lav_read_file("a512_zap.b02", (void *)code, ZAP_CODE_MAX, &code_len)) {
++		return;
++	}
++	/* The microcode is only checked and counted here; it is loaded later. */
++	if (lav_read_file("a530_pm4.fw", (void *)(code + 0x8000), 0x8000,
++	    &fw_len) == 0) {
++		printf("LAVGPU: a530_pm4.fw %u bytes\n", fw_len);
++	}
++	printf("LAVGPU: a512_zap.mdt %u bytes, a512_zap.b02 %u bytes, "
++	    "meta pa %llx\n", meta_len, code_len, (unsigned long long)meta_pa);
++	eh = (const struct lav_elf32_ehdr *)meta;
++	if (meta_len < sizeof(*eh) || memcmp(eh->e_ident, "\177ELF", 4) != 0 ||
++	    eh->e_phentsize != sizeof(*ph) || eh->e_phnum == 0 ||
++	    eh->e_phoff + (uint32_t)eh->e_phnum * sizeof(*ph) > meta_len) {
++		printf("LAVGPU: a512_zap.mdt is not the expected ELF\n");
++		return;
++	}
++	ph = (const struct lav_elf32_phdr *)(meta + eh->e_phoff);
++	min_addr = 0xffffffffu;
++	max_addr = 0;
++	for (unsigned i = 0; i < eh->e_phnum; i++) {
++		if (ph[i].p_type != 1 || ph[i].p_memsz == 0) {
++			continue;
++		}
++		if (ph[i].p_paddr < min_addr) {
++			min_addr = ph[i].p_paddr;
++		}
++		if (ph[i].p_paddr + ph[i].p_memsz > max_addr) {
++			max_addr = ph[i].p_paddr + ph[i].p_memsz;
++		}
++		load = &ph[i];
++	}
++	if (load == NULL || load->p_filesz != code_len ||
++	    load->p_memsz < load->p_filesz) {
++		printf("LAVGPU: zap segment does not match a512_zap.b02\n");
++		return;
++	}
++	min_addr &= ~0xfffu;
++	max_addr = (max_addr + 0xfffu) & ~0xfffu;
++	size = max_addr - min_addr;
++	printf("LAVGPU: zap region 0x%x..0x%x (%u bytes), load offset 0x%x\n",
++	    min_addr, max_addr, size, load->p_paddr - min_addr);
++	if (size > 0x100000 ||
++	    (lav_alloc(size, 0xfffff, &region, &region_pa) &&
++	    lav_alloc(size, PAGE_MASK, &region, &region_pa))) {
++		printf("LAVGPU: no contiguous region for the zap\n");
++		return;
++	}
++	printf("LAVGPU: zap region pa %llx, SECVID_TRUST_CNTL before %08x\n",
++	    (unsigned long long)region_pa, gx_on ? rd(gpu, A5_RBBM_SECVID_TRUST) : 0);
++
++	flush_dcache64((addr64_t)meta_pa, meta_len, TRUE);
++	lav_announce("step 6: SCM PIL INIT_IMAGE (metadata)");
++	ret = lav_scm(SCM_FN(SCM_SVC_PIL, PIL_INIT_IMAGE),
++	    2 | (SCM_ARG_RW << 6), PAS_ID_GPU_ZAP, meta_pa, 0, &res);
++	printf("LAVGPU: init_image: ret %llx res %llx\n", (unsigned long long)ret,
++	    (unsigned long long)res);
++	if (ret != 0) {
++		return;
++	}
++	lav_announce("step 6: SCM PIL MEM_SETUP (region)");
++	ret = lav_scm(SCM_FN(SCM_SVC_PIL, PIL_MEM_SETUP), 3, PAS_ID_GPU_ZAP,
++	    region_pa, size, &res);
++	printf("LAVGPU: mem_setup: ret %llx res %llx\n", (unsigned long long)ret,
++	    (unsigned long long)res);
++	if (ret != 0) {
++		return;
++	}
++	memcpy((void *)(region + (load->p_paddr - min_addr)), (void *)code,
++	    code_len);
++	flush_dcache64((addr64_t)region_pa, size, TRUE);
++	lav_announce("step 6: SCM PIL AUTH_AND_RESET (loads the zap)");
++	ret = lav_scm(SCM_FN(SCM_SVC_PIL, PIL_AUTH_RESET), 1, PAS_ID_GPU_ZAP, 0,
++	    0, &res);
++	printf("LAVGPU: auth_and_reset: ret %llx res %llx\n",
++	    (unsigned long long)ret, (unsigned long long)res);
++	lav_wait(100);
++	if (gx_on) {
++		printf("LAVGPU: after the zap: RBBM_STATUS %08x SECVID_TRUST_CNTL "
++		    "%08x\n", rd(gpu, A5_RBBM_STATUS), rd(gpu, A5_RBBM_SECVID_TRUST));
++	}
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -474,6 +664,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 5) {
+ 		step5_scm();
+ 	}
++	if (step >= 6) {
++		step6_zap();
++	}
+ 	printf("LAVGPU: ladder finished\n");
+ }
+ 

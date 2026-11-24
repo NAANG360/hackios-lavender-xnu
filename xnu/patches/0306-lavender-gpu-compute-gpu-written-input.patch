@@ -1,0 +1,32 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index c5be6b5..b723d35 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1231,10 +1231,11 @@ step13_compute(int mode)
+ 	};
+ 	vm_offset_t sh_va = 0;
+ 	uint64_t sh_pa = 0, out_pa = mode ? rptr_pa + 0x240 : fence_pa + 0x40;
+-	uint64_t in_pa = rptr_pa + 0x200;
+-	uint32_t want = mode == 2 ? 0x00abcdefu : mode ? 0x11bcdf00u : SHADER_OUT_VALUE;
++	/* mode 2 loads the word the step 13 shader stored (written by the GPU), not a CPU written one */
++	uint64_t in_pa = mode == 2 ? fence_pa + 0x40 : rptr_pa + 0x200;
++	uint32_t want = mode == 2 ? SHADER_OUT_VALUE : mode ? 0x11bcdf00u : SHADER_OUT_VALUE;
+ 	volatile uint32_t *out = (volatile uint32_t *)(rptr_va + (mode ? 0x240 : 0x140));
+-	volatile uint32_t *in = (volatile uint32_t *)(rptr_va + 0x200);
++	volatile uint32_t *in = (volatile uint32_t *)(rptr_va + (mode == 2 ? 0x140 : 0x200));
+ 	uint32_t *sh;
+ 
+ 	if (ring_va == 0 || ring_pa == 0) {
+@@ -1284,8 +1285,10 @@ step13_compute(int mode)
+ 			sh[17] = 0x00000500u;
+ 			sh[21] = 0xd0c61100u;
+ 		}
+-		*in = 0x00abcdefu;
+-		flush_dcache64((addr64_t)(in_pa & ~63ull), 64, TRUE);
++		if (mode != 2) {
++			*in = 0x00abcdefu;
++			flush_dcache64((addr64_t)(in_pa & ~63ull), 64, TRUE);
++		}
+ 	}
+ 	flush_dcache64((addr64_t)sh_pa, 0x1000, TRUE);
+ 	printf("LAVGPU: shader pa %llx, output pa %llx\n",

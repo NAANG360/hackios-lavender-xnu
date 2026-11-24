@@ -1,0 +1,110 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 0694883..5ee752e 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -781,6 +781,95 @@ step9_smmu_s1(void)
+ 	    "did not take");
+ }
+ 
++/*
++ * Step 10: microcode and ring, CP still halted. Put the PM4 (ME) and PFP
++ * images in physically contiguous buffers (the firmware file minus its first
++ * dword, as the vendor driver does), point the CP at them, allocate the ring
++ * and the read-pointer shadow, program the ring registers, read everything
++ * back. The CP is not started here. All addresses are PA = GPU VA through the
++ * identity table of step 9.
++ */
++#define A5_CP_RB_BASE           (0x0800u * 4)
++#define A5_CP_RB_CNTL           (0x0802u * 4)
++#define A5_CP_RB_RPTR_ADDR      (0x0804u * 4)
++#define A5_CP_RB_RPTR           (0x0806u * 4)
++#define A5_CP_RB_WPTR           (0x0807u * 4)
++#define A5_CP_CNTL              (0x0831u * 4)
++#define A5_CP_PFP_ME_CNTL       (0x0832u * 4)
++#define A5_CP_PFP_INSTR_BASE    (0x0835u * 4)
++#define A5_CP_ME_INSTR_BASE     (0x0838u * 4)
++#define RING_BYTES              0x8000u
++#define UCODE_BYTES             0x5000u
++
++static uint64_t ring_pa, rptr_pa, fence_pa;
++static vm_offset_t ring_va, rptr_va;
++
++static int
++lav_load_ucode(const char *name, uint64_t *pa)
++{
++	vm_offset_t va = 0;
++	uint32_t len = 0;
++
++	if (lav_alloc(UCODE_BYTES, PAGE_MASK, &va, pa) ||
++	    lav_read_file(name, (void *)va, UCODE_BYTES, &len)) {
++		return -1;
++	}
++	if (len < 8 || len > UCODE_BYTES) {
++		printf("LAVGPU: %s has an unexpected size %u\n", name, len);
++		return -1;
++	}
++	memmove((void *)va, (void *)(va + 4), len - 4);
++	flush_dcache64((addr64_t)*pa, UCODE_BYTES, TRUE);
++	printf("LAVGPU: %s: %u bytes of microcode at pa %llx\n", name, len - 4,
++	    (unsigned long long)*pa);
++	return 0;
++}
++
++static void
++step10_ucode_ring(void)
++{
++	uint64_t pm4_pa, pfp_pa;
++
++	if (!gx_on || smmu_pt_pa == 0) {
++		printf("LAVGPU: step 10 needs the GX power-up and the SMMU table\n");
++		return;
++	}
++	lav_announce("step 10: read the microcode files");
++	if (lav_load_ucode("a530_pm4.fw", &pm4_pa) ||
++	    lav_load_ucode("a530_pfp.fw", &pfp_pa) ||
++	    lav_alloc(RING_BYTES, PAGE_MASK, &ring_va, &ring_pa) ||
++	    lav_alloc(0x1000, PAGE_MASK, &rptr_va, &rptr_pa)) {
++		printf("LAVGPU: step 10: buffers not available\n");
++		return;
++	}
++	fence_pa = rptr_pa + 0x100;
++	printf("LAVGPU: ring pa %llx, rptr shadow pa %llx, fence pa %llx\n",
++	    (unsigned long long)ring_pa, (unsigned long long)rptr_pa,
++	    (unsigned long long)fence_pa);
++	printf("LAVGPU: CP_CNTL %08x CP_PFP_ME_CNTL %08x before\n",
++	    rd(gpu, A5_CP_CNTL), rd(gpu, A5_CP_PFP_ME_CNTL));
++
++	lav_announce("step 10: WRITE CP microcode base and ring registers");
++	wr(gpu, A5_CP_PFP_INSTR_BASE, (uint32_t)pfp_pa);
++	wr(gpu, A5_CP_PFP_INSTR_BASE + 4, (uint32_t)(pfp_pa >> 32));
++	wr(gpu, A5_CP_ME_INSTR_BASE, (uint32_t)pm4_pa);
++	wr(gpu, A5_CP_ME_INSTR_BASE + 4, (uint32_t)(pm4_pa >> 32));
++	/* ring: BUFSZ = log2(bytes/8) in bits 5:0, BLKSZ = log2(32/8) in bits 13:8 */
++	wr(gpu, A5_CP_RB_CNTL, 12u | (2u << 8));
++	wr(gpu, A5_CP_RB_BASE, (uint32_t)ring_pa);
++	wr(gpu, A5_CP_RB_BASE + 4, (uint32_t)(ring_pa >> 32));
++	wr(gpu, A5_CP_RB_RPTR_ADDR, (uint32_t)rptr_pa);
++	wr(gpu, A5_CP_RB_RPTR_ADDR + 4, (uint32_t)(rptr_pa >> 32));
++	printf("LAVGPU: PFP base %08x%08x ME base %08x%08x\n",
++	    rd(gpu, A5_CP_PFP_INSTR_BASE + 4), rd(gpu, A5_CP_PFP_INSTR_BASE),
++	    rd(gpu, A5_CP_ME_INSTR_BASE + 4), rd(gpu, A5_CP_ME_INSTR_BASE));
++	printf("LAVGPU: RB_CNTL %08x RB_BASE %08x%08x RPTR_ADDR %08x%08x RPTR %08x "
++	    "WPTR %08x\n", rd(gpu, A5_CP_RB_CNTL), rd(gpu, A5_CP_RB_BASE + 4),
++	    rd(gpu, A5_CP_RB_BASE), rd(gpu, A5_CP_RB_RPTR_ADDR + 4),
++	    rd(gpu, A5_CP_RB_RPTR_ADDR), rd(gpu, A5_CP_RB_RPTR),
++	    rd(gpu, A5_CP_RB_WPTR));
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -832,6 +921,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 9) {
+ 		step9_smmu_s1();
+ 	}
++	if (step >= 10) {
++		step10_ucode_ring();
++	}
+ 	printf("LAVGPU: ladder finished\n");
+ }
+ 

@@ -1,0 +1,42 @@
+From: port_ios lavender
+Subject: [PATCH 0235] lavender: send the vsync to CoreAnimation at the panel rate (sweetfb_hz)
+
+A spindump of backboardd on the idle lock screen (about 150 % CPU) shows the
+CoreAnimation software OpenGL renderer (CA::OGL::SW: scan_convert,
+image_sampler, tex_color_matrix_4x4_bias, fill_round_rect) driven by
+display_timer_callback -> render_for_time.
+
+AppleCLCD::vsyncFired notified every client at a fixed 60 Hz, while the panel
+only shows a frame every fFlushTicks ticks (sweetfb_hz, 30 Hz by default in
+the shim). backboardd therefore drew up to 60 frames a second on the CPU and
+half of them were never displayed.
+
+The notification now goes out only on the ticks that can flush a frame. The
+internal timer stays at 60 Hz (fade, fFlushTicks accounting unchanged).
+
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -476,10 +476,18 @@
+ 	};
+ 
+ 	IOLockLock(fb->fLock);
+-	for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
+-		IOMobileFramebufferUserClient *client =
+-		    (IOMobileFramebufferUserClient *)fb->fClients->getObject(i);
+-		client->notify(SWEET_FB_NOTIFY_VSYNC, values, 6);
++	/*
++	 * 0235: the panel only shows a frame every fFlushTicks ticks
++	 * (sweetfb_hz), but backboardd draws one frame per vsync on the CPU
++	 * (CA::OGL::SW). Notifying every tick made it render 60 frames a
++	 * second of which half were never shown.
++	 */
++	if ((count % fb->fFlushTicks) == 0) {
++		for (unsigned int i = 0; i < fb->fClients->getCount(); i++) {
++			IOMobileFramebufferUserClient *client =
++			    (IOMobileFramebufferUserClient *)fb->fClients->getObject(i);
++			client->notify(SWEET_FB_NOTIFY_VSYNC, values, 6);
++		}
+ 	}
+ 	if (fb->fIntf1 != NULL && (count % 300) == 0) {
+ 		uint32_t frames = fb->fIntf1[(0x800 + 0x0ac) / 4];

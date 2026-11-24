@@ -1,0 +1,48 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -825,5 +825,19 @@ panel_dot(int x, int y, uint32_t colour)
+ }
+ 
++/* Raw two-byte Novatek command (register, value) at the bootloader. */
++static int
++nvt_write_cmd(uint8_t addr, uint8_t reg, uint8_t value)
++{
++	int ok = 1;
++
++	i2c_start();
++	ok &= i2c_write((uint8_t)(addr << 1));
++	ok &= i2c_write(reg);
++	ok &= i2c_write(value);
++	i2c_stop();
++	return ok ? 0 : EIO;
++}
++
+ /*
+  * NT36672 parameter page (Linux novatek-nvt-ts.c): register 0x78 returns
+  * width, height, max contacts and the chip id. The lavender DTB names the
+@@ -1040,4 +1054,22 @@ santoni_touch_probe(void)
+ 	printf("WHYRED TOUCH: scan done, %d address(es) acknowledged; sda %d "
+ 	    "scl %d\n", acks, pin_read(&touch_sda), pin_read(&touch_scl));
+ 
++	if (nvt_addr == 0x62) {
++		int i;
++
++		if (nvt_write_cmd(nvt_addr, 0x00, 0x69) == 0) {
++			delay(35000);
++			for (i = 0; i < 100; i++) {
++				if (i2c_ack(0x01)) {
++					nvt_addr = 0x01;
++					break;
++				}
++				delay(10000);
++			}
++			printf("WHYRED TOUCH: nvt boot 0x69 -> addr 0x%02x "
++			    "(%d ms)\n", nvt_addr, i * 10);
++		} else {
++			printf("WHYRED TOUCH: nvt boot cmd failed\n");
++		}
++	}
+ 	touch_s = 0;
+ 	(void)PE_parse_boot_argn("sweetouchtouch", &touch_s, sizeof(touch_s));
+ 	if (nvt_addr != 0) {

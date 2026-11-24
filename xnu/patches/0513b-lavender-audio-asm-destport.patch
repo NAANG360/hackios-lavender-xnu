@@ -1,0 +1,101 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 7ce811b..1b799d9 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -2150,7 +2150,8 @@ glink_intents(uint32_t count, uint32_t size)
+ }
+ 
+ static int
+-glink_send_apr_pkt(uint8_t dest_svc, uint16_t src_port, uint32_t opcode,
++glink_send_apr_pkt(uint8_t dest_svc, uint16_t src_port, uint16_t dest_port,
++    uint32_t opcode,
+     const void *payload, uint32_t payload_len, uint32_t token)
+ {
+ 	struct apr_hdr a;
+@@ -2169,7 +2170,7 @@ glink_send_apr_pkt(uint8_t dest_svc, uint16_t src_port, uint32_t opcode,
+ 	a.src_port = src_port;
+ 	a.dest_svc = dest_svc;
+ 	a.dest_domain = APR_DOMAIN_ADSP;
+-	a.dest_port = 0;
++	a.dest_port = dest_port;
+ 	a.token = token;
+ 	a.opcode = opcode;
+ 	memcpy(buf, &a, sizeof(a));
+@@ -2206,7 +2207,7 @@ glink_send_apr_pkt(uint8_t dest_svc, uint16_t src_port, uint32_t opcode,
+ static int
+ glink_send_apr(void)
+ {
+-	return glink_send_apr_pkt(APR_SVC_ADSP_CORE, 1, APR_CMD_GET_FWK_VERSION,
++	return glink_send_apr_pkt(APR_SVC_ADSP_CORE, 1, 0, APR_CMD_GET_FWK_VERSION,
+ 	    NULL, 0, 1);
+ }
+ 
+@@ -2516,7 +2517,7 @@ audio_afe_port(void)
+ 	clk_pkt.clk.attribute = 4;      /* INVERT_COUPLE_NO */
+ 	clk_pkt.clk.root = 0;
+ 	clk_pkt.clk.enable = 1;
+-	(void)glink_send_apr_pkt(APR_SVC_AFE, 1, AFE_SVC_CMD_SET_PARAM, &clk_pkt,
++	(void)glink_send_apr_pkt(APR_SVC_AFE, 1, 0, AFE_SVC_CMD_SET_PARAM, &clk_pkt,
+ 	    sizeof(clk_pkt), 2);
+ 	for (ms = 0; ms < 1000; ms += 10) {
+ 		while (glink_rx_one()) {
+@@ -2538,7 +2539,7 @@ audio_afe_port(void)
+ 	pkt.cfg.ws_src = 1;             /* internal */
+ 	pkt.cfg.sample_rate = 48000;
+ 
+-	if (!glink_send_apr_pkt(APR_SVC_AFE, 1, AFE_PORT_CMD_SET_PARAM_V2,
++	if (!glink_send_apr_pkt(APR_SVC_AFE, 1, 0, AFE_PORT_CMD_SET_PARAM_V2,
+ 	    &pkt, sizeof(pkt), 3)) {
+ 		printf("SWEET AUDIO: AFE config not sent\n");
+ 		return;
+@@ -2550,7 +2551,7 @@ audio_afe_port(void)
+ 	}
+ 	printf("SWEET AUDIO: AFE 0x1036 I2S config sent (16-bit 48k SD0)\n");
+ 
+-	if (!glink_send_apr_pkt(APR_SVC_AFE, 1, AFE_PORT_CMD_DEVICE_START,
++	if (!glink_send_apr_pkt(APR_SVC_AFE, 1, 0, AFE_PORT_CMD_DEVICE_START,
+ 	    &start, sizeof(start), 4)) {
+ 		printf("SWEET AUDIO: AFE start not sent\n");
+ 		return;
+@@ -2595,7 +2596,7 @@ audio_adm_open(void)
+ 	open.rate = 48000;
+ 	open.map[0] = 1;                /* PCM_CHANNEL_FL */
+ 	open.map[1] = 2;                /* PCM_CHANNEL_FR */
+-	if (!glink_send_apr_pkt(APR_SVC_ADM, 0, ADM_CMD_DEVICE_OPEN_V5,
++	if (!glink_send_apr_pkt(APR_SVC_ADM, 0, 0, ADM_CMD_DEVICE_OPEN_V5,
+ 	    &open, sizeof(open), 5)) {
+ 		printf("SWEET AUDIO: ADM open not sent\n");
+ 		return;
+@@ -2648,28 +2649,28 @@ audio_asm_route(void)
+ 	}
+ 	audio_announce("ASM stream open, ADM route, media format and run");
+ 	route.copp[0] = (uint16_t)adm_copp;
+-	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT,
++	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT, STREAM_PORT,
+ 	    ASM_STREAM_CMD_OPEN_WRITE_V3, &open, sizeof(open), 6);
+ 	for (ms = 0; ms < 300; ms += 10) {
+ 		while (glink_rx_one()) {
+ 		}
+ 		audio_wait(10);
+ 	}
+-	(void)glink_send_apr_pkt(APR_SVC_ADM, 0,
++	(void)glink_send_apr_pkt(APR_SVC_ADM, 0, 0,
+ 	    ADM_CMD_MATRIX_MAP_ROUTINGS_V5, &route, sizeof(route), 7);
+ 	for (ms = 0; ms < 300; ms += 10) {
+ 		while (glink_rx_one()) {
+ 		}
+ 		audio_wait(10);
+ 	}
+-	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT,
++	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT, STREAM_PORT,
+ 	    ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2, &fmt, sizeof(fmt), 8);
+ 	for (ms = 0; ms < 300; ms += 10) {
+ 		while (glink_rx_one()) {
+ 		}
+ 		audio_wait(10);
+ 	}
+-	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT,
++	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT, STREAM_PORT,
+ 	    ASM_SESSION_CMD_RUN_V2, run, sizeof(run), 9);
+ 	for (ms = 0; ms < 1000; ms += 10) {
+ 		while (glink_rx_one()) {

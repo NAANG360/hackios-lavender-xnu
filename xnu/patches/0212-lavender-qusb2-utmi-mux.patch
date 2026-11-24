@@ -1,0 +1,60 @@
+From: port_ios lavender
+Subject: [PATCH 0212] lavender: release the QUSB2 UTMI test mux ABL leaves set
+
+USB test boot with 0211 (sweetlog-usbtest-0211): no endpoint timeout any
+more, the core runs, but only one event arrives (bus reset) and the link
+stays in suspend (DSTS 0x008e0001); the host sees no device at all.
+
+Every lavender log reads QUSB2 PORT_UTMI_CTRL2 = 0x40 (UTMI_TEST_MUX_SEL):
+the PHY takes termination / transceiver / op mode from its PORT_UTMI_CTRL1
+test register instead of the controller - Linux phy-msm-qusb.c's
+non-driving bus-suspend state, which it clears on resume (UTMI_CTRL2 = 0).
+With the mux set the D+ pull-up never reaches the line and the core only
+sees SE0 (the bus reset). Clear UTMI_CTRL2 after the PLL locks and log
+UTMI_CTRL1/2. Boot-arg sweetusbutmi=0 keeps ABL's value.
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index c275a09..d9ee808 100644
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -182,6 +182,23 @@ lavender_usb_power_up(vm_offset_t gcc)
+ #define   QUSB2_PLL_LOCK        (1u << 5)
+ #define QUSB2_PORT_POWERDOWN    0xb4
+ #define   QUSB2_POWER_DOWN      (1u << 0)
++/*
++ * 0212: UTMI test mux. The usbtest-0211 boot ran the core (no endpoint
++ * timeout) but saw one bus-reset event and nothing else: the link sat in
++ * suspend and the host never saw a device. Both lavender logs read
++ * PORT_UTMI_CTRL2 = 0x40 = UTMI_TEST_MUX_SEL: the PHY takes termination,
++ * transceiver select and op mode from its own PORT_UTMI_CTRL1 test register
++ * instead of from the controller, which is how Linux phy-msm-qusb.c parks
++ * the PHY in non-driving mode for bus suspend (UTMI_CTRL2 = ULPI_SEL |
++ * TEST_MUX_SEL, UTMI_CTRL1 = TERM_SELECT | XCVR_SELECT_FS | OP_MODE_NON_DRIVE)
++ * and what it undoes on resume (UTMI_CTRL2 = 0). With the mux set the
++ * controller cannot apply the D+ pull-up: the core only sees SE0. Boot-arg
++ * sweetusbutmi=0 keeps the mux as ABL left it.
++ */
++#define QUSB2_PORT_UTMI_CTRL1   0xc0
++#define QUSB2_PORT_UTMI_CTRL2   0xc4
++#define   QUSB2_UTMI_ULPI_SEL   (1u << 7)
++#define   QUSB2_UTMI_TEST_MUX_SEL (1u << 6)
+ 
+ static void
+ lavender_qusb2_power_up(void)
+@@ -213,6 +230,17 @@ lavender_qusb2_power_up(void)
+ 	printf("SWEET USB: PHY after %d us: TCSR clamp_dig_n 0x%08x POWERDOWN 0x%02x PLL_STATUS 0x%02x (%s)\n",
+ 	    i * 10, usb_rd(tcsr, TCSR_CLAMP_DIG_N_1P8), usb_rd(phy, QUSB2_PORT_POWERDOWN) & 0xffu, pll,
+ 	    (pll & QUSB2_PLL_LOCK) ? "PLL locked" : "PLL NOT locked: PHY supplies (PM660 LDOs) may be off");
++
++	int utmi = 1;
++	uint32_t c1 = usb_rd(phy, QUSB2_PORT_UTMI_CTRL1) & 0xffu, c2 = usb_rd(phy, QUSB2_PORT_UTMI_CTRL2) & 0xffu;
++	PE_parse_boot_argn("sweetusbutmi", &utmi, sizeof(utmi));
++	if (utmi && (c2 & (QUSB2_UTMI_ULPI_SEL | QUSB2_UTMI_TEST_MUX_SEL))) {
++		usb_wr(phy, QUSB2_PORT_UTMI_CTRL2, 0);
++	}
++	printf("SWEET USB: PHY UTMI_CTRL1 0x%02x UTMI_CTRL2 0x%02x -> 0x%02x (%s)\n", c1, c2,
++	    usb_rd(phy, QUSB2_PORT_UTMI_CTRL2) & 0xffu,
++	    (usb_rd(phy, QUSB2_PORT_UTMI_CTRL2) & QUSB2_UTMI_TEST_MUX_SEL) ? "test mux: PHY not driven by the controller"
++	    : "controller drives the UTMI");
+ }
+ #endif /* ARM64_BOARD_CONFIG_LAVENDER */
+ 

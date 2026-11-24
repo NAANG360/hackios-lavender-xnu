@@ -1,0 +1,43 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 5842532..a9228c6 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1190,6 +1190,7 @@ step12_fence_reset(void)
+ #define R_UCHE_INVALIDATE_MIN   0x0e91u
+ #define CP_WAIT_FOR_IDLE        38u
+ #define CP_EXEC_CS              0x33u
++#define CP_EVENT_WRITE          0x46u
+ #define CP_LOAD_STATE4          0x30u
+ #define SHADER_OUT_VALUE        0xc0de0001u
+ 
+@@ -1343,6 +1344,20 @@ step13_compute(void)
+ 	ring_put(1);
+ 	ring_put(1);
+ 	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	/* the SP store may sit in the write-back UCHE: flush it out, like fd5 does after a dispatch */
++	ring_pkt4(R_UCHE_INVALIDATE_MIN, 5);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0x12);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	ring_pkt7(CP_EVENT_WRITE, 4);
++	ring_put(0x4u | (1u << 30));				/* CACHE_FLUSH_TS */
++	ring_put((uint32_t)(fence_pa + 0x80));
++	ring_put((uint32_t)((fence_pa + 0x80) >> 32));
++	ring_put(0x1234u);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
+ 	if (ring_submit("compute dispatch") != 0) {
+ 		printf("LAVGPU: the CP did not consume the dispatch, resetting\n");
+ 		goto recover;
+@@ -1360,6 +1375,9 @@ step13_compute(void)
+ 	    "INT_0 %08x AHB_ERR %08x RPTR %u WPTR %u\n", *out, rd(gpu, A5_RBBM_STATUS),
+ 	    rd(gpu, A5_RBBM_INT_0_STATUS), rd(gpu, A5_RBBM_AHB_ERR_STATUS),
+ 	    rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR));
++	flush_dcache64((addr64_t)((fence_pa + 0x80) & ~63ull), 64, TRUE);
++	printf("LAVGPU: cache flush event word %08x (expect 00001234 if the event ran)\n",
++	    *(volatile uint32_t *)(rptr_va + 0x180));
+ recover:
+ 	lav_announce("step 13: RBBM software reset after the failed dispatch");
+ 	wr(gpu, A5_RBBM_SW_RESET_CMD, 1);

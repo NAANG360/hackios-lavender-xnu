@@ -1,0 +1,113 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 42362c5..196afcb 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -542,9 +542,11 @@ arm_init(
+ 	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
+ 	kprintf("kprintf initialized\n");
+ 	sweet_early_mark(20, "kprintf startup complete");
++#if !defined(ARM64_BOARD_CONFIG_SANTONI) && !defined(SANTONI) && !defined(ARM64_BOARD_CONFIG_LAVENDER) && !defined(LAVENDER)
+ 	if (serial_exists) {
+ 		sweet_early_disable();
+ 	}
++#endif
+ 
+ 	serialmode = 0;
+ 	if (PE_parse_boot_argn("serial", &serialmode, sizeof(serialmode))) {
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+index 6928957..27ba2d6 100644
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -112,9 +112,15 @@ sweet_early_mark(unsigned int stage, const char *label)
+ void
+ sweet_early_panic(const char *fmt, va_list *args)
+ {
++#if !defined(ARM64_BOARD_CONFIG_SANTONI) && !defined(SANTONI) && !defined(ARM64_BOARD_CONFIG_LAVENDER) && !defined(LAVENDER)
+ 	if (early_disabled || early_panicking) {
+ 		return;
+ 	}
++#else
++	if (early_panicking) {
++		return;
++	}
++#endif
+ 	early_panicking = 1;
+ 	sweet_early_string("\nSWEET EARLY PANIC: ");
+ 	va_list copy;
+@@ -123,6 +129,11 @@ sweet_early_panic(const char *fmt, va_list *args)
+ 	va_end(copy);
+ 	sweet_early_putc('\n');
+ 	__asm__ volatile("dsb sy" ::: "memory");
++#if defined(ARM64_BOARD_CONFIG_SANTONI) || defined(SANTONI) || defined(ARM64_BOARD_CONFIG_LAVENDER) || defined(LAVENDER)
++	for (;;) {
++		__asm__ volatile("wfe");
++	}
++#endif
+ }
+ 
+ void
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index 19f27cd..406ed6b 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -810,9 +810,60 @@ SECURITY_READ_ONLY_LATE(static struct pe_serial_functions) sweet_fbcon_serial_fu
+ 	.device = SERIAL_SWEET_FBCON
+ };
+ 
++#if defined(ARM64_BOARD_CONFIG_SANTONI) || defined(SANTONI) || defined(ARM64_BOARD_CONFIG_LAVENDER) || defined(LAVENDER)
++extern void sweet_early_putc(char c);
++
++static void
++santoni_early_serial_init(void)
++{
++	extern bool disable_kprintf_output;
++	extern bool disable_serial_output;
++	disable_kprintf_output = false;
++	disable_serial_output = false;
++}
++
++static unsigned int
++santoni_early_serial_tx_ready(void)
++{
++	return 1;
++}
++
++static void
++santoni_early_serial_tx_data(uint8_t c)
++{
++	sweet_early_putc((char)c);
++}
++
++static unsigned int
++santoni_early_serial_rx_ready(void)
++{
++	return 0;
++}
++
++static uint8_t
++santoni_early_serial_rx_data(void)
++{
++	return 0;
++}
++
++SECURITY_READ_ONLY_LATE(static struct pe_serial_functions) santoni_early_serial_functions =
++{
++	.init = santoni_early_serial_init,
++	.transmit_ready = santoni_early_serial_tx_ready,
++	.transmit_data = santoni_early_serial_tx_data,
++	.receive_ready = santoni_early_serial_rx_ready,
++	.receive_data = santoni_early_serial_rx_data,
++	.device = SERIAL_SWEET_FBCON
++};
++#endif
++
+ static void
+ fbcon_probe(void)
+ {
++#if defined(ARM64_BOARD_CONFIG_SANTONI) || defined(SANTONI) || defined(ARM64_BOARD_CONFIG_LAVENDER) || defined(LAVENDER)
++	register_serial_functions(&santoni_early_serial_functions);
++	return;
++#endif
+ 	DTEntry entry;
+ 	uint64_t const *reg;
+ 	uint32_t const *val;

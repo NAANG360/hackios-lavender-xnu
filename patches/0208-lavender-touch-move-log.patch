@@ -1,0 +1,47 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -980,10 +980,6 @@
+ 				    irq_level, level, irq_edges);
+ 				irq_level = level;
+ 			}
+-			if (level != 0) {
+-				delay(1000);
+-				continue;
+-			}
+ 		}
+ 		err = nvt_read_fw(addr, 0x00, buf, (int)sizeof(buf));
+ 
+@@ -1156,11 +1152,11 @@
+ 		if (touch_irq_ready) {
+ 			int level = pin_read(&touch_irq);
+ 
+-			if (level == irq_level && level != 0) {
+-				delay(1000);
+-				continue;
+-			}
+-			irq_level = level;
++			if (level != irq_level) {
++				printf("WHYRED TOUCH: thread irq %d -> %d\n",
++				    irq_level, level);
++				irq_level = level;
++			}
+ 		}
+ 		err = nvt_read_fw(touch_fw_addr, 0x00, buf, (int)sizeof(buf));
+ 
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -546,6 +546,12 @@
+ 	if (was != down) {
+ 		IOLog("SWEET HID: touch %d %s at %d,%d%s\n", finger, down ? "down" : "up", x, y,
+ 		    fEdge[finger] ? " edge" : "");
++	} else if (moved) {
++		static unsigned move_log;
++
++		if ((move_log++ & 7u) == 0) {
++			IOLog("SWEET HID: touch %d move at %d,%d\n", finger, x, y);
++		}
+ 	}
+ 	dispatchEvent(collection);
+ 	collection->release();

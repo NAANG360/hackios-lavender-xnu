@@ -1,0 +1,164 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 8878205..f89d71e 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1615,6 +1615,149 @@ step18_blit2d(void)
+ 	}
+ }
+ 
++/*
++ * Step 19 (M4.1): a 2D copy of a rectangle between two RGBA8 linear images
++ * (32x16, pitch 128): the 16x8 box at (4,2) goes to (8,4). The CPU checks every
++ * pixel of the box and that the rest of the destination was left alone.
++ */
++#define IMG_W 32u
++#define IMG_H 16u
++#define IMG_PITCH (IMG_W * 4u)
++#define IMG_BYTES (IMG_PITCH * IMG_H)
++
++static uint32_t
++img_pixel(uint32_t x, uint32_t y)
++{
++	return 0xff000000u | (y << 16) | (x << 8) | 0x5au;
++}
++
++static void
++step19_blit_rgba(void)
++{
++	vm_offset_t va = 0;
++	uint64_t pa = 0, src_pa, dst_pa;
++	volatile uint32_t *src, *dst;
++	uint32_t inside = 0, outside = 0, wrong_first = 0xffffffffu;
++	const uint32_t sx = 4, sy = 2, bw = 16, bh = 8, dx = 8, dy = 4;
++
++	if (ring_va == 0 || ring_pa == 0) {
++		printf("LAVGPU: step 19 needs steps 10-12\n");
++		return;
++	}
++	if (lav_alloc(0x2000, PAGE_MASK, &va, &pa)) {
++		printf("LAVGPU: no pages for the images\n");
++		return;
++	}
++	src_pa = pa;
++	dst_pa = pa + 0x1000;
++	src = (volatile uint32_t *)va;
++	dst = (volatile uint32_t *)(va + 0x1000);
++	for (uint32_t y = 0; y < IMG_H; y++) {
++		for (uint32_t x = 0; x < IMG_W; x++) {
++			src[y * IMG_W + x] = img_pixel(x, y);
++			dst[y * IMG_W + x] = 0xdeadbeefu;
++		}
++	}
++	flush_dcache64((addr64_t)src_pa, IMG_BYTES, TRUE);
++	flush_dcache64((addr64_t)dst_pa, IMG_BYTES, TRUE);
++
++	lav_announce("step 19: submit a 2D blit (RGBA8 rectangle copy)");
++	ring_reg(0xe141u, 0x8);
++	ring_reg(0x2100u, 0x86000000u);
++	ring_reg(0x2180u, 0x86000000u);
++	ring_reg(0x2184u, 0x9);
++	ring_reg(0xe140u, 1u << 17);
++	ring_reg(0x0cc6u, 1u << 1);
++	ring_reg(R_SP_MODE_CNTL, 0xc);
++	ring_reg(R_TPL1_MODE_CNTL, 0x244u | (1u << 7));
++	ring_reg(R_HLSQ_MODE_CNTL, 0x2);
++	ring_reg(0xe000u, 0x181);
++	ring_pkt7(CP_SET_RENDER_MODE, 1);
++	ring_put(5);
++	ring_pkt4(0x2107u, 9);
++	ring_put(0x30);					/* RB5_R8G8B8A8_UNORM, linear, WZYX */
++	ring_put((uint32_t)src_pa);
++	ring_put((uint32_t)(src_pa >> 32));
++	ring_put((IMG_PITCH >> 6) | ((IMG_BYTES >> 6) << 16));
++	for (int i = 0; i < 5; i++) {
++		ring_put(0);
++	}
++	ring_reg(0x2181u, 0x30);
++	ring_pkt4(0x2110u, 9);
++	ring_put(0x30);
++	ring_put((uint32_t)dst_pa);
++	ring_put((uint32_t)(dst_pa >> 32));
++	ring_put((IMG_PITCH >> 6) | ((IMG_BYTES >> 6) << 16));
++	for (int i = 0; i < 5; i++) {
++		ring_put(0);
++	}
++	ring_reg(0x2182u, 0x30);
++	ring_pkt4(0x2000u, 5);
++	ring_put(0x30);
++	ring_put(IMG_W | (IMG_H << 15));
++	ring_put((uint32_t)src_pa);
++	ring_put((uint32_t)(src_pa >> 32));
++	ring_put((IMG_PITCH >> 6) << 9);
++	ring_reg(0x2040u, 0x30u << 3);
++	ring_pkt7(CP_BLIT, 5);
++	ring_put(3);
++	ring_put(sx | (sy << 16));
++	ring_put((sx + bw - 1) | ((sy + bh - 1) << 16));
++	ring_put(dx | (dy << 16));
++	ring_put((dx + bw - 1) | ((dy + bh - 1) << 16));
++	ring_pkt7(CP_SET_RENDER_MODE, 1);
++	ring_put(8);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	ring_pkt7(CP_EVENT_WRITE, 4);
++	ring_put(0x1du | (1u << 30));
++	ring_put((uint32_t)(fence_pa + 0x100));
++	ring_put((uint32_t)((fence_pa + 0x100) >> 32));
++	ring_put(0x5678u);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	ring_pkt4(R_UCHE_INVALIDATE_MIN, 5);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0x12);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	ring_pkt7(CP_EVENT_WRITE, 4);
++	ring_put(0x4u | (1u << 30));
++	ring_put((uint32_t)(fence_pa + 0xc0));
++	ring_put((uint32_t)((fence_pa + 0xc0) >> 32));
++	ring_put(0x1234u);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	if (ring_submit("RGBA blit") != 0) {
++		printf("LAVGPU: the CP did not consume the RGBA blit\n");
++		return;
++	}
++	lav_wait(50);
++	flush_dcache64((addr64_t)dst_pa, IMG_BYTES, TRUE);
++	for (uint32_t y = 0; y < IMG_H; y++) {
++		for (uint32_t x = 0; x < IMG_W; x++) {
++			uint32_t got = dst[y * IMG_W + x];
++			bool in_box = x >= dx && x < dx + bw && y >= dy && y < dy + bh;
++			if (in_box) {
++				if (got == img_pixel(x - dx + sx, y - dy + sy)) {
++					inside++;
++				} else if (wrong_first == 0xffffffffu) {
++					wrong_first = y * IMG_W + x;
++				}
++			} else if (got == 0xdeadbeefu) {
++				outside++;
++			}
++		}
++	}
++	printf("LAVGPU: RGBA blit: %u of %u box pixels right, %u of %u outside pixels untouched%s\n",
++	    inside, bw * bh, outside, IMG_W * IMG_H - bw * bh,
++	    (inside == bw * bh && outside == IMG_W * IMG_H - bw * bh) ? " (ALL CORRECT)" : "");
++	if (wrong_first != 0xffffffffu) {
++		printf("LAVGPU: first wrong pixel %u: got %08x want %08x\n", wrong_first,
++		    dst[wrong_first],
++		    img_pixel((wrong_first % IMG_W) - dx + sx, (wrong_first / IMG_W) - dy + sy));
++	}
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -1684,6 +1827,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 18) {
+ 		step18_blit2d();
+ 	}
++	if (step >= 19) {
++		step19_blit_rgba();
++	}
+ 	if (step == 17) {
+ 		step13_compute(4);	/* 64 threads: probe the local id */
+ 		step13_compute(5);	/* 64 threads: out[tid] = in[tid] + K */

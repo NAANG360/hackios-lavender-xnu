@@ -1,0 +1,55 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index ed41613..db4c5ec 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -55,6 +55,8 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ #define CC_CX_GDS_HW_CTRL       0x1008u
+ #define CC_GX_GDSCR             0x1094u
+ #define CC_GX_CLAMP_IO          0x0130u
++#define CC_GX_BCR               0x1090u
++#define GX_GMEM_RESET           (1u << 4)
+ #define CC_GFX3D_CLK            0x1098u
+ #define CC_GFX3D_RCG_CMD        0x1070u
+ #define CC_GFX3D_RCG_CFG        0x1074u
+@@ -307,6 +309,33 @@ step4_gx(void)
+ 	ldo_ctl_saved = rd(gpucc, CC_LDO_PWRSWITCH_CTRL);
+ 	ldo_bhs_mode();
+ 	dump_ldo("after bhs");
++	/*
++	 * Run 5 (0238): the LDO bits were already in BHS state and the GX GDSC
++	 * still stayed at 08222000. The vendor GDSC driver does three more things
++	 * BEFORE it clears SW_COLLAPSE (gdsc-regulator.c, behaviour reference):
++	 * pulse the GX block reset (sw-reset = GPUCC+0x1090 bit 0), pulse the
++	 * AON/GMEM reset (domain-addr = GPUCC+0x130 bit 4, reset-aon-logic) and
++	 * release the GMEM clamp (same register, bit 0). Until now the clamp was
++	 * only released after the power-up that never completed.
++	 */
++	lav_announce("step 4: GX block reset pulse, AON reset pulse, release clamp");
++	v = rd(gpucc, CC_GX_BCR);
++	printf("LAVGPU: GX bcr %08x clamp/domain %08x\n", v,
++	    rd(gpucc, CC_GX_CLAMP_IO));
++	wr(gpucc, CC_GX_BCR, v | 1u);
++	for (int i = 0; i < 20; i++) {
++		(void)rd(gpucc, CC_GX_GDSCR);
++	}
++	wr(gpucc, CC_GX_BCR, v & ~1u);
++	v = rd(gpucc, CC_GX_CLAMP_IO);
++	wr(gpucc, CC_GX_CLAMP_IO, v | GX_GMEM_RESET);
++	for (int i = 0; i < 20; i++) {
++		(void)rd(gpucc, CC_GX_GDSCR);
++	}
++	wr(gpucc, CC_GX_CLAMP_IO, v & ~GX_GMEM_RESET);
++	wr(gpucc, CC_GX_CLAMP_IO, rd(gpucc, CC_GX_CLAMP_IO) & ~1u);
++	printf("LAVGPU: GX bcr %08x clamp/domain %08x\n", rd(gpucc, CC_GX_BCR),
++	    rd(gpucc, CC_GX_CLAMP_IO));
+ 	lav_announce("step 4: GX GDSC on");
+ 	if (gdsc_on_n("GX", CC_GX_GDSCR, 300)) {
+ 		lav_wait(1000);
+@@ -315,6 +344,7 @@ step4_gx(void)
+ 		/* leave the domain as found: collapse it, drop the forced root,
+ 		 * restore the LDO block */
+ 		wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ldo_ctl_saved);
++		wr(gpucc, CC_GX_CLAMP_IO, rd(gpucc, CC_GX_CLAMP_IO) | 1u);
+ 		wr(gpucc, CC_GX_GDSCR, rd(gpucc, CC_GX_GDSCR) | GDSC_COLLAPSE);
+ 		wr(gpucc, CC_GFX3D_RCG_CMD,
+ 		    rd(gpucc, CC_GFX3D_RCG_CMD) & ~RCG_ROOT_EN);

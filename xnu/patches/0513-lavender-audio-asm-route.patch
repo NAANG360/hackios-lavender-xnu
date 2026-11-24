@@ -1,0 +1,145 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index e4434b3..7ce811b 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -50,6 +50,8 @@
+  *   lavaud=10       also configure and start the AFE INT4_MI2S_RX port 0x1036
+  *                   over APR (I2S 48 kHz/16-bit/SD0, then DEVICE_START)
+  *   lavaud=11       also open an ADM playback device path (COPP) to 0x1036
++ *   lavaud=12       also open the ASM stream, route it to the COPP, set the
++ *                   media format and run it
+  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
+  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
+  *   lavaudprobe=1   A3: read the carve-out and print copy progress every 256K
+@@ -327,6 +329,14 @@ struct smp2p_entry {
+ #define ADM_CMDRSP_DEVICE_OPEN_V5      0x00010329u
+ #define ADM_PATH_PLAYBACK              1u
+ #define ADM_TOPOLOGY_NONE              0x00010312u
++#define ADM_CMD_MATRIX_MAP_ROUTINGS_V5 0x00010325u
++#define ADM_MATRIX_AUDIO_RX            0u
++#define ASM_STREAM_CMD_OPEN_WRITE_V3   0x00010DB3u
++#define ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2 0x00010D98u
++#define ASM_SESSION_CMD_RUN_V2         0x00010DAAu
++#define ASM_TOPOLOGY_NONE              0x00010C68u
++#define ASM_MEDIA_FMT_MULTI_CHANNEL_PCM_V2 0x00010DA5u
++#define STREAM_PORT                    0x0101u
+ 
+ struct glink_msg {
+ 	uint16_t cmd, p1;
+@@ -401,6 +411,7 @@ static struct glink_intent glink_ri[GLINK_MAX_INTENTS];
+ static unsigned glink_ri_count;
+ static unsigned glink_tx_msgs, glink_rx_msgs;
+ static unsigned glink_intent_log;
++static uint32_t adm_status, adm_copp;
+ 
+ static inline uint32_t
+ audio_rd(vm_offset_t base, uint32_t off)
+@@ -2317,6 +2328,20 @@ glink_rx_one(void)
+ 					printf("SWEET AUDIO: APR rsp %08x "
+ 					    "payload %08x %08x\n", a->opcode,
+ 					    audio_le32(p), audio_le32(p + 4));
++					if (a->opcode ==
++					    ADM_CMDRSP_DEVICE_OPEN_V5) {
++						adm_status = audio_le32(p);
++						adm_copp = audio_le32(p + 4) &
++						    0xffffu;
++						if (adm_copp == 0) {
++							adm_copp =
++							    (audio_le32(p + 4) >>
++							    16) & 0xffffu;
++						}
++						printf("SWEET AUDIO: ADM "
++						    "status %u copp %x\n",
++						    adm_status, adm_copp);
++					}
+ 				}
+ 				printf("SWEET AUDIO: APR raw len %u pkt %u "
+ 				    "hdr %04x chunk %u:", len, a->pkt_size,
+@@ -2584,6 +2609,77 @@ audio_adm_open(void)
+ 	    glink_tx_msgs, glink_rx_msgs);
+ }
+ 
++/*
++ * F6 control plane, step 2: open the ASM write stream, route session 1 to the
++ * ADM COPP, set the 16-bit 48 kHz stereo format and run it. No buffer yet.
++ */
++static void
++audio_asm_route(void)
++{
++	struct {
++		uint32_t flags;
++		uint16_t sink, bits;
++		uint32_t topology, format;
++	} __attribute__((packed)) open = {
++		0, 0, 16, ASM_TOPOLOGY_NONE,
++		ASM_MEDIA_FMT_MULTI_CHANNEL_PCM_V2
++	};
++	struct {
++		uint32_t matrix, sessions;
++		uint16_t session, copps;
++		uint16_t copp[2];
++	} __attribute__((packed)) route = {
++		ADM_MATRIX_AUDIO_RX, 1, 1, 1, { 0, 0 }
++	};
++	struct {
++		uint32_t size;
++		uint16_t channels, bits;
++		uint32_t rate;
++		uint16_t is_signed, reserved;
++		uint8_t map[8];
++	} __attribute__((packed)) fmt = {
++		20, 2, 16, 48000, 1, 0, { 1, 2 }
++	};
++	uint32_t run[3] = { 0, 0, 0 };
++	uint32_t ms;
++
++	if (audio_step < 12) {
++		return;
++	}
++	audio_announce("ASM stream open, ADM route, media format and run");
++	route.copp[0] = (uint16_t)adm_copp;
++	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT,
++	    ASM_STREAM_CMD_OPEN_WRITE_V3, &open, sizeof(open), 6);
++	for (ms = 0; ms < 300; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	(void)glink_send_apr_pkt(APR_SVC_ADM, 0,
++	    ADM_CMD_MATRIX_MAP_ROUTINGS_V5, &route, sizeof(route), 7);
++	for (ms = 0; ms < 300; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT,
++	    ASM_DATA_CMD_MEDIA_FMT_UPDATE_V2, &fmt, sizeof(fmt), 8);
++	for (ms = 0; ms < 300; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	(void)glink_send_apr_pkt(APR_SVC_ASM, STREAM_PORT,
++	    ASM_SESSION_CMD_RUN_V2, run, sizeof(run), 9);
++	for (ms = 0; ms < 1000; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	printf("SWEET AUDIO: ASM/ADM route done (copp %x, tx %u rx %u)\n",
++	    adm_copp, glink_tx_msgs, glink_rx_msgs);
++}
++
+ /*
+  * F4: PM660L analog codec read-only probe. The codec is the SPMI device at
+  * SID 3, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
+@@ -3005,6 +3101,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (audio_step >= 11) {
+ 		audio_adm_open();
+ 	}
++	if (audio_step >= 12) {
++		audio_asm_route();
++	}
+ 
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }

@@ -1,0 +1,71 @@
+From: port_ios lavender
+Subject: [PATCH 0215] lavender: per-swap log so a stalled UI is not confused with the 16-line cap
+
+The persistent ring only ever printed the first 16 presented frames
+("SWEET FB: swap N ..." in the vsync path, sweet_fb_swaps_logged < 16) and
+the swap counter only every 1000 commits. A lock screen that swaps once a
+minute (the clock label) therefore looks exactly like a frozen UI: no new
+SWEET FB lines after boot. That is how "the UI stops at 6-11 frames" in
+sweetlog-0203 was read; the 0203 ring has no "1000 swaps" line either, so
+the real commit rate was simply below 1000.
+
+Log the first sweetfblog commits (boot-arg, default 2000) one line each,
+then every 256th, and print every change of the enabled layer set with the
+surface IDs. The ring's 0202 uptime stamp then dates each commit, so a
+stuck compositor (no commits at all) is distinguishable from an idle one
+(one commit per minute) in the same log.
+
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -597,6 +597,17 @@
+ 
+ static uint32_t sweet_fb_swaps_logged;
+ static uint64_t sweet_fb_swap_count;
++/*
++ * 0213: the old log printed only the first 16 presented frames, so "no more
++ * SWEET FB: swap lines" looked like a frozen UI when it only meant "the cap
++ * was reached". Log the first sweetfblog swaps (default 2000) one line each,
++ * then every 256th, and log every change of the layer set, so a stall and an
++ * idle UI are distinguishable in the ring.
++ */
++static uint32_t sweet_fb_swap_log_budget;
++static uint32_t sweet_fb_swap_last_mask;
++static uint32_t sweet_fb_swap_last_ids[4];
++static bool sweet_fb_swap_log_ready;
+ 
+ /* Copy each enabled layer's surface into the panel memory (no scaling). */
+ /*
+@@ -624,8 +635,30 @@
+ 	memcpy(fPendHold, held, sizeof(held));
+ 	IOLockUnlock(fLock);
+ 	sweet_hold_set(dropped, false);
+-	if ((++sweet_fb_swap_count % 1000) == 0) {
+-		IOLog("SWEET FB: %llu swaps\n", sweet_fb_swap_count);
++	if (!sweet_fb_swap_log_ready) {
++		uint32_t logn = 2000;
++		PE_parse_boot_argn("sweetfblog", &logn, sizeof(logn));
++		sweet_fb_swap_log_budget = logn;
++		sweet_fb_swap_log_ready = true;
++	}
++	uint64_t n = ++sweet_fb_swap_count;
++	uint32_t ids[4] = {
++		get32(rec, 0x54), get32(rec, 0x58), get32(rec, 0x5c), get32(rec, 0x60)
++	};
++	bool layersChanged = mask != sweet_fb_swap_last_mask;
++	for (uint32_t i = 0; i < 4; i++) {
++		if (ids[i] != sweet_fb_swap_last_ids[i]) {
++			layersChanged = true;
++		}
++	}
++	if (layersChanged) {
++		IOLog("SWEET FB: layer set mask 0x%x ids %u %u %u %u (swap %llu)\n",
++		    mask, ids[0], ids[1], ids[2], ids[3], n);
++		sweet_fb_swap_last_mask = mask;
++		memcpy(sweet_fb_swap_last_ids, ids, sizeof(ids));
++	}
++	if (n <= sweet_fb_swap_log_budget || (n % 256) == 0) {
++		IOLog("SWEET FB: swap %llu\n", n);
+ 	}
+ }
+ 

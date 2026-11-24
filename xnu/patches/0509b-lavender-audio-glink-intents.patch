@@ -1,0 +1,68 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 46895f3..3286124 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -348,6 +348,7 @@ static uint32_t glink_next_intent = 1;
+ static struct glink_intent glink_ri[GLINK_MAX_INTENTS];
+ static unsigned glink_ri_count;
+ static unsigned glink_tx_msgs, glink_rx_msgs;
++static unsigned glink_intent_log;
+ 
+ static inline uint32_t
+ audio_rd(vm_offset_t base, uint32_t off)
+@@ -2176,20 +2177,31 @@ glink_rx_one(void)
+ 		if (avail < len) {
+ 			return 0;
+ 		}
++		if (glink_intent_log < 6 || m.p2 != 0) {
++			uint8_t raw[16];
++
++			glink_rx_peek(0, raw, sizeof(raw));
++			printf("SWEET AUDIO: glink INTENT p1 %u p2 %u raw %08x "
++			    "%08x %08x %08x\n", m.p1, m.p2,
++			    audio_le32(raw), audio_le32(raw + 4),
++			    audio_le32(raw + 8), audio_le32(raw + 12));
++			glink_intent_log++;
++		}
+ 		for (uint32_t i = 0; i < m.p2; i++) {
+ 			uint32_t pair[2];
+ 
+ 			glink_rx_peek(8 + 8 * i, pair, sizeof(pair));
+-			if (m.p1 == glink_rcid &&
+-			    glink_ri_count < GLINK_MAX_INTENTS) {
++			if (glink_ri_count < GLINK_MAX_INTENTS) {
+ 				glink_ri[glink_ri_count].size = pair[0];
+ 				glink_ri[glink_ri_count].id = pair[1];
+ 				glink_ri[glink_ri_count].used = 0;
+ 				glink_ri_count++;
+ 			}
+ 		}
+-		printf("SWEET AUDIO: glink got %u remote intents\n",
+-		    glink_ri_count);
++		if (glink_ri_count != 0) {
++			printf("SWEET AUDIO: glink got %u remote intents\n",
++			    glink_ri_count);
++		}
+ 		glink_rx_advance(len);
+ 		break;
+ 	case GCMD_RX_INTENT_REQ:
+@@ -2318,6 +2330,19 @@ audio_glink_apr(void)
+ 	}
+ 	printf("SWEET AUDIO: glink remote intents %u after %u ms\n",
+ 	    glink_ri_count, ms);
++	if (glink_ri_count == 0) {
++		printf("SWEET AUDIO: requesting one remote intent of %u\n",
++		    (unsigned)sizeof(struct apr_hdr));
++		glink_cmd(GCMD_RX_INTENT_REQ, GLINK_LCID,
++		    sizeof(struct apr_hdr));
++		for (ms = 0; ms < 1000 && glink_ri_count == 0; ms += 10) {
++			while (glink_rx_one()) {
++			}
++			audio_wait(10);
++		}
++		printf("SWEET AUDIO: glink remote intents %u after the "
++		    "request (%u ms)\n", glink_ri_count, ms);
++	}
+ 	if (glink_ri_count == 0) {
+ 		return;
+ 	}

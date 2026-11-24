@@ -1,0 +1,18 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 79f8a28..8878205 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1572,6 +1572,13 @@ step18_blit2d(void)
+ 	ring_pkt7(CP_SET_RENDER_MODE, 1);
+ 	ring_put(8);					/* END2D */
+ 	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	/* the 2D core writes through the CCU colour cache: flush it to memory */
++	ring_pkt7(CP_EVENT_WRITE, 4);
++	ring_put(0x1du | (1u << 30));			/* PC_CCU_FLUSH_COLOR_TS */
++	ring_put((uint32_t)(fence_pa + 0x100));
++	ring_put((uint32_t)((fence_pa + 0x100) >> 32));
++	ring_put(0x5678u);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
+ 	ring_pkt4(R_UCHE_INVALIDATE_MIN, 5);
+ 	ring_put(0);
+ 	ring_put(0);

@@ -1,0 +1,12 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -843,5 +843,6 @@
+  * (nt36xxx.c nvt_get_fw_info) and then read the low register. The
+- * NT36672A EVENT_BUF_ADDR in the stock driver is 0x21C00.
++ * bootloader trim ID selects the map: 0xAA... is NT36772, whose
++ * EVENT_BUF_ADDR is 0x11E00 (NT36672A uses 0x21C00).
+  */
+-#define NVT_XDATA_BUF	0x21C00u
++#define NVT_XDATA_BUF	0x11E00u
+ #define NVT_XDATA_FWINFO	0x78u

@@ -1,0 +1,147 @@
+From: port_ios lavender
+Subject: [PATCH 0210] lavender: QUSB2 PHY power-up and a USB test boot (sweetusbhold)
+
+The first lavender boot with 0200 (sweetusb=1, log sweetlog-usbkeys-0202)
+showed the USB30 GDSC and all seven clocks on and the DWC3 in device mode,
+halted - but the QUSB2 v1 PHY powered down (PORT_POWERDOWN 0x23, PLL not
+locked, PORT_TUNE1 0xf8 = DT init value). The keys (0201) worked.
+
+- sweetusb>=2 on LAVENDER: before the gadget starts, release the TCSR
+  digital clamp (DT tcsr_clamp_dig_n_1p8 0x01fcb24c), clear POWER_DOWN
+  keeping CLAMP_N_EN|FREEZIO_N, wait up to 5 ms for PLL_LOCK; log before
+  and after. No PMIC regulator writes.
+- sweetusbhold=1: after the USB probe, IOFindBSDRoot stops there. No root
+  mount, no userland, nothing written to userdata; USB, the ue0 live log,
+  the key poller and the SYSTEM log flusher keep running. A status line
+  every 10 s. A USB/keys test takes about a minute instead of a full boot.
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index f9abb84..7874d96 100644
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -162,6 +162,58 @@ lavender_usb_power_up(vm_offset_t gcc)
+ 		    (v & CBCR_CLK_OFF) ? "STILL OFF" : "ok", v);
+ 	}
+ }
++
++/*
++ * 0210: the first lavender boot with 0200 (sweetusb=1) found the controller
++ * powered and clocked, in device mode and halted, but the QUSB2 v1 PHY
++ * powered down: PORT_POWERDOWN 0x23 (CLAMP_N_EN | FREEZIO_N | POWER_DOWN),
++ * PLL_STATUS without PLL_LOCK, PORT_TUNE1 0xf8 (the DT init sequence was
++ * applied, so ABL configured the PHY and powered it down on exit).
++ * Power it up the way Linux phy-msm-qusb.c does on resume: release the TCSR
++ * digital clamp (DT qusb@c012000 reg "tcsr_clamp_dig_n_1p8" 0x01fcb24c,
++ * write 1), clear POWER_DOWN keeping CLAMP_N_EN | FREEZIO_N (0x22), then
++ * wait for PLL_LOCK (PLL_STATUS bit 5). The registers are 8 bits wide (a
++ * 32-bit read returns the byte in every lane). No regulator (PMIC LDO) is
++ * touched: if the PLL does not lock, the log says so.
++ */
++#define TCSR_CLAMP_PAGE         0x01fcb000
++#define TCSR_CLAMP_DIG_N_1P8    0x24c
++#define QUSB2_PLL_STATUS        0x38
++#define   QUSB2_PLL_LOCK        (1u << 5)
++#define QUSB2_PORT_POWERDOWN    0xb4
++#define   QUSB2_POWER_DOWN      (1u << 0)
++
++static void
++lavender_qusb2_power_up(void)
++{
++	vm_offset_t phy = ml_io_map(QUSB2_PA, QUSB2_SIZE);
++	vm_offset_t tcsr = ml_io_map(TCSR_CLAMP_PAGE, 0x1000);
++	uint32_t clamp, pd, pll;
++	int i;
++
++	if (phy == 0 || tcsr == 0) {
++		printf("SWEET USB: PHY power-up: map failed\n");
++		return;
++	}
++	clamp = usb_rd(tcsr, TCSR_CLAMP_DIG_N_1P8);
++	pd = usb_rd(phy, QUSB2_PORT_POWERDOWN) & 0xffu;
++	pll = usb_rd(phy, QUSB2_PLL_STATUS) & 0xffu;
++	printf("SWEET USB: PHY before: TCSR clamp_dig_n 0x%08x POWERDOWN 0x%02x PLL_STATUS 0x%02x\n",
++	    clamp, pd, pll);
++	if (!(clamp & 1u)) {
++		usb_wr(tcsr, TCSR_CLAMP_DIG_N_1P8, 1u);
++	}
++	if (pd & QUSB2_POWER_DOWN) {
++		usb_wr(phy, QUSB2_PORT_POWERDOWN, pd & ~QUSB2_POWER_DOWN);
++	}
++	for (i = 0; i < 500 && !(usb_rd(phy, QUSB2_PLL_STATUS) & QUSB2_PLL_LOCK); i++) {
++		delay(10);
++	}
++	pll = usb_rd(phy, QUSB2_PLL_STATUS) & 0xffu;
++	printf("SWEET USB: PHY after %d us: TCSR clamp_dig_n 0x%08x POWERDOWN 0x%02x PLL_STATUS 0x%02x (%s)\n",
++	    i * 10, usb_rd(tcsr, TCSR_CLAMP_DIG_N_1P8), usb_rd(phy, QUSB2_PORT_POWERDOWN) & 0xffu, pll,
++	    (pll & QUSB2_PLL_LOCK) ? "PLL locked" : "PLL NOT locked: PHY supplies (PM660 LDOs) may be off");
++}
+ #endif /* ARM64_BOARD_CONFIG_LAVENDER */
+ 
+ void
+@@ -223,6 +275,11 @@ sweet_usb_probe(void)
+ 	printf("SWEET USB: DWC3 GEVNTADR 0x%08x%08x GEVNTSIZ 0x%08x GEVNTCOUNT 0x%08x GHWPARAMS0 0x%08x\n",
+ 	    usb_rd(dwc, 0xc404), usb_rd(dwc, 0xc400), usb_rd(dwc, 0xc408), usb_rd(dwc, 0xc40c),
+ 	    usb_rd(dwc, 0xc140));
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (enabled >= 2 && !(cbcr[5] & CBCR_CLK_OFF)) {
++		lavender_qusb2_power_up();
++	}
++#endif
+ 	if (enabled >= 2) {
+ 		sweet_usb_gadget_start(dwc);
+ 	}
+@@ -1033,4 +1090,43 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+ 		thread_deallocate(thread);
+ 	}
+ }
++/*
++ * 0210: boot-arg sweetusbhold=1 - USB test boot. Called from IOFindBSDRoot
++ * right after sweet_usb_probe(): the root is never mounted and no userland
++ * runs, so a USB/keys test takes about a minute instead of a full iOS boot,
++ * and nothing is written to userdata. The kernel threads keep running: the
++ * USB event loop, the ue0 live log (192.168.7.1:5140), the key poller and
++ * the SYSTEM log flusher. A status line every 10 s goes to the console (and
++ * so to SANTONILOG1). Power off with Power held 20-30 s.
++ */
++void sweet_usb_hold(void);
++
++static int usb_hold_chan;
++
++void
++sweet_usb_hold(void)
++{
++	int hold = 0;
++	uint64_t deadline;
++	unsigned n = 0;
++
++	PE_parse_boot_argn("sweetusbhold", &hold, sizeof(hold));
++	if (!hold) {
++		return;
++	}
++	printf("SWEET USB: hold (sweetusbhold=1): root not mounted, no userland; "
++	    "USB, live log and keys keep running. Power off: hold Power 20-30 s\n");
++	for (;;) {
++		clock_interval_to_deadline(10000, NSEC_PER_MSEC, &deadline);
++		(void)assert_wait_deadline(&usb_hold_chan, THREAD_UNINT, deadline);
++		thread_block(THREAD_CONTINUE_NULL);
++		n++;
++		if (ud.dwc != 0) {
++			printf("SWEET USB: hold %us: DSTS 0x%08x events %u configured %d ue0 rx %llu tx %llu\n",
++			    n * 10, dwc_rd(DSTS), ud.events, ud.configured, ud.rx_frames, ud.tx_frames);
++		} else {
++			printf("SWEET USB: hold %us: USB device not started (sweetusb<2 or probe failed)\n", n * 10);
++		}
++	}
++}
+ #endif /* ARM64_BOARD_CONFIG_SWEET */
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -814,7 +814,9 @@
+ 		extern void sweet_keys_init(void);
+ 		extern void sweet_usb_probe(void);
++		extern void sweet_usb_hold(void);
+ 
+ 		sweet_keys_init();
+ 		sweet_usb_probe();
++		sweet_usb_hold();       /* 0210: sweetusbhold=1 stops the boot here */
+ 	}
+ #endif

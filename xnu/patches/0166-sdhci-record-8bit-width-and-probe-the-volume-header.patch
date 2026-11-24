@@ -1,0 +1,43 @@
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -2116,9 +2116,9 @@
+ 	 * Name the build in the log. Matching a boot log to a patch by
+ 	 * guessing from its messages has already cost flash cycles.
+ 	 */
+-	printf("SANTONI SDHCI: driver 0165 (EXT_CSD read once, with the "
+-	    "engine that moved LBA0, then one verdict; no width ladder after "
+-	    "a data failure)\n");
++	printf("SANTONI SDHCI: driver 0166 (enumeration records the width "
++	    "it actually switched to; the 8-bit summary is no longer a "
++	    "stale 1-bit)\n");
+ 
+ 	error = sdhci_core_check();
+ 	if (error) {
+@@ -3197,6 +3197,17 @@
+ 	error = sdhci_switch_ext_csd(EXT_CSD_BUS_WIDTH,
+ 	    EXT_CSD_BUS_WIDTH_8, SDHCI_CTRL_8BITBUS, SDHCI_CTRL_BUS_MASK,
+ 	    "BUS_WIDTH=8");
++	if (!error) {
++		/*
++		 * The 0165 boot switched the card and the host to 8-bit and
++		 * then reported "1-bit", because bus_width still held the
++		 * width that had just read EXT_CSD. The card was fine
++		 * (HOST_CONTROL 0x24, DAT[7:0] 8-bit HS verified, GPT read),
++		 * but the driver's own state was wrong, and any later re-init
++		 * would have used it. Record the width that is now active.
++		 */
++		bus_width = 8;
++	}
+ 	if (error) {
+ 		printf("SANTONI SDHCI: enumeration: 8-bit switch failed "
+ 		    "(%d); trying 4-bit\n", error);
+@@ -3229,7 +3240,8 @@
+ 
+ 	se.enumerated = true;
+ 	printf("SANTONI SDHCI: enumeration complete: 25 MHz, %u-bit, "
+-	    "high-speed\n", bus_width);
++	    "high-speed (HOST_CONTROL 0x%02x)\n", bus_width,
++	    hc_rd8(SDHCI_HOST_CONTROL));
+ 	return 0;
+ }
+ 

@@ -1,0 +1,78 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 7ef25d6..f7b70b4 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -1,6 +1,10 @@
+ /*
+  * lavender: audio platform probe, A0..A5. Boot-arg gated.
+  *
++ * Device log (0505 kernel, lavaud=3): the LPASS ADSP GDSC is collapsed
++ * (`0x00000001`) and voting the SMMU branch first leaves `80000001` (EN, OFF);
++ * A5 fixes the order: GDSC first, then the SMMU branch.
++ *
+  *   lavaud=1        run the read-only probe (A0)
+  *   lavaud=2        also power up the LPASS ADSP domain if the bootloader
+  *                   left it off, then read the Q6SS (A1)
+@@ -355,19 +359,11 @@ audio_power_up(void)
+ 	}
+ 	audio_announce("power up the LPASS ADSP domain (lavaud>=2)");
+ 
+-	v = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
+-	printf("SWEET AUDIO: smmu cbcr before %08x\n", v);
+-	if (v & CBCR_OFF) {
+-		audio_wr(gcc, GCC_LPASS_SMMU_CBCR, v | CBCR_EN);
+-		if (audio_poll(gcc, GCC_LPASS_SMMU_CBCR, CBCR_OFF, 0, 100)) {
+-			v = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
+-			printf("SWEET AUDIO: smmu cbcr still off %08x\n", v);
+-			return EIO;
+-		}
+-	}
+-	printf("SWEET AUDIO: smmu cbcr after %08x (on)\n",
+-	    audio_rd(gcc, GCC_LPASS_SMMU_CBCR));
+-
++	/*
++	 * Device result (0505 kernel): voting the SMMU branch first leaves it
++	 * at 80000001 (EN set, OFF still set) because its GDSC is collapsed.
++	 * Power the GDSC first, then vote the branch clock.
++	 */
+ 	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
+ 	printf("SWEET AUDIO: adsp gdscr before %08x\n", gdscr);
+ 	if (!(gdscr & GDSC_PWR_ON) || (gdscr & GDSC_SW_COLLAPSE)) {
+@@ -375,18 +371,33 @@ audio_power_up(void)
+ 		if (audio_poll(gcc, GCC_LPASS_ADSP_GDSCR, GDSC_PWR_ON,
+ 		    GDSC_PWR_ON, 200)) {
+ 			gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
+-			printf("SWEET AUDIO: adsp gdscr after %08x (STILL OFF), "
+-			    "putting the collapse back\n", gdscr);
++			printf("SWEET AUDIO: adsp gdscr after %08x (STILL OFF; "
++			    "CX rail or a voter is missing), putting the "
++			    "collapse back\n", gdscr);
+ 			audio_wr(gcc, GCC_LPASS_ADSP_GDSCR,
+ 			    gdscr | GDSC_SW_COLLAPSE);
+ 			return EIO;
+ 		}
+ 	}
+ 	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
++	printf("SWEET AUDIO: adsp gdscr after %08x (%s)\n", gdscr,
++	    (gdscr & GDSC_PWR_ON) ? "on" : "still off");
++
++	v = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
++	printf("SWEET AUDIO: smmu cbcr before %08x\n", v);
++	if (v & CBCR_OFF) {
++		audio_wr(gcc, GCC_LPASS_SMMU_CBCR, v | CBCR_EN);
++		if (audio_poll(gcc, GCC_LPASS_SMMU_CBCR, CBCR_OFF, 0, 100)) {
++			v = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
++			printf("SWEET AUDIO: smmu cbcr still off %08x\n", v);
++		} else {
++			printf("SWEET AUDIO: smmu cbcr after %08x (on)\n",
++			    audio_rd(gcc, GCC_LPASS_SMMU_CBCR));
++		}
++	}
++	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
+ 	lpass_on = ((gdscr & GDSC_PWR_ON) != 0) &&
+ 	    ((gdscr & GDSC_SW_COLLAPSE) == 0);
+-	printf("SWEET AUDIO: adsp gdscr after %08x (%s)\n", gdscr,
+-	    lpass_on ? "on" : "still off");
+ 	return lpass_on ? 0 : EIO;
+ }
+ 

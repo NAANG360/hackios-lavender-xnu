@@ -1,0 +1,111 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 39190d7..ed41613 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -77,6 +77,18 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ 
+ #define RCG_ROOT_EN     (1u << 1)
+ #define RCG_ROOT_OFF    (1u << 31)
++/* msm_gfx_ldo block, inside the GPUCC window (0x0506e000 - 0x05065000) */
++#define CC_LDO                  0x9000u
++#define CC_LDO_PWRSWITCH_CTRL   (CC_LDO + 0x1cu)
++#define CC_LDO_STATUS1          (CC_LDO + 0x24u)
++#define CC_LDO_PWRSWITCH_STATUS (CC_LDO + 0x28u)
++#define LDO_BHS_UNDER_SW        (1u << 0)
++#define LDO_BHS_EN_FEW          (1u << 1)
++#define LDO_BHS_EN_REST         (1u << 2)
++#define LDO_UNDER_SW_CTRL       (1u << 4)
++#define LDO_PWR_SRC_SEL         (1u << 9)
++#define LDO_CPR_BYPASS          (1u << 30)
++
+ #define CBCR_OFF        (1u << 31)
+ #define CBCR_EN         (1u << 0)
+ #define GDSC_PWR_ON     (1u << 31)
+@@ -138,6 +150,8 @@ lav_poll(vm_offset_t base, uint32_t off, uint32_t mask, uint32_t want)
+ 	return lav_poll_n(base, off, mask, want, 100);
+ }
+ 
++static void dump_ldo(const char *when);
++
+ static void
+ step1_reads(void)
+ {
+@@ -165,6 +179,7 @@ step1_reads(void)
+ 	    rd(gpucc, CC_GFX3D_RCG_CFG), rd(gpucc, CC_RBBMTIMER_CLK),
+ 	    rd(gpucc, CC_RBBMTIMER_RCG_CMD), rd(gpucc, CC_RBCPR_CLK),
+ 	    rd(gpucc, CC_RBCPR_RCG_CMD), rd(gpucc, CC_CX_GFX3D_CLK));
++	dump_ldo("step 1");
+ }
+ 
+ static void
+@@ -231,10 +246,47 @@ dump_gpu(void)
+ 	    rd(gpu, A5_CP_RB_BASE), rd(gpu, A5_CP_RB_CNTL));
+ }
+ 
++static void
++dump_ldo(const char *when)
++{
++	printf("LAVGPU: gfx ldo (%s): atest %08x cfg0 %08x cfg1 %08x cfg2 %08x "
++	    "ld %08x vreftest %08x vref %08x\n", when, rd(gpucc, CC_LDO),
++	    rd(gpucc, CC_LDO + 0x4), rd(gpucc, CC_LDO + 0x8),
++	    rd(gpucc, CC_LDO + 0xc), rd(gpucc, CC_LDO + 0x10),
++	    rd(gpucc, CC_LDO + 0x14), rd(gpucc, CC_LDO + 0x18));
++	printf("LAVGPU: gfx ldo (%s): pwrswitch_ctrl %08x status1 %08x "
++	    "pwrswitch_status %08x\n", when, rd(gpucc, CC_LDO_PWRSWITCH_CTRL),
++	    rd(gpucc, CC_LDO_STATUS1), rd(gpucc, CC_LDO_PWRSWITCH_STATUS));
++}
++
++/*
++ * The GX power domain is fed through the GFX LDO/head-switch block. Put it in
++ * BHS mode under GDSC control, the same bit sequence the vendor regulator
++ * runs on enable (msm_gfx_ldo.c: enable_bhs_mode, behaviour reference only).
++ */
++static void
++ldo_bhs_mode(void)
++{
++	uint32_t ctl = rd(gpucc, CC_LDO_PWRSWITCH_CTRL);
++
++	ctl |= LDO_UNDER_SW_CTRL;
++	wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ctl);
++	ctl &= ~LDO_PWR_SRC_SEL;
++	wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ctl);
++	ctl &= ~LDO_CPR_BYPASS;
++	wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ctl);
++	ctl &= ~LDO_BHS_EN_FEW;
++	wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ctl);
++	ctl &= ~LDO_BHS_EN_REST;
++	wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ctl);
++	ctl &= ~LDO_BHS_UNDER_SW;
++	wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ctl);
++}
++
+ static void
+ step4_gx(void)
+ {
+-	uint32_t v;
++	uint32_t v, ldo_ctl_saved;
+ 
+ 	/*
+ 	 * Run 3 (0236): the GX GDSC left the off state (GDSCR 08222000) but never
+@@ -250,12 +302,19 @@ step4_gx(void)
+ 	v = lav_poll(gpucc, CC_GFX3D_RCG_CMD, RCG_ROOT_OFF, 0);
+ 	printf("LAVGPU: gfx3d rcg cmd after %08x (%s)\n", v,
+ 	    (v & RCG_ROOT_OFF) ? "root STILL OFF" : "root on");
+-	lav_announce("step 4: GX GDSC on (needs the GX rail from the bootloader)");
++	dump_ldo("before");
++	lav_announce("step 4: put the GFX LDO block in BHS mode under GDSC control");
++	ldo_ctl_saved = rd(gpucc, CC_LDO_PWRSWITCH_CTRL);
++	ldo_bhs_mode();
++	dump_ldo("after bhs");
++	lav_announce("step 4: GX GDSC on");
+ 	if (gdsc_on_n("GX", CC_GX_GDSCR, 300)) {
+ 		lav_wait(1000);
+ 		printf("LAVGPU: GX after 1 more s: gdscr %08x cfg(0x1098) %08x\n",
+ 		    rd(gpucc, CC_GX_GDSCR), rd(gpucc, CC_GFX3D_CLK));
+-		/* leave the domain as found: collapse it, drop the forced root */
++		/* leave the domain as found: collapse it, drop the forced root,
++		 * restore the LDO block */
++		wr(gpucc, CC_LDO_PWRSWITCH_CTRL, ldo_ctl_saved);
+ 		wr(gpucc, CC_GX_GDSCR, rd(gpucc, CC_GX_GDSCR) | GDSC_COLLAPSE);
+ 		wr(gpucc, CC_GFX3D_RCG_CMD,
+ 		    rd(gpucc, CC_GFX3D_RCG_CMD) & ~RCG_ROOT_EN);

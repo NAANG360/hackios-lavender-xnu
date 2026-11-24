@@ -1,0 +1,212 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 6a6145b..a6fc582 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -45,6 +45,8 @@
+  *                   open the apr_audio_svc channel and send the APR core query
+  *   lavaud=8        also read the PM660L analog codec over SPMI (SID 3,
+  *                   peripheral 0xf0) read-only
++ *   lavaud=9        also test the guarded SPMI write path on the PM660L DIG
++ *                   spare register 0xf070 (write/read-back/restore)
+  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
+  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
+  *   lavaudprobe=1   A3: read the carve-out and print copy progress every 256K
+@@ -111,6 +113,8 @@ extern int sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
+ /* 0510: lavender arbiter v3 path (SID 3 = PM660L analog codec). */
+ extern int sweet_spmi_lavender_read(unsigned sid, unsigned addr,
+     uint8_t *out);
++extern int sweet_spmi_lavender_write(unsigned sid, unsigned addr,
++    uint8_t val);
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ 
+ #define GCC_PA              0x00100000u
+@@ -2374,9 +2378,22 @@ audio_glink_apr(void)
+ static void
+ audio_pm660l(void)
+ {
+-	static const uint16_t regs[] = {
+-		0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006,
+-		0x0007, 0x0100, 0x0101,
++	static const struct {
++		uint16_t reg;
++		const char *name;
++	} regs[] = {
++		{ 0x0000, "DIG_REV1" }, { 0x0001, "DIG_REV2" },
++		{ 0x0004, "DIG_TYPE" }, { 0x0005, "DIG_SUBTYPE" },
++		{ 0x0046, "DIG_RST_CTL" }, { 0x0048, "DIG_TOP_CLK" },
++		{ 0x0049, "DIG_ANA_CLK" }, { 0x004A, "DIG_DIG_CLK" },
++		{ 0x0100, "ANA_REV1" }, { 0x0101, "ANA_REV2" },
++		{ 0x0102, "ANA_REV3" }, { 0x0103, "ANA_REV4" },
++		{ 0x0104, "ANA_TYPE" }, { 0x0105, "ANA_SUBTYPE" },
++		{ 0x0140, "MICB_1_EN" }, { 0x0144, "MICB_2_EN" },
++		{ 0x0193, "RX_BIAS_DAC" }, { 0x0197, "HPH_CNP_EN" },
++		{ 0x01B0, "SPKR_DAC_CTL" }, { 0x01B5, "SPKR_PWRSTG" },
++		{ 0x01B6, "SPKR_DRV_MISC" }, { 0x01C0, "CURRENT_LIMIT" },
++		{ 0x01C1, "OUTPUT_VOLTAGE" }, { 0x01C3, "BOOST_EN_CTL" },
+ 	};
+ 
+ 	if (audio_step < 8) {
+@@ -2385,14 +2402,45 @@ audio_pm660l(void)
+ 	audio_announce("read the PM660L analog codec over SPMI (SID 3, 0xf000)");
+ 	for (uint32_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+ 		uint8_t v = 0;
+-		int err = sweet_spmi_lavender_read(3, 0xf000u + regs[i], &v);
++		int err = sweet_spmi_lavender_read(3, 0xf000u + regs[i].reg,
++		    &v);
+ 
+-		printf("SWEET AUDIO: PM660L[%04x] = %02x (%d)\n", regs[i], v,
+-		    err);
++		printf("SWEET AUDIO: PM660L %-14s [%04x] = %02x (%d)\n",
++		    regs[i].name, regs[i].reg, v, err);
+ 		audio_wait(20);
+ 	}
+ }
+ 
++/*
++ * F4 write path test: the PM660L DIG spare registers (0xf070..0xf072, POR 0)
++ * are the only writes the guarded SPMI helper allows for now. Write 0x5a,
++ * read it back, then restore the old value and read it again.
++ */
++static void
++audio_pm660l_write(void)
++{
++	uint8_t orig = 0, after = 0, restored = 0;
++	int err;
++
++	if (audio_step < 9) {
++		return;
++	}
++	audio_announce("PM660L spare write/read-back/restore (SID 3 0xf070)");
++	err = sweet_spmi_lavender_read(3, 0xf070u, &orig);
++	printf("SWEET AUDIO: PM660L spare read %02x (%d)\n", orig, err);
++	if (err != 0) {
++		return;
++	}
++	err = sweet_spmi_lavender_write(3, 0xf070u, 0x5au);
++	printf("SWEET AUDIO: PM660L spare write 5a (%d)\n", err);
++	(void)sweet_spmi_lavender_read(3, 0xf070u, &after);
++	err = sweet_spmi_lavender_write(3, 0xf070u, orig);
++	printf("SWEET AUDIO: PM660L spare restore %02x (%d)\n", orig, err);
++	(void)sweet_spmi_lavender_read(3, 0xf070u, &restored);
++	printf("SWEET AUDIO: PM660L spare readback %02x restore %02x\n",
++	    after, restored);
++}
++
+ static void
+ audio_q6ss(void)
+ {
+@@ -2734,6 +2782,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (audio_step >= 8) {
+ 		audio_pm660l();
+ 	}
++	if (audio_step >= 9) {
++		audio_pm660l_write();
++	}
+ 
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }
+diff --git a/bsd/dev/sweet_spmi.c b/bsd/dev/sweet_spmi.c
+index 7543c7c..03ce5b2 100644
+--- a/bsd/dev/sweet_spmi.c
++++ b/bsd/dev/sweet_spmi.c
+@@ -140,6 +140,8 @@ sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+  */
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+ #define LSP_CORE_PA     0x0800f000u
++#define LSP_CHNLS_PA    0x08400000u
++#define LSP_CFG_PA      0x0800a000u
+ #define LSP_OBS_PA      0x09400000u
+ #define LSP_APID_MAP    0x800u
+ #define LSP_OBS_STRIDE  0x8000u
+@@ -149,7 +151,9 @@ sweet_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+ #define LSP_ARB_END     0x50000000u
+ 
+ static vm_offset_t lsp_core;
++static vm_offset_t lsp_cfg;
+ static vm_offset_t lsp_chan[LSP_MAX_APIDS];
++static vm_offset_t lsp_wchan[LSP_MAX_APIDS];
+ static IOLock *lsp_lock;
+ static bool lsp_attempted, lsp_ready;
+ static bool lsp_poisoned[LSP_MAX_APIDS];
+@@ -194,8 +198,9 @@ lsp_init(void)
+ 		return -1;
+ 	}
+ 	lsp_core = ml_io_map(LSP_CORE_PA, 0x1000);
+-	if (!lsp_core) {
+-		printf("SWEET AUDIO: lavender SPMI core map failed\n");
++	lsp_cfg = ml_io_map(LSP_CFG_PA, 0x1000);
++	if (!lsp_core || !lsp_cfg) {
++		printf("SWEET AUDIO: lavender SPMI core/cfg map failed\n");
+ 		return -1;
+ 	}
+ 	version = sp_rd(lsp_core, 0);
+@@ -259,6 +264,69 @@ sweet_spmi_lavender_read(unsigned sid, unsigned addr, uint8_t *out)
+ 	IOLockUnlock(lsp_lock);
+ 	return -1;
+ }
++/*
++ * 0510b: guarded write path (PMIC arbiter v2/v3 EXT_WRITEL).
++ * Only SID 3 / peripheral 0xf0 and the three DIG spare registers are allowed
++ * for now: the caller writes a pattern, reads it back and restores. The APID
++ * must be APPS-owned (EE 0); the RW channel is at chnls + 0x8000 * apid.
++ */
++int
++sweet_spmi_lavender_write(unsigned sid, unsigned addr, uint8_t val)
++{
++	unsigned off;
++	uint16_t apid;
++	vm_offset_t chan;
++	uint32_t cmd, status;
++
++	if (lsp_init() != 0 || sid != 3 || (addr >> 8) != 0xf0 ||
++	    (addr & 0xffu) < 0x70 || (addr & 0xffu) > 0x72) {
++		return -1;
++	}
++	IOLockLock(lsp_lock);
++	apid = lsp_find_apid((uint16_t)((sid << 8) | (addr >> 8)));
++	if (apid == LSP_NO_APID || lsp_poisoned[apid]) {
++		IOLockUnlock(lsp_lock);
++		return -1;
++	}
++	if ((sp_rd(lsp_cfg, 0x700u + 4u * apid) & 7u) != 0u) {
++		printf("SWEET AUDIO: lavender SPMI APID %u is not APPS-owned\n",
++		    apid);
++		IOLockUnlock(lsp_lock);
++		return -1;
++	}
++	if (lsp_wchan[apid] == 0) {
++		lsp_wchan[apid] = ml_io_map(LSP_CHNLS_PA +
++		    LSP_OBS_STRIDE * apid, 0x1000);
++	}
++	chan = lsp_wchan[apid];
++	if (chan == 0) {
++		IOLockUnlock(lsp_lock);
++		return -1;
++	}
++	*(volatile uint32_t *)(chan + 0x10) = val;      /* WDATA0 */
++	cmd = (0u << 27) | ((addr & 0xffu) << 4);       /* EXT_WRITEL, BC=0 */
++	__asm__ volatile("dmb oshst" ::: "memory");
++	*(volatile uint32_t *)(chan + 0x00) = cmd;
++	__asm__ volatile("dsb osh" ::: "memory");
++	for (off = 0; off < 1000; off++) {
++		status = sp_rd(chan, 0x08u);
++		if (status & 1u) {
++			if (status & 0x0eu) {
++				printf("SWEET AUDIO: lavender SPMI write error "
++				    "status %08x addr %#x\n", status, addr);
++				IOLockUnlock(lsp_lock);
++				return -1;
++			}
++			IOLockUnlock(lsp_lock);
++			return 0;
++		}
++		delay(1);
++	}
++	lsp_poisoned[apid] = true;
++	printf("SWEET AUDIO: lavender SPMI write timeout addr %#x\n", addr);
++	IOLockUnlock(lsp_lock);
++	return -1;
++}
+ #endif /* ARM64_BOARD_CONFIG_LAVENDER */
+ 
+ #endif /* ARM64_BOARD_CONFIG_SWEET */

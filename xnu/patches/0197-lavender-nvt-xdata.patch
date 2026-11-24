@@ -1,0 +1,151 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -838,48 +838,92 @@
+ }
+ 
+ /*
+- * NT36672 parameter page (Linux novatek-nvt-ts.c): register 0x78 returns
+- * width, height, max contacts and the chip id. The lavender DTB names the
+- * node novatek@62, so 0x62 is the normal firmware address, not just the
+- * loader.
+- */
+-static int
+-nvt_params(uint8_t addr, uint8_t p[15], unsigned *max, uint32_t *w,
++ * Firmware xdata read: select the 24-bit address with 0xFF/high/mid
++ * (nt36xxx.c nvt_get_fw_info) and then read the low register. The
++ * NT36672A EVENT_BUF_ADDR in the stock driver is 0x21C00.
++ */
++#define NVT_XDATA_BUF	0x21C00u
++#define NVT_XDATA_FWINFO	0x78u
++
++static int
++nvt_read_xdata(uint8_t addr, uint32_t xaddr, uint8_t reg, uint8_t *buf,
++    int len)
++{
++	int i, ok = 1;
++
++	i2c_start();
++	ok &= i2c_write((uint8_t)(addr << 1));
++	ok &= i2c_write(0xff);
++	ok &= i2c_write((uint8_t)((xaddr >> 16) & 0xff));
++	ok &= i2c_write((uint8_t)((xaddr >> 8) & 0xff));
++	i2c_stop();
++	if (!ok) {
++		return EIO;
++	}
++	i2c_start();
++	ok &= i2c_write((uint8_t)(addr << 1));
++	ok &= i2c_write(reg);
++	if (!ok) {
++		i2c_stop();
++		return EIO;
++	}
++	i2c_start();
++	ok &= i2c_write((uint8_t)((addr << 1) | 1));
++	if (!ok) {
++		i2c_stop();
++		return EIO;
++	}
++	for (i = 0; i < len; i++) {
++		buf[i] = i2c_read(i + 1 < len);
++	}
++	i2c_stop();
++	return 0;
++}
++
++/*
++ * FWINFO at xdata 0x21C00 + 0x78 (nt36xxx.c nvt_get_fw_info): fw version
++ * and its complement, sensor grid, abs_x_max/abs_y_max and button count.
++ * max contacts is the driver's TOUCH_MAX_FINGER_NUM (10).
++ */
++static int
++nvt_params(uint8_t addr, uint8_t p[17], unsigned *max, uint32_t *w,
+     uint32_t *h)
+ {
+ 	unsigned i;
+ 	int err;
+ 
+-	for (i = 0; i < 15u; i++) {
++	for (i = 0; i < 17u; i++) {
+ 		p[i] = 0;
+ 	}
+-	err = nvt_read(addr, 0x00, 0x78, p, 15);
+-	printf("WHYRED TOUCH: nvt params err=%d: %02x %02x %02x %02x "
+-	    "w=%u h=%u max=%u buttons=%u irq=%u chip=%02x\n", err,
+-	    p[0], p[1], p[2], p[3],
+-	    ((unsigned)p[4] << 8) | p[5], ((unsigned)p[6] << 8) | p[7],
+-	    p[9], p[10], p[11], p[14]);
++	err = nvt_read_xdata(addr, NVT_XDATA_BUF, NVT_XDATA_FWINFO, p, 17);
++	printf("WHYRED TOUCH: nvt fwinfo err=%d: ver=%02x/%02x xnum=%u "
++	    "ynum=%u w=%u h=%u buttons=%u\n", err, p[1], p[2], p[3], p[4],
++	    ((unsigned)p[5] << 8) | p[6], ((unsigned)p[7] << 8) | p[8], p[11]);
+ 	if (err) {
+ 		return err;
+ 	}
+-	*w = ((uint32_t)p[4] << 8) | p[5];
+-	*h = ((uint32_t)p[6] << 8) | p[7];
+-	*max = p[9];
+-	if (*max == 0u || *max > 10u || *w == 0u || *h == 0u) {
++	if ((unsigned)p[1] + p[2] != 0xffu) {
++		printf("WHYRED TOUCH: nvt fwinfo invalid\n");
+ 		return EIO;
+ 	}
++	*w = ((uint32_t)p[5] << 8) | p[6];
++	*h = ((uint32_t)p[7] << 8) | p[8];
++	*max = 10;
++	if (*w == 0u || *h == 0u || *w > 4096u || *h > 4096u) {
++		return EIO;
++	}
+ 	return 0;
+ }
+ 
+ /*
+- * Poll the 6-byte-per-slot report page for SECONDS and draw each contact.
+- * One frame lists every active contact; a slot absent from the frame is not
+- * released here, matching the vendor driver's per-frame mask.
++ * Poll the xdata event buffer for SECONDS and draw each contact. The frame
++ * starts with one status byte, then 6 bytes per slot (nt36xxx.c
++ * nvt_ts_work_func); the first slot record is at offset 1.
+  */
+ static void
+ nvt_poll(uint8_t addr, unsigned max, uint32_t w, uint32_t h, uint32_t seconds)
+ {
+-	uint8_t buf[6 * 10];
++	uint8_t buf[1 + 6 * 10];
+ 	int last_x[10], last_y[10], last_type[10];
+ 	uint32_t polls = 0, reports = 0, i;
+ 	uint32_t ticks;
+@@ -897,7 +941,8 @@
+ 		last_type[i] = -1;
+ 	}
+ 	while (polls < ticks) {
+-		int err = nvt_read(addr, 0x00, 0x00, buf, (int)(6u * max));
++		int err = nvt_read_xdata(addr, NVT_XDATA_BUF, 0x00, buf,
++		    (int)(1u + 6u * max));
+ 
+ 		if (err) {
+ 			printf("WHYRED TOUCH: nvt report read err=%d poll=%u\n",
+@@ -907,12 +952,9 @@
+ 			continue;
+ 		}
+ 		for (i = 0; i < max; i++) {
+-			const uint8_t *p = buf + 6 * i;
++			const uint8_t *p = buf + 1 + 6 * i;
+ 			unsigned slot, type, px, py;
+ 
+-			if (p[0] == 0xffu) {
+-				continue;
+-			}
+ 			slot = p[0] >> 3;
+ 			type = p[0] & 7u;
+ 			if (slot < 1 || slot > max) {
+@@ -1075,7 +1117,7 @@
+ 	touch_s = 0;
+ 	(void)PE_parse_boot_argn("sweetouchtouch", &touch_s, sizeof(touch_s));
+ 	if (nvt_addr != 0) {
+-		uint8_t nvt_p[15];
++		uint8_t nvt_p[17];
+ 		unsigned nvt_max = 0;
+ 		uint32_t nvt_w = 0, nvt_h = 0;
+ 

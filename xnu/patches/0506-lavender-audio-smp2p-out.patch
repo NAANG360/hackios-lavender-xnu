@@ -1,0 +1,314 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index d740959..7ef25d6 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -1,5 +1,5 @@
+ /*
+- * lavender: audio platform probe, A0..A4. Boot-arg gated.
++ * lavender: audio platform probe, A0..A5. Boot-arg gated.
+  *
+  *   lavaud=1        run the read-only probe (A0)
+  *   lavaud=2        also power up the LPASS ADSP domain if the bootloader
+@@ -11,6 +11,8 @@
+  *                   INIT_IMAGE, MEM_SETUP, copy the segments, AUTH_AND_RESET
+  *   lavaud=5        also wait for the ADSP and inventory its SMEM/SMP2P items
+  *                   and the GLINK fifo candidates (A4, read only)
++ *   lavaud=6        also create the AP SMP2P item 429, kick the ADSP and wait
++ *                   for item 443's slave-kernel READY (A5, first SMEM write)
+  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
+  *   lavauddelay=S   seconds to wait after boot before it (default 25), so the
+  *                   console ring flusher and the USB live log are up
+@@ -216,7 +218,14 @@ struct smp2p_entry {
+ #define SMEM_ITEM_GLINK_FIFO0   479u
+ #define SMEM_ITEM_GLINK_FIFO1   480u
+ 
++/* SMEM's remote spinlock: TCSR mutex, lock 3 (vendor smem.c/hwspinlock). */
++#define TCSR_MUTEX_PA           0x01f40000u
++#define TCSR_MUTEX_SIZE         0x00004000u
++#define SMEM_HWLOCK             3u
++#define HWLOCK_APPS_ID          1u
++
+ static vm_offset_t gcc, q6ss, smmu, codec, pinctrl, mclk, avtimer, smem, apcs;
++static vm_offset_t tcsr;
+ static int lpass_on;
+ static uint32_t audio_step;
+ static int audio_chan;
+@@ -1378,6 +1387,267 @@ audio_adsp_inventory(void)
+ 	}
+ }
+ 
++/* --- A5: SMP2P out 429 + kick + slave-kernel ------------------------------ */
++
++static struct smem_part *
++audio_smem_find_part(void)
++{
++	const struct smem_toc *toc = (const struct smem_toc *)
++	    (smem + SMEM_TOC_OFF);
++	const struct smem_toc_entry *te = (const struct smem_toc_entry *)
++	    (toc + 1);
++
++	if (smem == 0 || memcmp(toc->magic, "$TOC", 4) != 0 ||
++	    toc->num_entries > SMEM_TOC_ENTRIES) {
++		return NULL;
++	}
++	for (uint32_t i = 0; i < toc->num_entries; i++) {
++		struct smem_part *p;
++
++		if (te[i].offset == 0 || te[i].host0 != SMEM_APPS_HOST ||
++		    te[i].host1 != SMEM_ADSP_PID) {
++			continue;
++		}
++		p = (struct smem_part *)(smem + te[i].offset);
++		if (memcmp(p->magic, "$PRT", 4) == 0 &&
++		    p->free_uncached <= p->size) {
++			return p;
++		}
++	}
++	return NULL;
++}
++
++static void *
++audio_smem_get_item(uint16_t want, uint32_t *payload)
++{
++	struct smem_part *p = audio_smem_find_part();
++	uint8_t *e, *end;
++
++	if (p == NULL) {
++		return NULL;
++	}
++	e = (uint8_t *)p + sizeof(*p);
++	end = (uint8_t *)p + p->free_uncached;
++	while (e + sizeof(struct smem_item) <= end) {
++		const struct smem_item *h = (const struct smem_item *)e;
++
++		if (h->canary != SMEM_ITEM_CANARY) {
++			break;
++		}
++		if (h->item == want) {
++			if (payload != NULL) {
++				*payload = h->size - h->pad_data;
++			}
++			return e + sizeof(*h) + h->pad_hdr;
++		}
++		e += sizeof(*h) + h->pad_hdr + h->size;
++	}
++	return NULL;
++}
++
++static int
++audio_smem_lock(void)
++{
++	if (tcsr == 0) {
++		return 0;
++	}
++	for (int i = 0; i < 1000; i++) {
++		audio_wr(tcsr, SMEM_HWLOCK * 0x1000, HWLOCK_APPS_ID);
++		if ((audio_rd(tcsr, SMEM_HWLOCK * 0x1000) & 0xffffu) ==
++		    HWLOCK_APPS_ID) {
++			return 1;
++		}
++		audio_wait(1);
++	}
++	printf("SWEET AUDIO: SMEM hwlock busy (owner %08x)\n",
++	    audio_rd(tcsr, SMEM_HWLOCK * 0x1000));
++	return 0;
++}
++
++static void
++audio_smem_unlock(void)
++{
++	if (tcsr != 0) {
++		audio_wr(tcsr, SMEM_HWLOCK * 0x1000, 0);
++	}
++}
++
++/*
++ * qcom_smem_alloc_private(): append a private entry at offset_free_uncached,
++ * under the SMEM hwlock. The item must not exist yet; existing items are
++ * returned as-is.
++ */
++static void *
++audio_smem_alloc_item(uint16_t item, uint32_t size)
++{
++	struct smem_part *p = audio_smem_find_part();
++	struct smem_item *h;
++	uint32_t aligned, need;
++	uint8_t *data = NULL;
++
++	if (p == NULL) {
++		printf("SWEET AUDIO: no apps<->adsp SMEM partition\n");
++		return NULL;
++	}
++	aligned = (size + 7u) & ~7u;
++	need = sizeof(*h) + aligned;
++	if (!audio_smem_lock()) {
++		return NULL;
++	}
++	/* re-check under the lock; another host may have allocated it */
++	data = audio_smem_get_item(item, NULL);
++	if (data != NULL) {
++		audio_smem_unlock();
++		printf("SWEET AUDIO: SMEM item %u already exists, reusing\n",
++		    (unsigned)item);
++		return data;
++	}
++	if (p->free_uncached + need >= p->free_cached) {
++		audio_smem_unlock();
++		printf("SWEET AUDIO: SMEM partition full (%05x + %x >= %05x)\n",
++		    p->free_uncached, need, p->free_cached);
++		return NULL;
++	}
++	h = (struct smem_item *)((uint8_t *)p + p->free_uncached);
++	h->canary = SMEM_ITEM_CANARY;
++	h->item = item;
++	h->size = aligned;
++	h->pad_data = (uint16_t)(aligned - size);
++	h->pad_hdr = 0;
++	h->rsvd = 0;
++	data = (uint8_t *)h + sizeof(*h);
++	audio_io_zero((vm_offset_t)data, aligned);
++	__asm__ volatile("dsb sy" ::: "memory");
++	p->free_uncached += need;
++	__asm__ volatile("dsb sy" ::: "memory");
++	audio_smem_unlock();
++	printf("SWEET AUDIO: SMEM item %u allocated (%u bytes at %05x)\n",
++	    (unsigned)item, size, (uint32_t)((uint8_t *)h - (uint8_t *)p));
++	return data;
++}
++
++static void
++audio_smp2p_out_init(void)
++{
++	struct smp2p_hdr h;
++	struct smp2p_entry e;
++	void *data;
++	uint32_t payload = 0;
++
++	if (audio_step < 6) {
++		return;
++	}
++	if (smem == 0) {
++		printf("SWEET AUDIO: no SMEM mapping; no SMP2P out\n");
++		return;
++	}
++	if (tcsr == 0) {
++		tcsr = ml_io_map(TCSR_MUTEX_PA, TCSR_MUTEX_SIZE);
++		if (tcsr == 0) {
++			printf("SWEET AUDIO: TCSR mutex map failed; no SMP2P "
++			    "out\n");
++			return;
++		}
++	}
++	audio_announce("create the AP SMP2P item 429 (first SMEM write)");
++	data = audio_smem_alloc_item(SMEM_ITEM_SMP2P_OUT,
++	    sizeof(struct smp2p_hdr) +
++	    SMP2P_MAX_ENTRY * sizeof(struct smp2p_entry));
++	if (data == NULL) {
++		return;
++	}
++	(void)payload;
++	memset(&h, 0, sizeof(h));
++	h.magic = SMP2P_MAGIC;
++	h.feature_version = 1;                  /* version 1, no features */
++	h.rem_loc_proc_id = (uint32_t)SMEM_ADSP_PID << 16;  /* local 0 */
++	h.valid_total_ent = (2u << 16) | 16u;   /* 2 valid of 16 */
++	h.flags = 0;
++	audio_io_copy((vm_offset_t)data, &h, sizeof(h));
++	memset(&e, 0, sizeof(e));
++	strlcpy(e.name, "master-kernel", sizeof(e.name));
++	e.value = 0;
++	audio_io_copy((vm_offset_t)data + sizeof(h), &e, sizeof(e));
++	memset(&e, 0, sizeof(e));
++	strlcpy(e.name, "sleepstate", sizeof(e.name));
++	e.value = 1;
++	audio_io_copy((vm_offset_t)data + sizeof(h) + sizeof(e), &e,
++	    sizeof(e));
++
++	printf("SWEET AUDIO: smp2p out item %u ready; kicking APCS bit 10\n",
++	    SMEM_ITEM_SMP2P_OUT);
++	audio_wr(apcs, 0x008, 0x400u);
++}
++
++static uint32_t
++audio_smp2p_in_value(const char *name, int *found)
++{
++	const uint8_t *data = audio_smem_get_item(SMEM_ITEM_SMP2P_IN, NULL);
++	const struct smp2p_hdr *h = (const struct smp2p_hdr *)data;
++	uint32_t fv, rl, vt, valid;
++
++	if (found != NULL) {
++		*found = 0;
++	}
++	if (data == NULL || h->magic != SMP2P_MAGIC) {
++		return 0;
++	}
++	fv = h->feature_version;
++	rl = h->rem_loc_proc_id;
++	vt = h->valid_total_ent;
++	(void)fv;
++	(void)rl;
++	valid = vt >> 16;
++	for (uint32_t i = 0; i < valid && i < SMP2P_MAX_ENTRY; i++) {
++		const struct smp2p_entry *e = (const struct smp2p_entry *)
++		    (data + sizeof(*h) + i * sizeof(*e));
++		char entry[sizeof(e->name) + 1];
++
++		memcpy(entry, e->name, sizeof(e->name));
++		entry[sizeof(e->name)] = '\0';
++		if (strcmp(entry, name) == 0) {
++			if (found != NULL) {
++				*found = 1;
++			}
++			return e->value;
++		}
++	}
++	return 0;
++}
++
++static void
++audio_smp2p_wait_ready(void)
++{
++	uint32_t last = 0xffffffffu;
++	int found = 0;
++
++	if (audio_step < 6) {
++		return;
++	}
++	audio_announce("wait for ADSP item 443 and slave-kernel READY");
++	for (int i = 0; i < 50; i++) {
++		uint32_t v = audio_smp2p_in_value("slave-kernel", &found);
++
++		if (found && v != last) {
++			last = v;
++			printf("SWEET AUDIO: smp2p in 443 slave-kernel %08x "
++			    "(t=%d00 ms)\n", v, i);
++		}
++		if (found && (v & 1u)) {
++			printf("SWEET AUDIO: ADSP READY (slave-kernel %08x)\n",
++			    v);
++			return;
++		}
++		audio_wait(100);
++	}
++	if (found) {
++		printf("SWEET AUDIO: ADSP item 443 present, slave-kernel %08x "
++		    "never READY\n", last);
++	} else {
++		printf("SWEET AUDIO: ADSP item 443 never appeared\n");
++	}
++}
++
+ static void
+ audio_q6ss(void)
+ {
+@@ -1704,6 +1974,10 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (audio_step >= 5) {
+ 		audio_adsp_inventory();
+ 	}
++	if (audio_step >= 6) {
++		audio_smp2p_out_init();
++		audio_smp2p_wait_ready();
++	}
+ 
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }

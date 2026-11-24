@@ -1,0 +1,418 @@
+diff --git a/bsd/dev/lavender_modem.c b/bsd/dev/lavender_modem.c
+index 9cdc7ac..783712a 100644
+--- a/bsd/dev/lavender_modem.c
++++ b/bsd/dev/lavender_modem.c
+@@ -6,6 +6,8 @@
+  *   sweetmodem=2       also load MBA.MBN from the modem FAT16 (eMMC), hand
+  *                      the MBA region to MSS with SCM, reset the Q6 and wait
+  *                      for the MBA to answer
++ *   sweetmodem=3       also authenticate MODEM.MDT, load every segment blob
++ *                      into the modem carve-out and wait for auth complete
+  *   sweetmodemdelay=S  seconds to wait after boot before it (default 25)
+  *   sweetmodemclk=N    clock mask (default 0x3f): bit0 mss_cfg_ahb,
+  *                      bit1 bimc_mss_q6_axi, bit2 boot_rom_ahb,
+@@ -23,8 +25,8 @@
+  * enable the clocks, program RMB, run the QDSP6 reset, wait for PBL/MBA.
+  * The MBA image is copied as-is into pil_mba_region (0x94800000, 2 MiB) and
+  * the first 1 MiB is assigned to MSS_MSA with SCM MEM_PROT_ASSIGN (the DTB's
+- * qcom,mem-protect-id is 0xf). The modem image itself is not loaded yet;
+- * step 3 will authenticate the MDT and its segments.
++ * qcom,mem-protect-id is 0xf). Step 3 authenticates MODEM.MDT, loads the 26
++ * segment blobs into the modem carve-out and waits for AUTH_COMPLETE.
+  *
+  * Register meanings: Linux pil-msa.c, pil-q6v5.c, gcc-sdm660.c,
+  * secure_buffer.c and the SDM660 DTB, read as behaviour references.
+@@ -138,7 +140,7 @@ extern int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
+ #define FAT_MAX_CLUSTER         0xfff8u
+ 
+ static vm_offset_t gcc, rst, q6, rmb, mba;
+-static void *fat_buf, *bounce, *scm_buf;
++static void *fat_buf, *bounce, *scm_buf, *mdt_buf;
+ static uint64_t scm_pa;
+ static int modem_chan;
+ static uint32_t fat_cluster_bytes, fat_spc, fat_data_start, fat_fat_off;
+@@ -355,8 +357,8 @@ static uint64_t modem_scm7(uint32_t fn, uint32_t arginfo, uint64_t a0,
+  * x5 (scm.c allocate_extra_arg_buffer, N_REGISTER_ARGS).
+  */
+ static int
+-scm_assign(uint32_t pa, uint32_t size, uint32_t src_vmid, uint32_t dst_vmid,
+-    uint32_t dst_perm)
++scm_mem_assign(uint32_t pa, uint32_t size, const uint32_t *src_vmids,
++    int nsrc, const uint32_t *dst_vmids, const uint32_t *dst_perms, int ndst)
+ {
+ 	struct mem_prot_info {
+ 		uint64_t addr;
+@@ -378,18 +380,23 @@ scm_assign(uint32_t pa, uint32_t size, uint32_t src_vmid, uint32_t dst_vmid,
+ 	uint32_t fn = SCM_FN(SCM_SVC_MP, MEM_PROT_ASSIGN_ID);
+ 	int err;
+ 
++	if (nsrc < 1 || nsrc > 2 || ndst < 1 || ndst > 2) {
++		return EINVAL;
++	}
+ 	memset(buf, 0, SCM_BUF_SIZE);
+ 	mp->addr = pa;
+ 	mp->size = size;
+-	src[0] = src_vmid;
+-	dst[0].vm = dst_vmid;
+-	dst[0].perm = dst_perm;
+-	dst[0].ctx = 0;
+-	dst[0].ctx_size = 0;
+-
+-	extra[0] = sizeof(uint32_t);            /* source list bytes */
+-	extra[1] = scm_pa + 0x80;               /* dest list pa */
+-	extra[2] = sizeof(*dst);                /* dest list bytes */
++	for (int i = 0; i < nsrc; i++) {
++		src[i] = src_vmids[i];
++	}
++	for (int i = 0; i < ndst; i++) {
++		dst[i].vm = dst_vmids[i];
++		dst[i].perm = dst_perms[i];
++	}
++
++	extra[0] = (uint64_t)nsrc * sizeof(uint32_t);   /* source list bytes */
++	extra[1] = scm_pa + 0x80;                       /* dest list pa */
++	extra[2] = (uint64_t)ndst * sizeof(*dst);       /* dest list bytes */
+ 	extra[3] = 0;
+ 
+ 	flush_dcache64((addr64_t)scm_pa, SCM_BUF_SIZE, TRUE);
+@@ -397,11 +404,18 @@ scm_assign(uint32_t pa, uint32_t size, uint32_t src_vmid, uint32_t dst_vmid,
+ 
+ 	err = modem_scm7(fn, SCM_ARGINFO_7, scm_pa, sizeof(*mp), scm_pa + 0x40,
+ 	    scm_pa + 0x200, &ret);
+-	printf("SWEET MODEM: SCM assign %08x+%x vmid %u->%u ret %d res %llx\n",
+-	    pa, size, src_vmid, dst_vmid, err, (unsigned long long)ret);
++	printf("SWEET MODEM: SCM assign %08x+%x src %u dst %u ret %d res %llx\n",
++	    pa, size, nsrc, ndst, err, (unsigned long long)ret);
+ 	return err ? err : (ret ? EIO : 0);
+ }
+ 
++static int
++scm_assign(uint32_t pa, uint32_t size, uint32_t src_vmid, uint32_t dst_vmid,
++    uint32_t dst_perm)
++{
++	return scm_mem_assign(pa, size, &src_vmid, 1, &dst_vmid, &dst_perm, 1);
++}
++
+ /* --- modem FAT16 ---------------------------------------------------------- */
+ 
+ static inline uint16_t
+@@ -628,6 +642,88 @@ fat_read_to_va(const char *name, vm_offset_t dst, uint32_t max)
+ 	return 0;
+ }
+ 
++/* Read one FAT16 file into a cached buffer (MDT and other small files). */
++static int
++fat_read_to_buf(const char *name, void *dst, uint32_t max, uint32_t *out)
++{
++	uint32_t cluster, size, off = 0;
++	int err;
++
++	err = fat_lookup(name, &cluster, &size);
++	if (err) {
++		printf("SWEET MODEM: %s not found\n", name);
++		return err;
++	}
++	if (size > max) {
++		printf("SWEET MODEM: %s is %u bytes, max %u\n", name, size, max);
++		return EINVAL;
++	}
++	while (off < size) {
++		uint32_t n = MIN(size - off, fat_cluster_bytes);
++
++		err = emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
++		    fat_spc, bounce);
++		if (err) {
++			printf("SWEET MODEM: %s read failed %d at %u\n", name,
++			    err, off);
++			return err;
++		}
++		memcpy((uint8_t *)dst + off, bounce, n);
++		off += n;
++		if (off < size) {
++			cluster = fat_next(cluster);
++			if (cluster < 2 || cluster >= FAT_MAX_CLUSTER) {
++				printf("SWEET MODEM: %s chain ends at %u/%u\n",
++				    name, off, size);
++				return EIO;
++			}
++		}
++	}
++	*out = size;
++	return 0;
++}
++
++/* Stream one segment blob; its directory size must match p_filesz. */
++static int
++fat_read_blob(const char *name, vm_offset_t dst, uint32_t want)
++{
++	uint32_t cluster, size, off = 0;
++	int err;
++
++	err = fat_lookup(name, &cluster, &size);
++	if (err) {
++		printf("SWEET MODEM: %s not found\n", name);
++		return err;
++	}
++	if (size != want) {
++		printf("SWEET MODEM: %s is %u bytes, expected %u\n", name, size,
++		    want);
++		return EINVAL;
++	}
++	while (off < size) {
++		uint32_t n = MIN(size - off, fat_cluster_bytes);
++
++		err = emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
++		    fat_spc, bounce);
++		if (err) {
++			printf("SWEET MODEM: %s read failed %d at %u\n", name,
++			    err, off);
++			return err;
++		}
++		io_copy(dst + off, bounce, n);
++		off += n;
++		if (off < size) {
++			cluster = fat_next(cluster);
++			if (cluster < 2 || cluster >= FAT_MAX_CLUSTER) {
++				printf("SWEET MODEM: %s chain ends at %u/%u\n",
++				    name, off, size);
++				return EIO;
++			}
++		}
++	}
++	return 0;
++}
++
+ /* --- MBA ------------------------------------------------------------------ */
+ 
+ static uint64_t
+@@ -809,6 +905,205 @@ modem_boot_mba(void)
+ 	return 0;
+ }
+ 
++/* --- MDT, segments and final authentication (F1 step 3) ------------------- */
++
++#define MDT_BUF_SIZE 16384u
++
++static int
++modem_load_mdt(void)
++{
++	const uint8_t *mdt = mdt_buf;
++	uint32_t len = 0;
++	int32_t status = 0;
++	int err, i;
++
++	modem_announce("read MODEM.MDT and authenticate the header");
++	err = fat_read_to_buf("MODEM.MDT", mdt_buf, MDT_BUF_SIZE, &len);
++	if (err) {
++		return err;
++	}
++	if (len < 0x34 || memcmp(mdt, "\177ELF", 4) != 0) {
++		printf("SWEET MODEM: MODEM.MDT is not the expected ELF\n");
++		return EINVAL;
++	}
++	printf("SWEET MODEM: MODEM.MDT %u bytes, entry %08x phnum %u\n", len,
++	    le32(mdt + 24), le16(mdt + 44));
++
++	io_zero(mba + MBA_ASSIGN_SIZE, 0x3000);
++	io_copy(mba + MBA_ASSIGN_SIZE, mdt_buf, len);
++	err = scm_assign(MBA_PA + MBA_ASSIGN_SIZE, 0x3000, VMID_HLOS,
++	    VMID_MSS_MSA, PERM_READ | PERM_WRITE);
++	if (err) {
++		return EIO;
++	}
++
++	mwr(rmb, RMB_PMI_CODE_LENGTH, 0);
++	mwr(rmb, RMB_PMI_META_DATA, MBA_PA + MBA_ASSIGN_SIZE);
++	mwr(rmb, RMB_MBA_COMMAND, CMD_META_DATA_READY);
++	for (i = 0; i < 1000; i++) {
++		status = (int32_t)mrd(rmb, RMB_MBA_STATUS);
++		if (status == (int32_t)STATUS_META_DATA_AUTH_SUCCESS ||
++		    status < 0) {
++			break;
++		}
++		modem_wait(10);
++	}
++	printf("SWEET MODEM: mdt auth status %d after %d ms\n", status, i * 10);
++	if (status != (int32_t)STATUS_META_DATA_AUTH_SUCCESS) {
++		printf("SWEET MODEM: MBA rejected the MDT header\n");
++		return EIO;
++	}
++	(void)scm_assign(MBA_PA + MBA_ASSIGN_SIZE, 0x3000, VMID_MSS_MSA,
++	    VMID_HLOS, PERM_READ | PERM_WRITE | PERM_EXEC);
++	return 0;
++}
++
++static int
++modem_load_segments(void)
++{
++	const uint8_t *mdt = mdt_buf;
++	const uint8_t *ph;
++	uint32_t phoff, phnum, region_start = 0xffffffffu, region_end = 0;
++	uint32_t i, len, paddr, filesz, memsz, status;
++	vm_offset_t fw;
++	int err;
++
++	phoff = le32(mdt + 28);
++	phnum = le16(mdt + 44);
++	if (phoff < 0x34 || phnum == 0 || phoff + phnum * 32 > MDT_BUF_SIZE) {
++		printf("SWEET MODEM: MDT program headers are invalid\n");
++		return EINVAL;
++	}
++	for (i = 0; i < phnum; i++) {
++		ph = mdt + phoff + i * 32;
++		if (le32(ph) != 1 ||
++		    (le32(ph + 28) & (7u << 24)) == (2u << 24) ||
++		    le32(ph + 20) == 0) {
++			continue;
++		}
++		paddr = le32(ph + 12);
++		memsz = le32(ph + 20);
++		if (paddr < region_start) {
++			region_start = paddr;
++		}
++		if (paddr + memsz > region_end) {
++			region_end = paddr + memsz;
++		}
++	}
++	region_start &= ~0xfffu;
++	region_end = (region_end + 0xfffu) & ~0xfffu;
++	if (region_start < MODEM_FW_PA ||
++	    region_end > MODEM_FW_PA + MODEM_FW_SIZE ||
++	    region_end <= region_start) {
++		printf("SWEET MODEM: image limits %08x..%08x outside the "
++		    "carve-out\n", region_start, region_end);
++		return EINVAL;
++	}
++	printf("SWEET MODEM: modem image %08x..%08x (%u bytes)\n", region_start,
++	    region_end, region_end - region_start);
++	fw = ml_io_map(region_start, region_end - region_start);
++	if (fw == 0) {
++		printf("SWEET MODEM: modem region map failed\n");
++		return ENOMEM;
++	}
++
++	{
++		uint32_t src[1] = { VMID_HLOS };
++		uint32_t dst[2] = { VMID_HLOS, VMID_MSS_MSA };
++		uint32_t perm[2] = { PERM_READ | PERM_WRITE,
++		    PERM_READ | PERM_WRITE };
++
++		err = scm_mem_assign(region_start, region_end - region_start,
++		    src, 1, dst, perm, 2);
++	}
++	if (err) {
++		return EIO;
++	}
++
++	len = 0;
++	mwr(rmb, RMB_PMI_CODE_LENGTH, 0);
++	for (i = 0; i < phnum; i++) {
++		char name[16];
++		vm_offset_t dst;
++
++		ph = mdt + phoff + i * 32;
++		if (le32(ph) != 1 ||
++		    (le32(ph + 28) & (7u << 24)) == (2u << 24) ||
++		    le32(ph + 20) == 0) {
++			continue;
++		}
++		paddr = le32(ph + 12);
++		filesz = le32(ph + 16);
++		memsz = le32(ph + 20);
++		if (paddr < region_start || paddr + memsz > region_end) {
++			printf("SWEET MODEM: blob %u is outside the image\n", i);
++			return EINVAL;
++		}
++		dst = fw + (paddr - region_start);
++		if (filesz != 0) {
++			snprintf(name, sizeof(name), "MODEM.B%02u", i);
++			err = fat_read_blob(name, dst, filesz);
++			if (err) {
++				return err;
++			}
++		}
++		if (memsz > filesz) {
++			io_zero(dst + filesz, memsz - filesz);
++		}
++		if (len == 0) {
++			mwr(rmb, RMB_PMI_CODE_START, paddr);
++			mwr(rmb, RMB_MBA_COMMAND, CMD_LOAD_READY);
++		}
++		len += memsz;
++		mwr(rmb, RMB_PMI_CODE_LENGTH, len);
++		status = mrd(rmb, RMB_MBA_STATUS);
++		printf("SWEET MODEM: blob %02u %08x filesz %u memsz %u len %08x "
++		    "status %08x\n", i, paddr, filesz, memsz, len, status);
++		if ((int32_t)status < 0) {
++			printf("SWEET MODEM: MBA rejected blob %u\n", i);
++			return EIO;
++		}
++	}
++
++	{
++		uint32_t src[2] = { VMID_HLOS, VMID_MSS_MSA };
++		uint32_t dst[1] = { VMID_MSS_MSA };
++		uint32_t perm[1] = { PERM_READ | PERM_WRITE };
++
++		err = scm_mem_assign(region_start, region_end - region_start,
++		    src, 2, dst, perm, 1);
++	}
++	if (err) {
++		return EIO;
++	}
++	return 0;
++}
++
++static int
++modem_auth(void)
++{
++	int32_t status = 0;
++	int i;
++
++	modem_announce("wait for the MBA image authentication");
++	for (i = 0; i < 1000; i++) {
++		status = (int32_t)mrd(rmb, RMB_MBA_STATUS);
++		if (status == (int32_t)STATUS_AUTH_COMPLETE || status < 0) {
++			break;
++		}
++		modem_wait(10);
++	}
++	printf("SWEET MODEM: auth status %d after %d ms\n", status, i * 10);
++	if (status != (int32_t)STATUS_AUTH_COMPLETE) {
++		printf("SWEET MODEM: modem image authentication failed\n");
++		return EIO;
++	}
++	(void)scm_assign(MBA_PA, MBA_ASSIGN_SIZE, VMID_MSS_MSA, VMID_HLOS,
++	    PERM_READ | PERM_WRITE | PERM_EXEC);
++	printf("SWEET MODEM: auth complete, modem is running\n");
++	return 0;
++}
++
+ /* --- thread --------------------------------------------------------------- */
+ 
+ static void
+@@ -885,9 +1180,22 @@ lavender_modem_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	}
+ 
+ 	if (fat_open() == 0) {
+-		(void)modem_boot_mba();
++		int err = modem_boot_mba();
++
++		if (err) {
++			printf("SWEET MODEM: step 2 failed %d\n", err);
++		} else if (step >= 3) {
++			if (kmem_alloc(kernel_map, (vm_offset_t *)&mdt_buf,
++			    MDT_BUF_SIZE, KMA_DATA | KMA_ZERO,
++			    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++				printf("SWEET MODEM: no memory for the MDT\n");
++			} else if (modem_load_mdt() == 0 &&
++			    modem_load_segments() == 0) {
++				(void)modem_auth();
++			}
++		}
+ 	}
+-	printf("SWEET MODEM: step 2 finished\n");
++	printf("SWEET MODEM: step %u finished\n", step);
+ }
+ 
+ int

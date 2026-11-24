@@ -1,0 +1,315 @@
+From: port_ios lavender
+Subject: [PATCH 0200] lavender: USB device (DWC3) on SDM660 + live log
+
+sweet_usb.c (0072-0077) was compiled for LAVENDER (it inherits
+ARM64_BOARD_CONFIG_SWEET) but with the SM7150 addresses, and nothing called
+it: its only caller is sweet_ufs_init(), which never runs on an eMMC board.
+
+- LAVENDER addresses from the phone's DTB: DWC3 core 0x0a800000, QSCRATCH
+  0x0a8f8800, QUSB2 v1 PHY 0x0c012000, GCC 0x00100000 (+0x94000); GDSC and
+  branch clock offsets from Linux gcc-sdm660.c.
+- QUSB2 v1 register readout (PLL lock, power-down) instead of the v2 one.
+- sweetusb=3 (lavender, experimental): enable the USB30 GDSC and branch
+  clocks from the GCC when ABL left them off (recovery-partition boot).
+  No RCG, reset, PMIC regulator or PHY tuning writes.
+- Force GCTL.PrtCapDir=device before the device soft reset if needed.
+- Live log reads the santoni_sdhci.c console ring (the sweet_ufs.c ring is
+  empty on SANTONI/LAVENDER): new santoni_log_copy()/santoni_log_position(),
+  placed before santoni_sdhci_rootdev(), away from the ring writer.
+- Call sweet_keys_init() and sweet_usb_probe() from IOFindBSDRoot on
+  LAVENDER, after the eMMC probe (sweet_usb_probe is now idempotent).
+
+Defaults are safe: sweetusb=1 only reads registers and only when the GCC
+says the block is powered and clocked. sweetusb=2 starts the CDC-ECM
+gadget (ue0 192.168.7.2/24, UDP log to 192.168.7.1:5140).
+diff --git a/bsd/dev/santoni_sdhci.c b/bsd/dev/santoni_sdhci.c
+index 2de2143..ab87e5a 100644
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -4893,6 +4893,38 @@ santoni_sdhci_probe(void)
+ 	return init_error;
+ }
+ 
++/*
++ * 0200: readers of the console ring for the USB live log
++ * (bsd/dev/sweet_usb.c, sweetusb=2). Copy bytes [*pos, total), at most
++ * max; a reader that fell more than the ring behind skips ahead. Never
++ * blocks and never prints. Kept away from the ring writer, which later
++ * patches rework.
++ */
++uint32_t santoni_log_copy(uint64_t *pos, char *out, uint32_t max);
++uint64_t santoni_log_position(void);
++
++uint32_t
++santoni_log_copy(uint64_t *pos, char *out, uint32_t max)
++{
++	uint64_t total = os_atomic_load(&santoni_log_total, relaxed);
++
++	if (total - *pos > SANTONI_LOG_SIZE) {
++		*pos = total - SANTONI_LOG_SIZE;
++	}
++	uint32_t n = (uint32_t)MIN((uint64_t)max, total - *pos);
++	for (uint32_t i = 0; i < n; i++) {
++		out[i] = santoni_log_ring[(*pos + i) % SANTONI_LOG_SIZE];
++	}
++	*pos += n;
++	return n;
++}
++
++uint64_t
++santoni_log_position(void)
++{
++	return os_atomic_load(&santoni_log_total, relaxed);
++}
++
+ /* Root device for rd=emmcroot0 (IOFindBSDRoot). */
+ int santoni_sdhci_rootdev(dev_t *dev);
+ 
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+index 9c42e45..f9abb84 100644
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -39,10 +39,46 @@ void sweet_usb_probe(void);
+ static void sweet_usb_gadget_start(vm_offset_t dwc);
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ 
++#define CBCR_CLK_OFF            (1u << 31)
++
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++/*
++ * LAVENDER (SDM660; WHYRED/SDM636 shares the block). Addresses from the
++ * phone's own DTB (resources/lavender_dtb.bin): ssusb@a800000
++ * "qcom,dwc-usb3-msm" core_base 0x0a800000 (+0xfc100), dwc3@a800000
++ * (0xc8d0), qusb@c012000 "qcom,qusb2phy" major-rev 1 (QUSB2 v1, not v2),
++ * clock-controller@100000 "qcom,gcc-sdm660" (0x94000). GDSC and branch
++ * clock offsets from Linux drivers/clk/qcom/gcc-sdm660.c: usb_30_gdsc
++ * 0xf004, usb30_master 0xf008, usb30_sleep 0xf00c, usb30_mock_utmi
++ * 0xf010, cfg_noc_usb3_axi 0x5018, aggre2_usb3_axi 0xf03c,
++ * usb_phy_cfg_ahb2phy 0x6a004, rx0_usb2_clkref 0x88018 (voted).
++ * Entry order matters: [0] master, [3] cfg-noc-axi, [5] ahb2phy.
++ */
++#define GCC_PA                  0x00100000
++#define GCC_SIZE                0x00094000
++#define GCC_USB30_PRIM_GDSCR    0x0f004         /* bit 31: power on, bit 0: SW collapse */
++
++static const struct {
++	const char *name;
++	uint32_t    off;
++} usb_cbcr[] = {
++	{ "master", 0x0f008 },
++	{ "sleep", 0x0f00c },
++	{ "utmi", 0x0f010 },
++	{ "cfg-noc-axi", 0x05018 },
++	{ "aggre-axi", 0x0f03c },
++	{ "ahb2phy", 0x6a004 },
++	{ "clkref", 0x88018 },
++};
++
++#define DWC3_PA                 0x0a800000
++#define DWC3_SIZE               0x0000d000
++#define QUSB2_PA                0x0c012000
++#define QUSB2_SIZE              0x00000400
++#else
+ #define GCC_PA                  0x00100000
+ #define GCC_SIZE                0x00090000
+ #define GCC_USB30_PRIM_GDSCR    0x0f004         /* bit 31: power on */
+-#define CBCR_CLK_OFF            (1u << 31)
+ 
+ static const struct {
+ 	const char *name;
+@@ -61,6 +97,7 @@ static const struct {
+ #define DWC3_SIZE               0x0000d000
+ #define QUSB2_PA                0x088e2000
+ #define QUSB2_SIZE              0x00000400
++#endif
+ 
+ static uint32_t
+ usb_rd(vm_offset_t base, uint32_t off)
+@@ -70,14 +107,80 @@ usb_rd(vm_offset_t base, uint32_t off)
+ 	return v;
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++/*
++ * sweetusb=3 (LAVENDER only, experimental): on lavender the shim is started
++ * from the recovery partition with Power + Volume Up, not by `fastboot
++ * boot`, so ABL may not leave the USB block powered as it does on sweet.
++ * This turns on what the GCC alone controls: the USB30 GDSC (clear
++ * SW_COLLAPSE, wait PWR_ON) and the branch clocks (CLK_ENABLE, wait for
++ * CLK_OFF to clear), each with a bounded wait. It does not touch the clock
++ * sources (RCG rates), the resets, the PMIC regulators of the QUSB2 PHY or
++ * the PHY tuning; if those were left off by ABL the probe still reports the
++ * controller as unusable and nothing else is attempted.
++ */
++#define GDSCR_SW_COLLAPSE       (1u << 0)
++#define GDSCR_PWR_ON            (1u << 31)
++#define CBCR_CLK_ENABLE         (1u << 0)
++
++static void
++usb_wr(vm_offset_t base, uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(base + off) = v;
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
++
++static void
++lavender_usb_power_up(vm_offset_t gcc)
++{
++	uint32_t v = usb_rd(gcc, GCC_USB30_PRIM_GDSCR);
++	int i;
++
++	if (!(v & GDSCR_PWR_ON)) {
++		usb_wr(gcc, GCC_USB30_PRIM_GDSCR, v & ~GDSCR_SW_COLLAPSE);
++		for (i = 0; i < 100 && !(usb_rd(gcc, GCC_USB30_PRIM_GDSCR) & GDSCR_PWR_ON); i++) {
++			delay(10);
++		}
++		v = usb_rd(gcc, GCC_USB30_PRIM_GDSCR);
++		printf("SWEET USB: GDSC usb30 power-up %s (0x%08x)\n",
++		    (v & GDSCR_PWR_ON) ? "ok" : "TIMEOUT", v);
++		if (!(v & GDSCR_PWR_ON)) {
++			return;
++		}
++	}
++	for (unsigned c = 0; c < sizeof(usb_cbcr) / sizeof(usb_cbcr[0]); c++) {
++		v = usb_rd(gcc, usb_cbcr[c].off);
++		if (!(v & CBCR_CLK_OFF)) {
++			continue;
++		}
++		usb_wr(gcc, usb_cbcr[c].off, v | CBCR_CLK_ENABLE);
++		for (i = 0; i < 100 && (usb_rd(gcc, usb_cbcr[c].off) & CBCR_CLK_OFF); i++) {
++			delay(10);
++		}
++		v = usb_rd(gcc, usb_cbcr[c].off);
++		printf("SWEET USB: clk %-12s enable %s (0x%08x)\n", usb_cbcr[c].name,
++		    (v & CBCR_CLK_OFF) ? "STILL OFF" : "ok", v);
++	}
++}
++#endif /* ARM64_BOARD_CONFIG_LAVENDER */
++
+ void
+ sweet_usb_probe(void)
+ {
++	static bool probed;
+ 	int enabled = 1;
+ 	uint32_t gdscr, cbcr[sizeof(usb_cbcr) / sizeof(usb_cbcr[0])];
+ 	bool clocks_on = true;
+ 
+-	/* sweetusb=0 off, 1 (default) report state only, 2 also start the USB device */
++	/* IOFindBSDRoot can run more than once (LAVENDER calls this from there). */
++	if (probed) {
++		return;
++	}
++	probed = true;
++	/*
++	 * sweetusb=0 off, 1 (default) report state only, 2 also start the USB
++	 * device, 3 (LAVENDER) first power the GDSC/clocks the GCC controls.
++	 */
+ 	PE_parse_boot_argn("sweetusb", &enabled, sizeof(enabled));
+ 	if (!enabled) {
+ 		return;
+@@ -87,6 +190,13 @@ sweet_usb_probe(void)
+ 		printf("SWEET USB: GCC map failed\n");
+ 		return;
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	printf("SWEET USB: lavender DWC3 0x%08x QUSB2 v1 0x%08x (driver 0200, sweetusb=%d)\n",
++	    DWC3_PA, QUSB2_PA, enabled);
++	if (enabled >= 3) {
++		lavender_usb_power_up(gcc);
++	}
++#endif
+ 	gdscr = usb_rd(gcc, GCC_USB30_PRIM_GDSCR);
+ 	printf("SWEET USB: GDSC usb30_prim 0x%08x (%s)\n", gdscr, (gdscr & (1u << 31)) ? "on" : "off");
+ 	for (unsigned i = 0; i < sizeof(usb_cbcr) / sizeof(usb_cbcr[0]); i++) {
+@@ -124,11 +234,21 @@ sweet_usb_probe(void)
+ 	if (phy == 0) {
+ 		return;
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* QUSB2 v1 (Linux phy-msm-qusb.c): PLL_STATUS 0x38 (bit 5 PLL lock),
++	 * PORT_TUNE1 0x80 (the DT init sequence writes 0xf8 there),
++	 * PORT_POWERDOWN 0xb4 (bit 0 POWER_DOWN), PORT_UTMI_CTRL2 0xc4. */
++	uint32_t pll = usb_rd(phy, 0x38), pd = usb_rd(phy, 0xb4);
++	printf("SWEET USB: QUSB2 PLL_STATUS 0x%08x (%s) PORT_TUNE1 0x%08x POWERDOWN 0x%08x (%s) UTMI_CTRL2 0x%08x\n",
++	    pll, (pll & (1u << 5)) ? "locked" : "NOT locked", usb_rd(phy, 0x80), pd,
++	    (pd & 1u) ? "powered down" : "powered", usb_rd(phy, 0xc4));
++#else
+ 	/* DT qcom,qusb-phy-reg-offset order (Linux phy-msm-qusb-v2.c): PORT_TUNE1 0x240,
+ 	 * PLL_COMMON_STATUS_ONE 0x1a0, PWR_CTRL1 0x210, INTR_CTRL 0x230,
+ 	 * PLL_CORE_INPUT_OVERRIDE 0x0a8, TEST1 0x254. */
+ 	printf("SWEET USB: QUSB2 PLL_STATUS 0x%08x PWR_CTRL1 0x%08x PORT_TUNE1 0x%08x TEST1 0x%08x\n",
+ 	    usb_rd(phy, 0x1a0), usb_rd(phy, 0x210), usb_rd(phy, 0x240), usb_rd(phy, 0x254));
++#endif
+ }
+ 
+ /*
+@@ -164,7 +284,11 @@ sweet_usb_probe(void)
+  * session; Linux dwc3-qcom forces that in software when the charger
+  * reports a cable (dwc3_qcom_vbus_override_enable).
+  */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#define QSCRATCH_PA             0x0a8f8800      /* core_base 0x0a800000 + 0xf8800 */
++#else
+ #define QSCRATCH_PA             0x0a6f8800
++#endif
+ #define QSCRATCH_HS_PHY_CTRL    0x10
+ #define   UTMI_OTG_VBUS_VALID   (1u << 20)
+ #define   SW_SESSVLD_SEL        (1u << 28)
+@@ -771,8 +895,17 @@ ud_thread(void *arg __unused, wait_result_t wr __unused)
+  * so the boot is included. Nothing here may print (it would feed itself).
+  * Boot-arg sweetusblog=0 disables it.
+  */
++#if defined(ARM64_BOARD_CONFIG_SANTONI) || defined(ARM64_BOARD_CONFIG_LAVENDER)
++/* The console goes to the santoni_sdhci.c ring on these boards (patch
++ * 0143); the sweet_ufs.c ring stays empty. */
++extern uint32_t santoni_log_copy(uint64_t *pos, char *out, uint32_t max);
++extern uint64_t santoni_log_position(void);
++#define sweet_log_copy          santoni_log_copy
++#define sweet_log_position      santoni_log_position
++#else
+ extern uint32_t sweet_log_copy(uint64_t *pos, char *out, uint32_t max);
+ extern uint64_t sweet_log_position(void);
++#endif
+ 
+ static void
+ ud_log_thread(void *arg __unused, wait_result_t wr __unused)
+@@ -830,6 +963,14 @@ sweet_usb_gadget_start(vm_offset_t dwc)
+ 	ud.dma_pa = ptoa_64(pn);
+ 	ud_if_create();
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* GCTL.PrtCapDir (bits 13:12) must be 2 = device; a charger-only ABL
++	 * path may leave it as OTG (3) or host (1). */
++	if (((dwc_rd(GCTL) >> 12) & 3u) != 2u) {
++		printf("SWEET USB: GCTL 0x%08x not in device mode; forcing PrtCapDir=device\n", dwc_rd(GCTL));
++		dwc_wr(GCTL, (dwc_rd(GCTL) & ~(3u << 12)) | (2u << 12));
++	}
++#endif
+ 	/* Device controller soft reset (PHY and global setup stay as ABL left them). */
+ 	dwc_wr(DCTL, DCTL_CSFTRST);
+ 	int i;
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -802,7 +802,22 @@
+ 			IOLog("SANTONI: eMMC probe failed (%d): %s\n",
+ 			    emmc_error, santoni_sdhci_failure_text());
+ 		}
+ 	}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/*
++	 * 0200: on eMMC boards nothing else starts the input and USB drivers
++	 * (their caller is sweet_ufs_init(), UFS only). Both are idempotent
++	 * because IOFindBSDRoot can run more than once. The SYSTEM log ring is
++	 * already running, so their probe lines are kept in SANTONILOG1.
++	 */
++	{
++		extern void sweet_keys_init(void);
++		extern void sweet_usb_probe(void);
++
++		sweet_keys_init();
++		sweet_usb_probe();
++	}
++#endif
+ 	if (strcmp(rdBootVar, "emmcroot0") == 0) {
+ 		extern int santoni_sdhci_rootdev(dev_t *dev);
+ 		OSSafeReleaseNULL(matching);

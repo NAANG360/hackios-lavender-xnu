@@ -1,0 +1,546 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+index 1a3e9f6..a11d10a 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -110,7 +110,8 @@ bsd/dev/sweet_touch.c			standard
+ bsd/dev/sweet_touch.c			standard
+ bsd/dev/sweet_i2c1.c			standard
+ bsd/dev/sweet_cpufreq.c			standard
++bsd/dev/lavender_audio.c			standard
+ bsd/dev/santoni_sdhci.c			standard
+ bsd/dev/santoni_touch.c			standard
+ bsd/dev/lavender_gpu.c			standard
+ bsd/dev/sweet_rpmh.c			standard
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+new file mode 100644
+index 0000000..d104853
+--- /dev/null
++++ b/bsd/dev/lavender_audio.c
+@@ -0,0 +1,509 @@
++/*
++ * lavender: audio platform probe, A0. Boot-arg gated, read only.
++ *
++ *   lavaud=1        run the probe
++ *   lavauddelay=S   seconds to wait after boot before it (default 25), so the
++ *                   console ring flusher and the USB live log are up
++ *
++ * The phone does NOT have a WCD9335: the live DTBO disables the SLIMbus audio
++ * controller ("slim_aud") and the enabled sound card is qcom,sdm660-asoc-snd
++ * with the PM660L analog codec (SPMI 0xf000) plus the LPASS digital codec
++ * (0x152c0000) and its SoundWire master (0x152c1000). The DSP owns the data
++ * path; before writing any of it this probe answers the questions the ladder
++ * needs (work/briefs/audio-sdm660-brief.md):
++ *
++ *   - did the bootloader leave the LPASS ADSP power domain and the SMMU vote
++ *     on (GCC 0x7d034 / 0x7d014)?
++ *   - if the domain is on: what does the ADSP Q6SS (LPASS 0x15700000) say?
++ *     reset, clock mux, power and BHS state (the DSP may already be running)
++ *   - what does the LPASS Q6 SMMU (0x05100000) have mapped?
++ *   - what do the LPASS digital codec, AVTIMER, MCLK and LPI pinctrl show?
++ *   - is the SMEM TOC intact and does the apps<->ADSP partition still hold an
++ *     item from an earlier run? That also discovers this firmware's SMP2P and
++ *     GLINK item ids, which are not SM6225's 429/443/478-480.
++ *   - what does the APCS IPC register (0x17911008) show for the ADSP bits?
++ *
++ * It READS ONLY. A clock-gated LPASS block is not touched: if the ADSP domain
++ * is off, the Q6SS, codec and SMMU sections are skipped instead of risking a
++ * bus hang. Every access is announced 2 s in advance so the log leaves the
++ * machine even if the access kills it.
++ *
++ * Register meanings: Linux gcc-sdm660.c, subsys-pil-tz.c and pil-q6v5.c, the
++ * SDM660 DTB and the SMEM partition layout already used by the topaz port,
++ * read as behaviour references (values only, no code copied).
++ */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/errno.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
++#include <libkern/libkern.h>
++#include <vm/memory_types.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++/* osfmk/arm/machine_routines.h, not exported to the BSD layer: 0177 already
++ * uses it for the framebuffer, because io_submap is only 8 MiB. */
++extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, uint32_t);
++
++#define GCC_PA              0x00100000u
++#define GCC_SIZE            0x94000u
++#define Q6SS_PA             0x15700000u
++#define Q6SS_SIZE           0x00001000u
++#define LPASS_SMMU_PA       0x05100000u
++#define LPASS_SMMU_SIZE     0x00040000u
++#define LPASS_CODEC_PA      0x152c0000u
++#define LPASS_CODEC_SIZE    0x00002000u
++#define LPASS_PINCTRL_PA    0x15070000u
++#define LPASS_PINCTRL_SIZE  0x00001000u
++#define LPASS_MCLK_PA       0x15020000u
++#define LPASS_MCLK_SIZE     0x00001000u
++#define LPASS_AVTIMER_PA    0x150f7000u
++#define LPASS_AVTIMER_SIZE  0x00001000u
++#define SMEM_PA             0x86000000u
++#define SMEM_SIZE           0x00200000u
++#define APCS_IPC_PA         0x17911000u
++#define APCS_IPC_SIZE       0x00001000u
++
++/* GCC byte offsets from GCC_PA (gcc-sdm660.c) */
++#define GCC_LPASS_SMMU_CBCR     0x7d014u  /* hlos1_vote_lpass_adsp_smmu_clk */
++#define GCC_LPASS_ADSP_GDSCR    0x7d034u  /* hlos1_vote_lpass_adsp_gdsc */
++#define CBCR_EN                 (1u << 0)
++#define CBCR_OFF                (1u << 31)
++#define GDSC_PWR_ON             (1u << 31)
++#define GDSC_SW_COLLAPSE        (1u << 0)
++
++/* QDSP6SS byte offsets from Q6SS_PA (pil-q6v5.c) */
++#define Q6SS_RESET              0x014u
++#define Q6SS_GFMUX_CTL          0x020u
++#define Q6SS_PWR_CTL            0x030u
++#define Q6SS_MEM_PWR_CTL        0x034u
++#define Q6SS_XO_CBCR            0x038u
++#define Q6SS_SLEEP              0x03cu
++#define Q6SS_BHS_STATUS         0x078u
++#define Q6SS_MEM_PWR_CTL2       0x0b0u
++#define Q6V62_BHS_STATUS        0x0c4u
++
++/* SMMUv2 GR0 offsets (arm-smmu.c) */
++#define SMMU_SCR0               0x0000u
++#define SMMU_SACR               0x0010u
++#define SMMU_IDR0               0x0020u
++#define SMMU_IDR1               0x0024u
++#define SMMU_IDR7               0x003cu
++#define SMMU_SGFAR              0x0040u
++#define SMMU_SGFSR              0x0048u
++#define SMMU_SMR(n)             (0x0800u + ((n) << 2))
++#define SMMU_S2CR(n)            (0x0c00u + ((n) << 2))
++#define SMMU_SMR_VALID          (1u << 31)
++#define SMMU_MAX_SMRS           128
++
++/* SMEM v12 layout, as already used by the topaz port (TopazModem.cpp). */
++#define SMEM_TOC_OFF            (SMEM_SIZE - 0x1000u)
++#define SMEM_TOC_ENTRIES        64u
++#define SMEM_ADSP_PID           2u
++#define SMEM_APPS_HOST          0u
++#define SMEM_GLOBAL_HOST        0xfffeu
++#define SMEM_ITEM_CANARY        0xa5a5u
++#define SMP2P_MAGIC             0x504d5324u     /* "$SMP" */
++#define SMP2P_MAX_ENTRY         16u
++
++struct smem_toc_entry {
++	uint32_t offset, size, flags;
++	uint16_t host0, host1;
++	uint32_t cacheline, rsvd[7];
++} __attribute__((packed));
++
++struct smem_toc {
++	uint8_t  magic[4];
++	uint32_t version, num_entries, rsvd[5];
++} __attribute__((packed));
++
++struct smem_part {
++	uint8_t  magic[4];
++	uint16_t host0, host1;
++	uint32_t size, free_uncached, free_cached, rsvd[3];
++} __attribute__((packed));
++
++struct smem_item {
++	uint16_t canary, item;
++	uint32_t size;
++	uint16_t pad_data, pad_hdr;
++	uint32_t rsvd;
++} __attribute__((packed));
++
++struct smp2p_hdr {
++	uint32_t magic;
++	uint8_t  version, features[3];
++	uint16_t local_pid, remote_pid, total, valid;
++	uint32_t flags;
++} __attribute__((packed));
++
++struct smp2p_entry {
++	char     name[16];
++	uint32_t value;
++} __attribute__((packed));
++
++static vm_offset_t gcc, q6ss, smmu, codec, pinctrl, mclk, avtimer, smem, apcs;
++static int lpass_on;
++static int audio_chan;
++
++static inline uint32_t
++audio_rd(vm_offset_t base, uint32_t off)
++{
++	uint32_t v = *(volatile uint32_t *)(base + off);
++
++	__asm__ volatile("dsb ld" ::: "memory");
++	return v;
++}
++
++static void
++audio_wait(unsigned ms)
++{
++	uint64_t deadline;
++
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&audio_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++/* Announce, then give the log 2 s to leave the machine. */
++static void
++audio_announce(const char *what)
++{
++	printf("SWEET AUDIO: about to %s\n", what);
++	audio_wait(2000);
++}
++
++static void
++audio_gcc(void)
++{
++	uint32_t cbcr, gdscr;
++
++	audio_announce("read the GCC LPASS ADSP vote and power domain (read only)");
++	cbcr = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
++	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
++	lpass_on = ((gdscr & GDSC_PWR_ON) != 0) && ((gdscr & GDSC_SW_COLLAPSE) == 0);
++	printf("SWEET AUDIO: gcc lpass_smmu_cbcr %08x (en %u, %s)\n", cbcr,
++	    cbcr & CBCR_EN, (cbcr & CBCR_OFF) ? "OFF" : "on");
++	printf("SWEET AUDIO: gcc lpass_adsp_gdscr %08x (pwr_on %u, collapse %u)\n",
++	    gdscr, (gdscr & GDSC_PWR_ON) != 0, (gdscr & GDSC_SW_COLLAPSE) != 0);
++	printf("SWEET AUDIO: LPASS ADSP domain is %s\n", lpass_on ? "ON" : "OFF");
++}
++
++static void
++audio_q6ss(void)
++{
++	if (!lpass_on) {
++		printf("SWEET AUDIO: LPASS off; not touching the Q6SS at %08x\n",
++		    Q6SS_PA);
++		return;
++	}
++	audio_announce("read the ADSP Q6SS registers (domain is on)");
++	printf("SWEET AUDIO: q6 reset %08x gfmux %08x pwr %08x mem_pwr %08x\n",
++	    audio_rd(q6ss, Q6SS_RESET), audio_rd(q6ss, Q6SS_GFMUX_CTL),
++	    audio_rd(q6ss, Q6SS_PWR_CTL), audio_rd(q6ss, Q6SS_MEM_PWR_CTL));
++	printf("SWEET AUDIO: q6 xo_cbcr %08x sleep %08x bhs %08x bhs62 %08x "
++	    "mem_pwr2 %08x\n", audio_rd(q6ss, Q6SS_XO_CBCR),
++	    audio_rd(q6ss, Q6SS_SLEEP), audio_rd(q6ss, Q6SS_BHS_STATUS),
++	    audio_rd(q6ss, Q6V62_BHS_STATUS),
++	    audio_rd(q6ss, Q6SS_MEM_PWR_CTL2));
++}
++
++static const char *
++audio_smmu_type(uint32_t s2cr)
++{
++	switch ((s2cr >> 16) & 3u) {
++	case 0:
++		return "translate";
++	case 1:
++		return "bypass";
++	case 2:
++		return "fault";
++	default:
++		return "reserved";
++	}
++}
++
++static void
++audio_lpass_smmu(void)
++{
++	uint32_t cbcr = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
++
++	if (cbcr & CBCR_OFF) {
++		printf("SWEET AUDIO: LPASS SMMU vote clock is off; not reading "
++		    "0x%08x\n", LPASS_SMMU_PA);
++		return;
++	}
++	audio_announce("read the LPASS Q6 SMMU global registers");
++	printf("SWEET AUDIO: lpass smmu sCR0 %08x sACR %08x IDR0 %08x IDR1 %08x "
++	    "IDR7 %08x\n", audio_rd(smmu, SMMU_SCR0), audio_rd(smmu, SMMU_SACR),
++	    audio_rd(smmu, SMMU_IDR0), audio_rd(smmu, SMMU_IDR1),
++	    audio_rd(smmu, SMMU_IDR7));
++	printf("SWEET AUDIO: lpass smmu sGFAR %08x sGFSR %08x\n",
++	    audio_rd(smmu, SMMU_SGFAR), audio_rd(smmu, SMMU_SGFSR));
++	for (uint32_t i = 0; i < 16; i++) {
++		uint32_t smr = audio_rd(smmu, SMMU_SMR(i));
++		uint32_t s2cr;
++
++		if (!(smr & SMMU_SMR_VALID)) {
++			continue;
++		}
++		s2cr = audio_rd(smmu, SMMU_S2CR(i));
++		printf("SWEET AUDIO: lpass SMR[%u] %08x sid %04x -> S2CR %08x "
++		    "%s cb %u\n", i, smr, smr & 0x7fffu, s2cr,
++		    audio_smmu_type(s2cr), s2cr & 0xffu);
++	}
++}
++
++static void
++audio_lpass_blocks(void)
++{
++	if (!lpass_on) {
++		printf("SWEET AUDIO: LPASS off; skipping codec/pinctrl/MCLK/"
++		    "AVTIMER reads\n");
++		return;
++	}
++	audio_announce("read the LPASS digital codec and SoundWire block");
++	printf("SWEET AUDIO: codec %08x %08x %08x %08x swr %08x %08x %08x %08x\n",
++	    audio_rd(codec, 0x000), audio_rd(codec, 0x004),
++	    audio_rd(codec, 0x008), audio_rd(codec, 0x00c),
++	    audio_rd(codec, 0x1000), audio_rd(codec, 0x1004),
++	    audio_rd(codec, 0x1008), audio_rd(codec, 0x100c));
++	audio_announce("read the LPASS LPI pinctrl, MCLK and AVTIMER registers");
++	printf("SWEET AUDIO: lpi pinctrl %08x %08x %08x %08x\n",
++	    audio_rd(pinctrl, 0x000), audio_rd(pinctrl, 0x004),
++	    audio_rd(pinctrl, 0x008), audio_rd(pinctrl, 0x00c));
++	printf("SWEET AUDIO: mclk_reg %08x, avtimer %08x %08x\n",
++	    audio_rd(mclk, 0x018), audio_rd(avtimer, 0x00c),
++	    audio_rd(avtimer, 0x010));
++}
++
++static void
++audio_smp2p_item(const uint8_t *data, uint32_t len)
++{
++	const struct smp2p_hdr *h = (const struct smp2p_hdr *)data;
++
++	if (len < sizeof(*h)) {
++		return;
++	}
++	printf("SWEET AUDIO: smp2p version %u local %u remote %u total %u "
++	    "valid %u flags %08x\n", (unsigned)h->version,
++	    (unsigned)h->local_pid, (unsigned)h->remote_pid,
++	    (unsigned)h->total, (unsigned)h->valid, h->flags);
++	for (uint32_t i = 0; i < h->valid && i < SMP2P_MAX_ENTRY &&
++	    sizeof(*h) + (i + 1) * sizeof(struct smp2p_entry) <= len; i++) {
++		const struct smp2p_entry *e =
++		    (const struct smp2p_entry *)(data + sizeof(*h) +
++		    i * sizeof(*e));
++		char name[sizeof(e->name) + 1];
++
++		memcpy(name, e->name, sizeof(e->name));
++		name[sizeof(e->name)] = '\0';
++		printf("SWEET AUDIO:   entry %u '%s' = %08x\n", i, name,
++		    e->value);
++	}
++}
++
++static void
++audio_smem_part(const char *tag, const struct smem_toc_entry *te)
++{
++	vm_offset_t base = smem + te->offset;
++	const struct smem_part *p = (const struct smem_part *)base;
++	uint32_t used = 0, items = 0;
++
++	if (te->size < sizeof(*p) || memcmp(p->magic, "$PRT", 4) != 0) {
++		printf("SWEET AUDIO: %s %u/%u @%05x size %05x: no $PRT header\n",
++		    tag, (unsigned)te->host0, (unsigned)te->host1, te->offset,
++		    te->size);
++		return;
++	}
++	printf("SWEET AUDIO: %s %u/%u @%05x size %05x used %05x cached %05x\n",
++	    tag, (unsigned)p->host0, (unsigned)p->host1, te->offset, p->size,
++	    p->free_uncached, p->free_cached);
++	if (p->free_uncached > p->size || p->free_uncached < sizeof(*p)) {
++		printf("SWEET AUDIO: %s: bad free pointer %05x\n", tag,
++		    p->free_uncached);
++		return;
++	}
++	while (used + sizeof(struct smem_item) <= p->free_uncached) {
++		const struct smem_item *h = (const struct smem_item *)
++		    (base + sizeof(*p) + used);
++		const uint8_t *data;
++		uint32_t payload, step, magic;
++
++		if (h->canary != SMEM_ITEM_CANARY) {
++			printf("SWEET AUDIO: %s: bad canary %04x at %05x\n", tag,
++			    (unsigned)h->canary, used);
++			return;
++		}
++		if (h->pad_data > h->size || h->size == 0) {
++			printf("SWEET AUDIO: %s: bad item %u size %u pad %u\n",
++			    tag, (unsigned)h->item, h->size,
++			    (unsigned)h->pad_data);
++			return;
++		}
++		payload = h->size - h->pad_data;
++		step = sizeof(*h) + h->pad_hdr + h->size;
++		data = (const uint8_t *)h + sizeof(*h) + h->pad_hdr;
++		printf("SWEET AUDIO: %s item %u size %u payload %u\n", tag,
++		    (unsigned)h->item, h->size, payload);
++		memcpy(&magic, data, sizeof(magic));
++		if (payload >= sizeof(struct smp2p_hdr) &&
++		    magic == SMP2P_MAGIC) {
++			audio_smp2p_item(data, payload);
++		}
++		items++;
++		used += step;
++		if (items >= 32) {
++			printf("SWEET AUDIO: %s: stopped after 32 items\n", tag);
++			return;
++		}
++	}
++}
++
++static void
++audio_smem(void)
++{
++	const struct smem_toc *toc = (const struct smem_toc *)
++	    (smem + SMEM_TOC_OFF);
++	const struct smem_toc_entry *te = (const struct smem_toc_entry *)
++	    (toc + 1);
++	uint32_t found = 0;
++
++	audio_announce("read the SMEM header and partition table (read only)");
++	printf("SWEET AUDIO: smem header %08x %08x %08x %08x\n",
++	    audio_rd(smem, 0x00), audio_rd(smem, 0x04), audio_rd(smem, 0x08),
++	    audio_rd(smem, 0x0c));
++	if (memcmp(toc->magic, "$TOC", 4) != 0 || toc->num_entries >
++	    SMEM_TOC_ENTRIES) {
++		printf("SWEET AUDIO: no SMEM $TOC at %08x (magic %c%c%c%c, "
++		    "entries %u)\n", SMEM_PA + SMEM_TOC_OFF, toc->magic[0],
++		    toc->magic[1], toc->magic[2], toc->magic[3],
++		    toc->num_entries);
++		return;
++	}
++	printf("SWEET AUDIO: smem TOC v%u, %u entries\n", toc->version,
++	    toc->num_entries);
++	for (uint32_t i = 0; i < toc->num_entries; i++) {
++		const struct smem_toc_entry *e = &te[i];
++
++		if (e->offset == 0 || e->size == 0 || e->offset >= SMEM_SIZE) {
++			continue;
++		}
++		found++;
++		if (e->host0 == SMEM_APPS_HOST && e->host1 == SMEM_ADSP_PID) {
++			audio_smem_part("apps<->adsp", e);
++		} else {
++			printf("SWEET AUDIO: smem part %u/%u @%05x size %05x\n",
++			    (unsigned)e->host0, (unsigned)e->host1, e->offset,
++			    e->size);
++		}
++	}
++	printf("SWEET AUDIO: smem TOC holds %u partitions\n", found);
++}
++
++static void
++audio_apcs(void)
++{
++	audio_announce("read the APCS IPC register for the ADSP bits");
++	printf("SWEET AUDIO: apcs ipc %08x (glink bit9 %u, smp2p bit10 %u)\n",
++	    audio_rd(apcs, 0x008), (audio_rd(apcs, 0x008) >> 9) & 1u,
++	    (audio_rd(apcs, 0x008) >> 10) & 1u);
++}
++
++static void
++lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
++{
++	uint32_t delay_s = 25;
++
++	(void)PE_parse_boot_argn("lavauddelay", &delay_s, sizeof(delay_s));
++	if (delay_s > 300) {
++		delay_s = 300;
++	}
++	printf("SWEET AUDIO: A0 platform probe in %u s\n", delay_s);
++	audio_wait(delay_s * 1000);
++
++	gcc = ml_io_map(GCC_PA, GCC_SIZE);
++	if (gcc == 0) {
++		printf("SWEET AUDIO: GCC map failed\n");
++		return;
++	}
++	audio_gcc();
++
++	q6ss = ml_io_map(Q6SS_PA, Q6SS_SIZE);
++	if (q6ss != 0) {
++		audio_q6ss();
++	} else if (lpass_on) {
++		printf("SWEET AUDIO: Q6SS map failed\n");
++	}
++
++	smmu = ml_io_map_unmappable(LPASS_SMMU_PA, LPASS_SMMU_SIZE,
++	    VM_WIMG_IO);
++	if (smmu != 0) {
++		audio_lpass_smmu();
++	} else {
++		printf("SWEET AUDIO: LPASS SMMU map failed\n");
++	}
++
++	codec = ml_io_map(LPASS_CODEC_PA, LPASS_CODEC_SIZE);
++	pinctrl = ml_io_map(LPASS_PINCTRL_PA, LPASS_PINCTRL_SIZE);
++	mclk = ml_io_map(LPASS_MCLK_PA, LPASS_MCLK_SIZE);
++	avtimer = ml_io_map(LPASS_AVTIMER_PA, LPASS_AVTIMER_SIZE);
++	if (codec != 0 && pinctrl != 0 && mclk != 0 && avtimer != 0) {
++		audio_lpass_blocks();
++	} else {
++		printf("SWEET AUDIO: LPASS block map failed (codec %d pinctrl %d "
++		    "mclk %d avtimer %d)\n", codec != 0, pinctrl != 0, mclk != 0,
++		    avtimer != 0);
++	}
++
++	smem = ml_io_map_unmappable(SMEM_PA, SMEM_SIZE, VM_WIMG_IO);
++	if (smem != 0) {
++		audio_smem();
++	} else {
++		printf("SWEET AUDIO: SMEM map failed\n");
++	}
++
++	apcs = ml_io_map(APCS_IPC_PA, APCS_IPC_SIZE);
++	if (apcs != 0) {
++		audio_apcs();
++	} else {
++		printf("SWEET AUDIO: APCS map failed\n");
++	}
++
++	printf("SWEET AUDIO: A0 probe done\n");
++}
++
++int
++lavender_audio_probe(void)
++{
++	static int started;
++	uint32_t on = 0;
++	thread_t thread;
++
++	if (started ||
++	    !PE_parse_boot_argn("lavaud", &on, sizeof(on)) || on == 0) {
++		return 0;
++	}
++	started = 1;
++	if (kernel_thread_start(lavender_audio_thread, NULL, &thread) ==
++	    KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++	return 0;
++}
++
++#else /* !ARM64_BOARD_CONFIG_LAVENDER */
++
++int lavender_audio_probe(void);
++int
++lavender_audio_probe(void)
++{
++	return 0;
++}
++
++#endif
+diff --git a/bsd/dev/santoni_sdhci.c b/bsd/dev/santoni_sdhci.c
+index 6ce5acc..bf534d1 100644
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -5040,6 +5040,13 @@ santoni_sdhci_init(void)
+ 	sdhci_dma_diag_tests();
+ 	/* After the log: the WHYRED FB lines belong in the SYSTEM ring. */
+ 	santoni_fb_test();
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* 0500: boot-arg lavaud=N, SDM660 audio platform probe (read only). */
++	{
++		extern int lavender_audio_probe(void);
++		(void)lavender_audio_probe();
++	}
++#endif
+ #if defined(ARM64_BOARD_CONFIG_WHYRED) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	/* Boot-arg sweetouchi2c=1: does the touch controller answer at all? */
+ 	santoni_touch_probe();

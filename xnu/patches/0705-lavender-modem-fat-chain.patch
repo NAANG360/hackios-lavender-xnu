@@ -1,0 +1,27 @@
+diff --git a/bsd/dev/lavender_modem.c b/bsd/dev/lavender_modem.c
+index 823c895..9cdc7ac 100644
+--- a/bsd/dev/lavender_modem.c
++++ b/bsd/dev/lavender_modem.c
+@@ -426,7 +426,12 @@ fat_cluster_sector(uint32_t cluster)
+ static uint32_t
+ fat_next(uint32_t cluster)
+ {
+-	return le16((const uint8_t *)fat_buf + fat_fat_off + cluster * 2);
++	/*
++	 * 0248: fat_buf already starts at the FAT's first sector. Adding
++	 * fat_fat_off (the partition-relative offset, 512) made every chain
++	 * read the wrong entry and stop after two clusters.
++	 */
++	return le16((const uint8_t *)fat_buf + cluster * 2);
+ }
+ 
+ /* Build the 8.3 name of a directory entry, without the trailing dot. */
+@@ -597,7 +602,7 @@ fat_read_to_va(const char *name, vm_offset_t dst, uint32_t max)
+ 		printf("SWEET MODEM: %s is %u bytes, max %u\n", name, size, max);
+ 		return EINVAL;
+ 	}
+-	printf("SWEET MODEM: %s %u bytes at %08x\n", name, size,
++	printf("SWEET MODEM: %s %u bytes at va %08x\n", name, size,
+ 	    (uint32_t)dst);
+ 	while (off < size) {
+ 		uint32_t n = MIN(size - off, fat_cluster_bytes);

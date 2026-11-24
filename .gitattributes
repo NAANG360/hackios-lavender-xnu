@@ -1,0 +1,12 @@
+# Patches and scripts must keep LF on every platform: a CRLF checkout
+# (Windows, core.autocrlf=true) makes `git apply` reject the patches and
+# breaks the shell scripts.
+# Everything text is LF; drivers/ mirrors are compared byte for byte.
+* text=auto eol=lf
+*.patch text eol=lf
+*.sh    text eol=lf
+*.py    text eol=lf
+*.c     text eol=lf
+*.h     text eol=lf
+*.jpg   binary
+*.bin   binary

@@ -1,0 +1,75 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index a190182..a5771d4 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -625,6 +625,60 @@ step6_zap(void)
+ 	}
+ }
+ 
++/*
++ * Step 7: read-only look at the GPU's own SMMU (kgsl-smmu-v2, ARM SMMUv2
++ * register layout). The CP fetches microcode and the ring through it, so we
++ * need to know whether it translates, is in bypass, or is locked by the
++ * secure side. Nothing is written.
++ */
++#define SMMU_PA                 0x05040000u
++#define SMMU_SIZE               0x10000u
++
++static void
++step7_smmu(void)
++{
++	vm_offset_t smmu;
++	uint32_t idr0, idr1, idr2, idr7, pgsz, npage, cbbase;
++
++	smmu = ml_io_map(SMMU_PA, SMMU_SIZE);
++	if (smmu == 0) {
++		printf("LAVGPU: SMMU map failed\n");
++		return;
++	}
++	lav_announce("step 7: READ the SMMU global registers");
++	idr0 = rd(smmu, 0x20);
++	idr1 = rd(smmu, 0x24);
++	idr2 = rd(smmu, 0x28);
++	idr7 = rd(smmu, 0x3c);
++	printf("LAVGPU: SMMU sCR0 %08x sCR1 %08x sCR2 %08x sACR %08x\n",
++	    rd(smmu, 0x0), rd(smmu, 0x4), rd(smmu, 0x8), rd(smmu, 0x10));
++	printf("LAVGPU: SMMU IDR0 %08x IDR1 %08x IDR2 %08x IDR7 %08x\n", idr0,
++	    idr1, idr2, idr7);
++	pgsz = (idr1 & (1u << 31)) ? 0x10000u : 0x1000u;
++	npage = 1u << (((idr1 >> 28) & 7) + 1);
++	cbbase = (npage * pgsz) / 2;
++	printf("LAVGPU: SMMU page size %x, %u pages, %u context banks, "
++	    "%u stream-mapping groups, CB base +%x\n", pgsz, npage,
++	    idr1 & 0xff, (idr0 >> 0) & 0xff, cbbase);
++
++	lav_announce("step 7: READ stream mapping groups 0..3");
++	for (uint32_t i = 0; i < 4; i++) {
++		printf("LAVGPU: SMMU SMR%u %08x S2CR%u %08x\n", i,
++		    rd(smmu, 0x800 + 4 * i), i, rd(smmu, 0xc00 + 4 * i));
++	}
++	if (cbbase + 4 * pgsz > SMMU_SIZE) {
++		printf("LAVGPU: context banks are outside the mapped block\n");
++		return;
++	}
++	lav_announce("step 7: READ context banks 0..3");
++	for (uint32_t cb = 0; cb < 4; cb++) {
++		vm_offset_t b = smmu + cbbase + cb * pgsz;
++		printf("LAVGPU: CB%u SCTLR %08x TTBR0 %08x%08x TCR %08x FSR %08x "
++		    "FAR %08x\n", cb, rd(b, 0x0), rd(b, 0x24), rd(b, 0x20),
++		    rd(b, 0x30), rd(b, 0x58), rd(b, 0x60));
++	}
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -667,6 +721,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 6) {
+ 		step6_zap();
+ 	}
++	if (step >= 7) {
++		step7_smmu();
++	}
+ 	printf("LAVGPU: ladder finished\n");
+ }
+ 

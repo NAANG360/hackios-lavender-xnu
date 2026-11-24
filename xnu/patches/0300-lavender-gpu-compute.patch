@@ -1,0 +1,236 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 639026c..5842532 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1159,6 +1159,221 @@ step12_fence_reset(void)
+ 	}
+ }
+ 
++/*
++ * Step 13: the first compute dispatch. A hand-assembled shader (ir3; the A5xx
++ * encodings are checked against the vectors of Mesa's ir3 disassembler test:
++ * cat1 mov immediate, cat6 stg, cat0 nop and end) stores 0xc0de0001 to a
++ * global address through the SP. Register order follows Gallium fd5
++ * (cs_program_emit, fd5_launch_grid) as a behaviour reference, no code taken.
++ * The shader is preloaded into the SP with CP_LOAD_STATE4 (INSTRLEN 1 = 16
++ * instructions). If the word does not land the GPU is reset and the CP is
++ * brought up again.
++ */
++#define R_SP_SP_CNTL            0xe580u
++#define R_HLSQ_CONTROL_0        0xe784u
++#define R_SP_CS_CTRL_REG0       0xe5f0u
++#define R_HLSQ_CS_CONFIG        0xe790u
++#define R_HLSQ_CS_CNTL          0xe796u
++#define R_SP_CS_CONFIG          0xe589u
++#define R_HLSQ_CS_CONSTLEN      0xe7dcu
++#define R_SP_CS_OBJ_START       0xe5f3u
++#define R_HLSQ_UPDATE_CNTL      0xe78au
++#define R_HLSQ_CS_CNTL_0        0xe7b7u
++#define R_HLSQ_CS_NDRANGE_0     0xe7b0u
++#define R_HLSQ_CS_KERNEL_GROUP  0xe7b9u
++#define R_TPL1_CS_TEX_COUNT     0xe751u
++#define R_SP_MODE_CNTL          0x0ec2u
++#define R_SP_DBG_ECO_CNTL       0x0ec0u
++#define R_TPL1_MODE_CNTL        0x0f02u
++#define R_HLSQ_MODE_CNTL        0x0e06u
++#define R_HLSQ_TIMEOUT_0        0x0e00u
++#define R_UCHE_INVALIDATE_MIN   0x0e91u
++#define CP_WAIT_FOR_IDLE        38u
++#define CP_EXEC_CS              0x33u
++#define CP_LOAD_STATE4          0x30u
++#define SHADER_OUT_VALUE        0xc0de0001u
++
++static uint32_t
++pm4_pkt4(uint32_t reg, uint32_t cnt)
++{
++	return 0x40000000u | cnt | (pm4_parity(cnt) << 7) |
++	    ((reg & 0x3ffffu) << 8) | (pm4_parity(reg & 0x3ffffu) << 27);
++}
++
++static void
++ring_pkt4(uint32_t reg, uint32_t cnt)
++{
++	ring_put(pm4_pkt4(reg, cnt));
++}
++
++static void
++ring_reg(uint32_t reg, uint32_t v)
++{
++	ring_pkt4(reg, 1);
++	ring_put(v);
++}
++
++/* mov.u32u32 rN.c, imm : cat1, DST_TYPE = SRC_TYPE = u32, immediate source */
++static void
++shader_mov(uint32_t *p, uint32_t reg, uint32_t imm)
++{
++	p[0] = imm;
++	p[1] = 0x204cc000u | reg;
++}
++
++static void
++step13_compute(void)
++{
++	static const uint32_t addr_mode_regs[] = {
++		0x0bc1u, 0x0c81u, 0x0cc5u, 0x0d01u, 0x0e05u, 0x0e41u, 0x0e61u,
++		0x0e80u, 0x0ec1u, 0x0f01u,
++	};
++	vm_offset_t sh_va = 0;
++	uint64_t sh_pa = 0, out_pa = fence_pa + 0x40;
++	volatile uint32_t *out = (volatile uint32_t *)(rptr_va + 0x140);
++	uint32_t *sh;
++
++	if (ring_va == 0 || ring_pa == 0) {
++		printf("LAVGPU: step 13 needs steps 10-12\n");
++		return;
++	}
++	if (lav_alloc(0x1000, PAGE_MASK, &sh_va, &sh_pa)) {
++		printf("LAVGPU: no page for the shader\n");
++		return;
++	}
++	sh = (uint32_t *)sh_va;
++	shader_mov(&sh[0], 0, (uint32_t)out_pa);		/* r0.x = address low */
++	shader_mov(&sh[2], 1, (uint32_t)(out_pa >> 32));	/* r0.y = address high */
++	shader_mov(&sh[4], 4, SHADER_OUT_VALUE);		/* r1.x = value */
++	sh[6] = 0;
++	sh[7] = 0x00000500u;					/* (rpt5)nop */
++	sh[8] = 0;
++	sh[9] = 0x00000500u;					/* (rpt5)nop */
++	sh[10] = 0x01800000u | (4u << 1);			/* stg.u32 g[r0.x], r1.x, 1 */
++	sh[11] = 0xc0c60100u;
++	sh[12] = 0;
++	sh[13] = 0x00000500u;					/* (rpt5)nop */
++	sh[14] = 0;
++	sh[15] = 0x03000000u;					/* end */
++	flush_dcache64((addr64_t)sh_pa, 0x1000, TRUE);
++	printf("LAVGPU: shader pa %llx, output pa %llx\n",
++	    (unsigned long long)sh_pa, (unsigned long long)out_pa);
++	for (int i = 0; i < 16; i += 2) {
++		printf("LAVGPU: shader dwords %08x %08x\n", sh[i], sh[i + 1]);
++	}
++
++	lav_announce("step 13: WRITE the 64-bit address-mode and UCHE registers");
++	for (unsigned i = 0; i < sizeof(addr_mode_regs) / sizeof(addr_mode_regs[0]); i++) {
++		wr(gpu, addr_mode_regs[i] * 4, 1);
++	}
++	wr(gpu, 0x0e96u * 4, 2);				/* UCHE_CACHE_WAYS */
++	wr(gpu, 0x0e89u * 4, 0xffff0000u);			/* UCHE_TRAP_BASE */
++	wr(gpu, 0x0e89u * 4 + 4, 0x0001ffffu);
++	wr(gpu, 0x0e87u * 4, 0xffff0000u);			/* UCHE_WRITE_THRU_BASE */
++	wr(gpu, 0x0e87u * 4 + 4, 0x0001ffffu);
++	wr(gpu, 0x0e8bu * 4, 0x00100000u);			/* UCHE_GMEM_RANGE_MIN */
++	wr(gpu, 0x0e8bu * 4 + 4, 0);
++	wr(gpu, 0x0e8du * 4, 0x00100000u + 0x40000u - 1);	/* UCHE_GMEM_RANGE_MAX */
++	wr(gpu, 0x0e8du * 4 + 4, 0);
++	wr(gpu, 0x0e81u * 4, 1u << 29);				/* UCHE_MODE_CNTL */
++
++	*out = 0;
++	flush_dcache64((addr64_t)(out_pa & ~63ull), 64, TRUE);
++
++	lav_announce("step 13: submit the compute dispatch");
++	/* cache flush, like fd5_cache_flush */
++	ring_pkt4(R_UCHE_INVALIDATE_MIN, 5);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0x12);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	/* the part of fd5_emit_restore a compute dispatch relies on */
++	ring_reg(R_HLSQ_UPDATE_CNTL, 0xfffff);
++	ring_reg(R_SP_MODE_CNTL, 0x1e);
++	ring_reg(R_SP_DBG_ECO_CNTL, 0x40000800u);
++	ring_reg(R_TPL1_MODE_CNTL, 0x544);
++	ring_pkt4(R_HLSQ_TIMEOUT_0, 2);
++	ring_put(0x80);
++	ring_put(0);
++	ring_reg(R_HLSQ_MODE_CNTL, 1);
++	/* cs_program_emit with instrlen = 1 */
++	ring_reg(R_SP_SP_CNTL, 0);
++	ring_reg(R_HLSQ_CONTROL_0, 0x880);			/* TWO_QUADS | 0x880 */
++	ring_reg(R_SP_CS_CTRL_REG0, (2u << 10) | (1u << 2) | 0x2);	/* 2 full regs, BUFFER */
++	ring_reg(R_HLSQ_CS_CONFIG, 1);
++	ring_reg(R_HLSQ_CS_CNTL, 1u << 1);			/* INSTRLEN 1 */
++	ring_reg(R_SP_CS_CONFIG, 1);
++	ring_pkt4(R_HLSQ_CS_CONSTLEN, 2);
++	ring_put(0);
++	ring_put(1);						/* CONSTLEN 0, INSTRLEN 1 */
++	ring_pkt4(R_SP_CS_OBJ_START, 6);
++	ring_put((uint32_t)sh_pa);
++	ring_put((uint32_t)(sh_pa >> 32));
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_reg(R_HLSQ_UPDATE_CNTL, 0x1f00000u);
++	ring_pkt4(R_HLSQ_CS_CNTL_0, 2);
++	ring_put(0xfcu | (0xfcu << 8) | (0xfcu << 16) | (0xfcu << 24));
++	ring_put(1);
++	/* load the shader into the SP: CP_LOAD_STATE4, indirect, CS shader block */
++	ring_pkt7(CP_LOAD_STATE4, 3);
++	ring_put((2u << 16) | (0xdu << 18) | (1u << 22));
++	ring_put((uint32_t)sh_pa);				/* STATE_TYPE ST4_SHADER = 0 */
++	ring_put((uint32_t)(sh_pa >> 32));
++	ring_reg(R_TPL1_CS_TEX_COUNT, 0);
++	ring_pkt4(R_HLSQ_CS_NDRANGE_0, 7);
++	ring_put(3u);						/* KERNELDIM 3, local size 1x1x1 */
++	ring_put(1);
++	ring_put(0);
++	ring_put(1);
++	ring_put(0);
++	ring_put(1);
++	ring_put(0);
++	ring_pkt4(R_HLSQ_CS_KERNEL_GROUP, 3);
++	ring_put(1);
++	ring_put(1);
++	ring_put(1);
++	ring_pkt7(CP_EXEC_CS, 4);
++	ring_put(0);
++	ring_put(1);
++	ring_put(1);
++	ring_put(1);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	if (ring_submit("compute dispatch") != 0) {
++		printf("LAVGPU: the CP did not consume the dispatch, resetting\n");
++		goto recover;
++	}
++	for (int i = 0; i < 100; i++) {
++		lav_wait(5);
++		flush_dcache64((addr64_t)(out_pa & ~63ull), 64, TRUE);
++		if (*out == SHADER_OUT_VALUE) {
++			printf("LAVGPU: SHADER WROTE IT: %08x after %d ms, RBBM_STATUS %08x\n",
++			    *out, i * 5, rd(gpu, A5_RBBM_STATUS));
++			return;
++		}
++	}
++	printf("LAVGPU: the shader output did not land (%08x): RBBM_STATUS %08x "
++	    "INT_0 %08x AHB_ERR %08x RPTR %u WPTR %u\n", *out, rd(gpu, A5_RBBM_STATUS),
++	    rd(gpu, A5_RBBM_INT_0_STATUS), rd(gpu, A5_RBBM_AHB_ERR_STATUS),
++	    rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR));
++recover:
++	lav_announce("step 13: RBBM software reset after the failed dispatch");
++	wr(gpu, A5_RBBM_SW_RESET_CMD, 1);
++	(void)rd(gpu, A5_RBBM_SW_RESET_CMD);
++	lav_wait(5);
++	wr(gpu, A5_RBBM_SW_RESET_CMD, 0);
++	lav_wait(5);
++	if (cp_bringup() == 0 && fence_test(0xcafe0300u, 200) == 0) {
++		printf("LAVGPU: recovered after the failed dispatch\n");
++	} else {
++		printf("LAVGPU: no recovery after the failed dispatch\n");
++	}
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -1219,6 +1434,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 12) {
+ 		step12_fence_reset();
+ 	}
++	if (step >= 13) {
++		step13_compute();
++	}
+ 	printf("LAVGPU: ladder finished\n");
+ }
+ 

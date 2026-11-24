@@ -1,0 +1,818 @@
+diff --git a/bsd/dev/lavender_modem.c b/bsd/dev/lavender_modem.c
+index faa2f35..a322ab1 100644
+--- a/bsd/dev/lavender_modem.c
++++ b/bsd/dev/lavender_modem.c
+@@ -1,28 +1,33 @@
+ /*
+- * lavender: modem (MSS/QDSP6) bring-up, F1 step 1. Boot-arg gated.
++ * lavender: modem (MSS/QDSP6) bring-up, F1. Boot-arg gated, read-mostly.
+  *
+- *   sweetmodem=1       enable the MSS clocks and read QDSP6/RMB (no reset)
++ *   sweetmodem=1       deassert the MSS restart, enable the MSS clocks and
++ *                      read QDSP6/RMB (no firmware)
++ *   sweetmodem=2       also load MBA.MBN from the modem FAT16 (eMMC), hand
++ *                      the MBA region to MSS with SCM, reset the Q6 and wait
++ *                      for the MBA to answer
+  *   sweetmodemdelay=S  seconds to wait after boot before it (default 25)
++ *   sweetmodemclk=N    clock mask (default 0x3f): bit0 mss_cfg_ahb,
++ *                      bit1 bimc_mss_q6_axi, bit2 boot_rom_ahb,
++ *                      bit3 gpll0_out_msscc, bit4 mss_snoc_axi,
++ *                      bit5 mss_mnoc_bimc_axi. Use it to bisect one boot
++ *                      per value if a clock write wedges the thread.
+  *
+  * F0b (`lavender_wlan.c`) showed the ABL left mss_cfg_ahb (0x8a000) and
+- * mss_snoc_axi (0x8a03c) off, while mss_q6_bimc_axi (0x8a040) was on. F1
+- * needs the full active-clock set of the modem node:
++ * mss_snoc_axi (0x8a03c) off, while mss_q6_bimc_axi (0x8a040) was on. The
++ * 0244 boot enabled the full active-clock set and read a clean parked state:
++ * Q6 reset 00000007 (held), PWR_CTL 00700000 (clamped, BHS/LDO off), RMB all
++ * zero. This patch keeps that step and adds the MBA load.
+  *
+- *   iface_clk      gcc_mss_cfg_ahb_clk        0x8a000 bit0
+- *   bus_clk        gcc_bimc_mss_q6_axi_clk    0x4401c bit0
+- *   mem_clk        gcc_boot_rom_ahb_clk       vote 0x52004 bit10
+- *   gpll0_mss_clk  gpll0_out_msscc            0x5200c bit2
+- *   snoc_axi_clk   gcc_mss_snoc_axi_clk       0x8a03c bit0
+- *   mnoc_axi_clk   gcc_mss_mnoc_bimc_axi_clk  0x8a004 bit0
++ * Order matters (pil-msa.c): power up, deassert the MSS restart (0x179000=0),
++ * enable the clocks, program RMB, run the QDSP6 reset, wait for PBL/MBA.
++ * The MBA image is copied as-is into pil_mba_region (0x94800000, 2 MiB) and
++ * the first 1 MiB is assigned to MSS_MSA with SCM MEM_PROT_ASSIGN (the DTB's
++ * qcom,mem-protect-id is 0xf). The modem image itself is not loaded yet;
++ * step 3 will authenticate the MDT and its segments.
+  *
+- * The offsets and halt/enable bits are from Linux gcc-sdm660.c and the SDM660
+- * DTB clock list (behaviour reference, values only).
+- *
+- * This step WRITES only the GCC enables. It does not touch QDSP6/RMB control
+- * registers. Reading the two blocks afterwards answers "with the clocks on,
+- * is the modem already running, in reset, or in an error state?" before F1
+- * loads the MBA. The first read is announced and spaced 2 s, like the GPU
+- * ladder: a wrong access on this SoC can reset it without a word.
++ * Register meanings: Linux pil-msa.c, pil-q6v5.c, gcc-sdm660.c,
++ * secure_buffer.c and the SDM660 DTB, read as behaviour references.
+  */
+ #if defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 
+@@ -34,8 +39,15 @@
+ #include <kern/sched_prim.h>
+ #include <machine/machine_routines.h>
+ #include <pexpert/pexpert.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++#include <arm/caches_internal.h>
++#include <vm/memory_types.h>
++#include <libkern/libkern.h>
+ 
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++extern int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
+ 
+ #define GCC_PA          0x00100000u
+ #define GCC_SIZE        0x94000u
+@@ -43,6 +55,12 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ #define QDSP6_SIZE      0x00001000u
+ #define RMB_PA          0x04180000u
+ #define RMB_SIZE        0x00001000u
++#define MSS_RESTART_PA  0x00179000u
++#define MSS_RESTART_SIZE 0x00001000u
++
++#define MBA_PA          0x94800000u
++#define MBA_SIZE        0x00200000u
++#define MBA_ASSIGN_SIZE 0x00100000u
+ 
+ /* GCC byte offsets from GCC_PA (gcc-sdm660.c) */
+ #define GCC_MSS_CFG_AHB         0x8a000u
+@@ -68,6 +86,20 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ #define Q6_XO_CBCR              0x038u
+ #define Q6_STRAP_ACC            0x110u
+ 
++/* QDSP6SS_RESET / PWR_CTL / GFMUX bits */
++#define Q6SS_STOP_CORE          (1u << 0)
++#define Q6SS_CORE_ARES          (1u << 1)
++#define Q6SS_BUS_ARES_ENA       (1u << 2)
++#define Q6SS_CLK_ENA            (1u << 1)
++#define Q6SS_L2DATA_STBY_N      (1u << 18)
++#define Q6SS_SLP_RET_N          (1u << 19)
++#define Q6SS_CLAMP_IO           (1u << 20)
++#define QDSP6v55_CLAMP_WL       (1u << 21)
++#define QDSP6v55_CLAMP_QMC_MEM  (1u << 22)
++#define QDSP6v55_BHS_ON         (1u << 24)
++#define QDSP6v55_LDO_BYP        (1u << 25)
++#define QDSP6v55_BHS_EN_REST_ACK (1u << 0)
++
+ /* RMB (pil-msa.c) */
+ #define RMB_MBA_IMAGE           0x00u
+ #define RMB_PBL_STATUS          0x04u
+@@ -78,9 +110,41 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ #define RMB_PMI_CODE_LENGTH     0x18u
+ #define RMB_PROTOCOL_VERSION    0x1cu
+ #define RMB_DEBUG               0x20u
++#define CMD_META_DATA_READY     0x1u
++#define CMD_LOAD_READY          0x2u
++#define STATUS_PBL_SUCCESS      0x1u
++#define STATUS_XPU_UNLOCKED     0x1u
++#define STATUS_XPU_UNLOCKED_SCRIBBLED 0x2u
++#define STATUS_META_DATA_AUTH_SUCCESS 0x3u
++#define STATUS_AUTH_COMPLETE    0x4u
+ 
+-static vm_offset_t gcc, q6, rmb;
++/* SCM memory protection (secure_buffer.c, secure_buffer.h) */
++#define SCM_FN(svc, cmd)        (0x42000000u | ((uint32_t)(svc) << 8) | (uint32_t)(cmd))
++#define SCM_SVC_MP              0x0cu
++#define MEM_PROT_ASSIGN_ID      0x16u
++#define VMID_HLOS               0x3u
++#define VMID_MSS_MSA            0x0fu
++#define PERM_READ               0x4u
++#define PERM_WRITE              0x2u
++#define PERM_EXEC               0x1u
++#define SCM_ARGINFO_7           0x1117u  /* SCM_ARGS(7, RO, VAL, RO, VAL, RO, VAL, VAL) */
++
++/* modem FAT16 (GPT: modem at LBA 786432; BPB: 512/32/1/2/512/49) */
++#define MODEM_LBA               786432ull
++#define SECTOR_SIZE             512u
++#define FAT_DIR_MAX             (192u << 10)
++#define FAT_BOUNCE_SIZE         (1u << 20)
++#define SCM_BUF_SIZE            0x1000u
++#define FAT_MAX_CLUSTER         0xfff8u
++
++static vm_offset_t gcc, rst, q6, rmb, mba;
++static void *fat_buf, *bounce, *scm_buf;
++static uint64_t scm_pa;
+ static int modem_chan;
++static uint32_t fat_cluster_bytes, fat_spc, fat_data_start, fat_fat_off;
++static uint32_t fat_root_start, fat_root_entries, fat_fat_size;
++static uint8_t *fat_image;              /* IMAGE/ directory, cached */
++static uint32_t fat_image_len;
+ 
+ static inline uint32_t
+ mrd(vm_offset_t base, uint32_t off)
+@@ -115,7 +179,6 @@ modem_announce(const char *what)
+ 	modem_wait(2000);
+ }
+ 
+-/* Read a branch's halt bit until it clears; returns the last value. */
+ static uint32_t
+ modem_poll_off(uint32_t off, int n)
+ {
+@@ -146,34 +209,57 @@ gcc_branch(const char *name, uint32_t off)
+ }
+ 
+ static void
+-modem_clocks(void)
++modem_restart_deassert(void)
+ {
+ 	uint32_t v;
+ 
+-	modem_announce("enable the MSS clocks (GCC writes)");
+-	gcc_branch("mss_cfg_ahb", GCC_MSS_CFG_AHB);
+-	gcc_branch("bimc_mss_q6_axi", GCC_BIMC_MSS_Q6_AXI);
+-
+-	/* boot_rom_ahb is a voted branch: enable bit at 0x52004 bit10. */
+-	v = mrd(gcc, GCC_BOOT_ROM_AHB_VOTE);
+-	printf("SWEET MODEM: gcc boot_rom vote before %08x (halt %08x)\n", v,
+-	    mrd(gcc, GCC_BOOT_ROM_AHB_HALT));
+-	mwr(gcc, GCC_BOOT_ROM_AHB_VOTE, v | GCC_BOOT_ROM_AHB_BIT);
+-	v = modem_poll_off(GCC_BOOT_ROM_AHB_HALT, 100);
+-	printf("SWEET MODEM: gcc boot_rom vote after %08x (halt %08x, %s)\n",
+-	    mrd(gcc, GCC_BOOT_ROM_AHB_VOTE), v,
+-	    (v & CBCR_OFF) ? "STILL OFF" : "on");
++	modem_announce("deassert the MSS restart (write 0 to 0x179000)");
++	v = mrd(rst, 0);
++	printf("SWEET MODEM: mss restart before %08x\n", v);
++	if (v != 0) {
++		mwr(rst, 0, 0);
++	}
++	delay(100);
++	v = mrd(rst, 0);
++	printf("SWEET MODEM: mss restart after %08x (%s)\n", v,
++	    v == 0 ? "deasserted" : "STILL ASSERTED");
++}
+ 
+-	/* gpll0_out_msscc is a gate2: no halt register, only the enable bit. */
+-	v = mrd(gcc, GCC_GPLL0_OUT_MSSCC);
+-	printf("SWEET MODEM: gcc gpll0_out_msscc before %08x\n", v);
+-	mwr(gcc, GCC_GPLL0_OUT_MSSCC, v | GCC_GPLL0_OUT_MSSCC_BIT);
+-	printf("SWEET MODEM: gcc gpll0_out_msscc after %08x\n",
+-	    mrd(gcc, GCC_GPLL0_OUT_MSSCC));
++static void
++modem_clocks(uint32_t mask)
++{
++	uint32_t v;
+ 
+-	gcc_branch("mss_snoc_axi", GCC_MSS_SNOC_AXI);
+-	gcc_branch("mss_mnoc_bimc_axi", GCC_MSS_MNOC_BIMC_AXI);
+-	/* Not in the DT clock list, but F0b saw it enabled by the ABL. */
++	printf("SWEET MODEM: clock mask %02x\n", mask);
++	if (mask & 0x01) {
++		gcc_branch("mss_cfg_ahb", GCC_MSS_CFG_AHB);
++	}
++	if (mask & 0x02) {
++		gcc_branch("bimc_mss_q6_axi", GCC_BIMC_MSS_Q6_AXI);
++	}
++	if (mask & 0x04) {
++		v = mrd(gcc, GCC_BOOT_ROM_AHB_VOTE);
++		printf("SWEET MODEM: gcc boot_rom vote before %08x (halt %08x)\n",
++		    v, mrd(gcc, GCC_BOOT_ROM_AHB_HALT));
++		mwr(gcc, GCC_BOOT_ROM_AHB_VOTE, v | GCC_BOOT_ROM_AHB_BIT);
++		v = modem_poll_off(GCC_BOOT_ROM_AHB_HALT, 100);
++		printf("SWEET MODEM: gcc boot_rom vote after %08x (halt %08x, %s)\n",
++		    mrd(gcc, GCC_BOOT_ROM_AHB_VOTE), v,
++		    (v & CBCR_OFF) ? "STILL OFF" : "on");
++	}
++	if (mask & 0x08) {
++		v = mrd(gcc, GCC_GPLL0_OUT_MSSCC);
++		printf("SWEET MODEM: gcc gpll0_out_msscc before %08x\n", v);
++		mwr(gcc, GCC_GPLL0_OUT_MSSCC, v | GCC_GPLL0_OUT_MSSCC_BIT);
++		printf("SWEET MODEM: gcc gpll0_out_msscc after %08x\n",
++		    mrd(gcc, GCC_GPLL0_OUT_MSSCC));
++	}
++	if (mask & 0x10) {
++		gcc_branch("mss_snoc_axi", GCC_MSS_SNOC_AXI);
++	}
++	if (mask & 0x20) {
++		gcc_branch("mss_mnoc_bimc_axi", GCC_MSS_MNOC_BIMC_AXI);
++	}
+ 	printf("SWEET MODEM: gcc mss_q6_bimc_axi (reference) %08x\n",
+ 	    mrd(gcc, GCC_MSS_Q6_BIMC_AXI));
+ }
+@@ -191,31 +277,495 @@ modem_dump_q6(void)
+ 	printf("SWEET MODEM: RMB image %08x pbl %08x cmd %08x status %08x\n",
+ 	    mrd(rmb, RMB_MBA_IMAGE), mrd(rmb, RMB_PBL_STATUS),
+ 	    mrd(rmb, RMB_MBA_COMMAND), mrd(rmb, RMB_MBA_STATUS));
+-	printf("SWEET MODEM: RMB meta %08x code_start %08x code_len %08x "
+-	    "proto %08x debug %08x\n", mrd(rmb, RMB_PMI_META_DATA),
+-	    mrd(rmb, RMB_PMI_CODE_START), mrd(rmb, RMB_PMI_CODE_LENGTH),
+-	    mrd(rmb, RMB_PROTOCOL_VERSION), mrd(rmb, RMB_DEBUG));
+ }
+ 
++/* --- SCM memory protection ------------------------------------------------ */
++
++static uint64_t modem_scm7(uint32_t fn, uint32_t arginfo, uint64_t a0,
++    uint64_t a1, uint64_t a2, uint64_t extra_pa, uint64_t *res);
++
++/*
++ * One page holds the mem_prot_info entry, the source VMID list and the
++ * dest_vm_and_perm_info list. The physical address goes in x2..x4; the
++ * remaining four arguments go in the extended-argument page pointed to by
++ * x5 (scm.c allocate_extra_arg_buffer, N_REGISTER_ARGS).
++ */
++static int
++scm_assign(uint32_t pa, uint32_t size, uint32_t src_vmid, uint32_t dst_vmid,
++    uint32_t dst_perm)
++{
++	struct mem_prot_info {
++		uint64_t addr;
++		uint64_t size;
++	};
++	struct dest_info {
++		uint32_t vm;
++		uint32_t perm;
++		uint64_t ctx;
++		uint32_t ctx_size;
++		uint32_t pad;
++	};
++	uint8_t *buf = scm_buf;
++	struct mem_prot_info *mp = (struct mem_prot_info *)buf;
++	uint32_t *src = (uint32_t *)(buf + 0x40);
++	struct dest_info *dst = (struct dest_info *)(buf + 0x80);
++	uint64_t *extra = (uint64_t *)(buf + 0x200);
++	uint64_t ret = 0;
++	uint32_t fn = SCM_FN(SCM_SVC_MP, MEM_PROT_ASSIGN_ID);
++	int err;
++
++	memset(buf, 0, SCM_BUF_SIZE);
++	mp->addr = pa;
++	mp->size = size;
++	src[0] = src_vmid;
++	dst[0].vm = dst_vmid;
++	dst[0].perm = dst_perm;
++	dst[0].ctx = 0;
++	dst[0].ctx_size = 0;
++
++	extra[0] = sizeof(uint32_t);            /* source list bytes */
++	extra[1] = scm_pa + 0x80;               /* dest list pa */
++	extra[2] = sizeof(*dst);                /* dest list bytes */
++	extra[3] = 0;
++
++	flush_dcache64((addr64_t)scm_pa, SCM_BUF_SIZE, TRUE);
++	__asm__ volatile("dsb sy" ::: "memory");
++
++	err = modem_scm7(fn, SCM_ARGINFO_7, scm_pa, sizeof(*mp), scm_pa + 0x40,
++	    scm_pa + 0x200, &ret);
++	printf("SWEET MODEM: SCM assign %08x+%x vmid %u->%u ret %d res %llx\n",
++	    pa, size, src_vmid, dst_vmid, err, (unsigned long long)ret);
++	return err ? err : (ret ? EIO : 0);
++}
++
++/* --- modem FAT16 ---------------------------------------------------------- */
++
++static inline uint16_t
++le16(const uint8_t *p)
++{
++	return (uint16_t)(p[0] | (p[1] << 8));
++}
++
++static inline uint32_t
++le32(const uint8_t *p)
++{
++	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
++	    ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
++}
++
++static uint32_t
++fat_cluster_sector(uint32_t cluster)
++{
++	return fat_data_start + (cluster - 2) * fat_spc;
++}
++
++static uint32_t
++fat_next(uint32_t cluster)
++{
++	return le16((const uint8_t *)fat_buf + fat_fat_off + cluster * 2);
++}
++
++/* Build the 8.3 name of a directory entry, without the trailing dot. */
++static void
++fat_name(const uint8_t *e, char *out, size_t outlen)
++{
++	size_t n = 0;
++
++	for (int i = 0; i < 8 && e[i] != ' '; i++) {
++		if (n + 1 < outlen) {
++			out[n++] = (char)e[i];
++		}
++	}
++	if (e[8] != ' ') {
++		if (n + 1 < outlen) {
++			out[n++] = '.';
++		}
++		for (int i = 8; i < 11 && e[i] != ' '; i++) {
++			if (n + 1 < outlen) {
++				out[n++] = (char)e[i];
++			}
++		}
++	}
++	out[n] = '\0';
++}
++
++/*
++ * Read the BPB, FAT, root directory and IMAGE/ directory once. The partition
++ * is the phone's own modem image (FAT16, 512 B sectors, 16 KiB clusters);
++ * anything else is refused, never written.
++ */
++static int
++fat_open(void)
++{
++	uint8_t *fat, *root;
++	uint32_t fat_bytes, root_bytes, cluster, n, off;
++	int err;
++
++	err = santoni_emmc_read(MODEM_LBA, 1, bounce);
++	if (err) {
++		printf("SWEET MODEM: modem sector 0 read failed %d\n", err);
++		return err;
++	}
++	{
++		const uint8_t *b = bounce;
++
++		if (le16(b + 0x0b) != 512 || b[0x0d] != 32 ||
++		    le16(b + 0x0e) != 1 || b[0x10] != 2 ||
++		    le16(b + 0x11) != 512 || le16(b + 0x16) != 49) {
++			printf("SWEET MODEM: unexpected modem BPB (%u/%u/%u/%u/"
++			    "%u/%u)\n", le16(b + 0x0b), b[0x0d], le16(b + 0x0e),
++			    b[0x10], le16(b + 0x11), le16(b + 0x16));
++			return EINVAL;
++		}
++		fat_root_entries = le16(b + 0x11);
++		fat_fat_size = le16(b + 0x16);
++		fat_spc = b[0x0d];
++		fat_root_start = le16(b + 0x0e) + b[0x10] * fat_fat_size;
++	}
++	fat_cluster_bytes = fat_spc * SECTOR_SIZE;
++	fat_fat_off = le16((const uint8_t *)bounce + 0x0e) * SECTOR_SIZE;
++	fat_data_start = fat_root_start + (fat_root_entries * 32 + SECTOR_SIZE - 1) /
++	    SECTOR_SIZE;
++
++	/* FAT: 49 sectors (25,088 bytes). */
++	fat_bytes = fat_fat_size * SECTOR_SIZE;
++	fat = (uint8_t *)fat_buf;
++	err = santoni_emmc_read(MODEM_LBA + fat_fat_off / SECTOR_SIZE,
++	    fat_fat_size, fat);
++	if (err) {
++		printf("SWEET MODEM: FAT read failed %d\n", err);
++		return err;
++	}
++
++	/* Root directory: 512 entries. */
++	root_bytes = fat_root_entries * 32;
++	root = fat + fat_bytes;
++	err = santoni_emmc_read(MODEM_LBA + fat_root_start, root_bytes / SECTOR_SIZE,
++	    root);
++	if (err) {
++		printf("SWEET MODEM: root directory read failed %d\n", err);
++		return err;
++	}
++
++	cluster = 0;
++	for (uint32_t i = 0; i < fat_root_entries; i++) {
++		const uint8_t *e = root + i * 32;
++		char name[13];
++
++		if (e[0] == 0x00) {
++			break;
++		}
++		if (e[0] == 0xe5 || e[0x0b] == 0x0f) {
++			continue;
++		}
++		fat_name(e, name, sizeof(name));
++		if (strcasecmp(name, "IMAGE") == 0 && (e[0x0b] & 0x10)) {
++			cluster = le16(e + 0x1a) | (le16(e + 0x14) << 16);
++			break;
++		}
++	}
++	if (cluster < 2) {
++		printf("SWEET MODEM: IMAGE/ not found in the modem FAT\n");
++		return ENOENT;
++	}
++
++	/* IMAGE/: follow the chain into the remaining cached space. */
++	off = fat_bytes + root_bytes;
++	n = 0;
++	while (cluster >= 2 && cluster < FAT_MAX_CLUSTER) {
++		if (off + fat_cluster_bytes > FAT_DIR_MAX) {
++			printf("SWEET MODEM: IMAGE/ exceeds the cache\n");
++			return ENOMEM;
++		}
++		err = santoni_emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
++		    fat_spc, (uint8_t *)fat_buf + off);
++		if (err) {
++			printf("SWEET MODEM: IMAGE/ read failed %d\n", err);
++			return err;
++		}
++		off += fat_cluster_bytes;
++		n++;
++		cluster = fat_next(cluster);
++	}
++	fat_image = fat + fat_bytes + root_bytes;
++	fat_image_len = off - (fat_bytes + root_bytes);
++	printf("SWEET MODEM: modem FAT: %u image clusters, %u bytes cached\n", n,
++	    fat_image_len);
++	return 0;
++}
++
++static int
++fat_lookup(const char *name, uint32_t *cluster, uint32_t *size)
++{
++	for (uint32_t i = 0; i < fat_image_len / 32; i++) {
++		const uint8_t *e = fat_image + i * 32;
++		char entry[13];
++
++		if (e[0] == 0x00) {
++			break;
++		}
++		if (e[0] == 0xe5 || e[0x0b] == 0x0f || (e[0x0b] & 0x10)) {
++			continue;
++		}
++		fat_name(e, entry, sizeof(entry));
++		if (strcasecmp(entry, name) == 0) {
++			*cluster = le16(e + 0x1a) | (le16(e + 0x14) << 16);
++			*size = le32(e + 0x1c);
++			return 0;
++		}
++	}
++	return ENOENT;
++}
++
++/* Stream one FAT16 file into an uncached mapping (the modem region). */
++static int
++fat_read_to_va(const char *name, vm_offset_t dst, uint32_t max)
++{
++	uint32_t cluster, size, off = 0;
++	int err;
++
++	err = fat_lookup(name, &cluster, &size);
++	if (err) {
++		printf("SWEET MODEM: %s not found\n", name);
++		return err;
++	}
++	if (size > max) {
++		printf("SWEET MODEM: %s is %u bytes, max %u\n", name, size, max);
++		return EINVAL;
++	}
++	printf("SWEET MODEM: %s %u bytes at %08x\n", name, size,
++	    (uint32_t)dst);
++	while (off < size) {
++		uint32_t n = MIN(size - off, fat_cluster_bytes);
++
++		err = santoni_emmc_read(MODEM_LBA + fat_cluster_sector(cluster),
++		    fat_spc, bounce);
++		if (err) {
++			printf("SWEET MODEM: %s read failed %d at %u\n", name,
++			    err, off);
++			return err;
++		}
++		memcpy((void *)(dst + off), bounce, n);
++		off += n;
++		if (off < size) {
++			cluster = fat_next(cluster);
++			if (cluster < 2 || cluster >= FAT_MAX_CLUSTER) {
++				printf("SWEET MODEM: %s chain ends at %u/%u\n",
++				    name, off, size);
++				return EIO;
++			}
++		}
++	}
++	return 0;
++}
++
++/* --- MBA ------------------------------------------------------------------ */
++
++static uint64_t
++modem_scm7(uint32_t fn, uint32_t arginfo, uint64_t a0, uint64_t a1, uint64_t a2,
++    uint64_t extra_pa, uint64_t *res)
++{
++	register uint64_t x0 __asm__("x0") = fn, x1 __asm__("x1") = arginfo,
++	    x2 __asm__("x2") = a0, x3 __asm__("x3") = a1,
++	    x4 __asm__("x4") = a2, x5 __asm__("x5") = extra_pa,
++	    x6 __asm__("x6") = 0;
++
++	for (int n = 0; n < 1000; n++) {
++		__asm__ volatile ("smc #0"
++		    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4),
++		      "+r"(x5), "+r"(x6)
++		    :
++		    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
++		      "x15", "x16", "x17", "memory");
++		if (x0 != 1) {
++			break;
++		}
++		x0 = 1;
++		x1 = arginfo;
++		x2 = a0;
++		x3 = a1;
++		x4 = a2;
++		x5 = extra_pa;
++		x6 = 0;
++	}
++	*res = x1;
++	return x0;
++}
++
++static int
++modem_q6_reset(void)
++{
++	uint32_t v, mem;
++	int i;
++
++	modem_announce("run the QDSP6 power-up and reset sequence");
++	v = mrd(q6, Q6_RESET);
++	mwr(q6, Q6_RESET, v | Q6SS_STOP_CORE | Q6SS_CORE_ARES | Q6SS_BUS_ARES_ENA);
++
++	/* BHS requires the XO branch clock. */
++	v = mrd(q6, Q6_XO_CBCR);
++	mwr(q6, Q6_XO_CBCR, v | 1u);
++	for (i = 0; i < 200; i++) {
++		if (!(mrd(q6, Q6_XO_CBCR) & CBCR_OFF)) {
++			break;
++		}
++		delay(1);
++	}
++	if (i == 200) {
++		printf("SWEET MODEM: xo_cbcr did not come on (%08x)\n",
++		    mrd(q6, Q6_XO_CBCR));
++		return ETIMEDOUT;
++	}
++	printf("SWEET MODEM: q6 xo_cbcr %08x\n", mrd(q6, Q6_XO_CBCR));
++
++	v = mrd(q6, Q6_PWR_CTL);
++	mwr(q6, Q6_PWR_CTL, v | QDSP6v55_BHS_ON);
++	__asm__ volatile("dsb sy" ::: "memory");
++	delay(1);
++	for (i = 0; i < 200; i++) {
++		if (mrd(q6, Q6V62_BHS_STATUS) & QDSP6v55_BHS_EN_REST_ACK) {
++			break;
++		}
++		delay(1);
++	}
++	if (i == 200) {
++		printf("SWEET MODEM: BHS_EN_REST_ACK not set (%08x)\n",
++		    mrd(q6, Q6V62_BHS_STATUS));
++		return ETIMEDOUT;
++	}
++	printf("SWEET MODEM: q6 bhs62 %08x\n", mrd(q6, Q6V62_BHS_STATUS));
++
++	v = mrd(q6, Q6_PWR_CTL);
++	v |= QDSP6v55_LDO_BYP;
++	mwr(q6, Q6_PWR_CTL, v);
++	v &= ~QDSP6v55_CLAMP_QMC_MEM;
++	mwr(q6, Q6_PWR_CTL, v);
++	v |= Q6SS_L2DATA_STBY_N | Q6SS_SLP_RET_N;
++	mwr(q6, Q6_PWR_CTL, v);
++
++	/* Turn on the memories one bit at a time (q6v62-1-5: bits 29..0). */
++	mem = mrd(q6, Q6V6_MEM_PWR_CTL);
++	for (i = 29; i >= 0; i--) {
++		mem |= (1u << i);
++		mwr(q6, Q6V6_MEM_PWR_CTL, mem);
++		(void)mrd(q6, Q6V6_MEM_PWR_CTL);
++		delay(1);
++	}
++
++	v = mrd(q6, Q6_PWR_CTL);
++	v &= ~QDSP6v55_CLAMP_WL;
++	mwr(q6, Q6_PWR_CTL, v);
++	v &= ~Q6SS_CLAMP_IO;
++	mwr(q6, Q6_PWR_CTL, v);
++
++	v = mrd(q6, Q6_RESET);
++	v &= ~(Q6SS_CORE_ARES | Q6SS_STOP_CORE);
++	mwr(q6, Q6_RESET, v);
++
++	v = mrd(q6, Q6_GFMUX_CTL);
++	v |= Q6SS_CLK_ENA;
++	mwr(q6, Q6_GFMUX_CTL, v);
++	printf("SWEET MODEM: q6 reset %08x gfmux %08x pwr %08x mem_pwr %08x\n",
++	    mrd(q6, Q6_RESET), mrd(q6, Q6_GFMUX_CTL), mrd(q6, Q6_PWR_CTL),
++	    mrd(q6, Q6V6_MEM_PWR_CTL));
++	return 0;
++}
++
++static int
++modem_boot_mba(void)
++{
++	uint32_t status = 0;
++	int err, i;
++
++	modem_announce("read MBA.MBN from the modem partition");
++	memset((void *)mba, 0, MBA_ASSIGN_SIZE);
++	err = fat_read_to_va("MBA.MBN", mba, MBA_ASSIGN_SIZE);
++	if (err) {
++		return err;
++	}
++	if (mrd(mba, 0) != 0x464c457fu) {
++		printf("SWEET MODEM: MBA.MBN has no ELF magic (%08x)\n",
++		    mrd(mba, 0));
++		return EINVAL;
++	}
++
++	modem_announce("assign the MBA region to MSS");
++	err = scm_assign(MBA_PA, MBA_ASSIGN_SIZE, VMID_HLOS, VMID_MSS_MSA,
++	    PERM_READ | PERM_WRITE);
++	if (err) {
++		return EIO;
++	}
++
++	modem_announce("program RMB and reset the Q6");
++	mwr(rmb, RMB_MBA_IMAGE, MBA_PA);
++	mwr(rmb, RMB_PMI_CODE_START, 0);
++	mwr(rmb, RMB_PMI_CODE_LENGTH, 0);
++	printf("SWEET MODEM: RMB image %08x code_start %08x code_len %08x\n",
++	    mrd(rmb, RMB_MBA_IMAGE), mrd(rmb, RMB_PMI_CODE_START),
++	    mrd(rmb, RMB_PMI_CODE_LENGTH));
++	err = modem_q6_reset();
++	if (err) {
++		return err;
++	}
++
++	for (i = 0; i < 500; i++) {
++		status = mrd(rmb, RMB_PBL_STATUS);
++		if (status != 0) {
++			break;
++		}
++		modem_wait(10);
++	}
++	printf("SWEET MODEM: pbl status %08x after %d ms\n", status, i * 10);
++	if (status != STATUS_PBL_SUCCESS) {
++		printf("SWEET MODEM: PBL did not report success\n");
++		return EIO;
++	}
++
++	status = 0;
++	for (i = 0; i < 500; i++) {
++		status = mrd(rmb, RMB_MBA_STATUS);
++		if (status != 0) {
++			break;
++		}
++		modem_wait(10);
++	}
++	printf("SWEET MODEM: mba status %08x after %d ms\n", status, i * 10);
++	if (status != STATUS_XPU_UNLOCKED &&
++	    status != STATUS_XPU_UNLOCKED_SCRIBBLED) {
++		printf("SWEET MODEM: MBA did not unlock\n");
++		return EIO;
++	}
++	printf("SWEET MODEM: MBA alive (pbl %08x, mba %08x)\n",
++	    mrd(rmb, RMB_PBL_STATUS), mrd(rmb, RMB_MBA_STATUS));
++	return 0;
++}
++
++/* --- thread --------------------------------------------------------------- */
++
+ static void
+ lavender_modem_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+-	uint32_t step = 0, delay_s = 25;
++	uint32_t step = 0, delay_s = 25, clk_mask = 0x3f;
+ 
+ 	(void)PE_parse_boot_argn("sweetmodem", &step, sizeof(step));
+ 	(void)PE_parse_boot_argn("sweetmodemdelay", &delay_s, sizeof(delay_s));
++	(void)PE_parse_boot_argn("sweetmodemclk", &clk_mask, sizeof(clk_mask));
+ 	if (delay_s > 300) {
+ 		delay_s = 300;
+ 	}
+-	printf("SWEET MODEM: F1 step %u in %u s\n", step, delay_s);
++	printf("SWEET MODEM: F1 step %u in %u s, clock mask %02x\n", step,
++	    delay_s, clk_mask);
+ 	modem_wait(delay_s * 1000);
+ 
+ 	gcc = ml_io_map(GCC_PA, GCC_SIZE);
+-	if (gcc == 0) {
+-		printf("SWEET MODEM: GCC map failed\n");
++	rst = ml_io_map(MSS_RESTART_PA, MSS_RESTART_SIZE);
++	if (gcc == 0 || rst == 0) {
++		printf("SWEET MODEM: GCC/restart map failed (gcc %p rst %p)\n",
++		    (void *)gcc, (void *)rst);
+ 		return;
+ 	}
+-	modem_clocks();
++	modem_restart_deassert();
++	modem_clocks(clk_mask);
+ 
+ 	if (step < 1) {
+ 		printf("SWEET MODEM: step %u does nothing\n", step);
+@@ -229,7 +779,46 @@ lavender_modem_thread(__unused void *arg, __unused wait_result_t wr_)
+ 		return;
+ 	}
+ 	modem_dump_q6();
+-	printf("SWEET MODEM: step 1 done (no reset, no firmware loaded)\n");
++
++	if (step < 2) {
++		printf("SWEET MODEM: step 1 done (no firmware loaded)\n");
++		return;
++	}
++
++	mba = ml_io_map(MBA_PA, MBA_SIZE);
++	if (mba == 0) {
++		printf("SWEET MODEM: MBA map failed\n");
++		return;
++	}
++	if (kmem_alloc_contig(kernel_map, (vm_offset_t *)&fat_buf, FAT_DIR_MAX,
++	    PAGE_MASK, 0xff000, 0, KMA_DATA | KMA_ZERO,
++	    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++		printf("SWEET MODEM: no contiguous memory for the FAT cache\n");
++		return;
++	}
++	if (kmem_alloc_contig(kernel_map, (vm_offset_t *)&bounce,
++	    FAT_BOUNCE_SIZE, PAGE_MASK, 0xff000, 0, KMA_DATA | KMA_ZERO,
++	    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS ||
++	    kmem_alloc_contig(kernel_map, (vm_offset_t *)&scm_buf,
++	    SCM_BUF_SIZE, PAGE_MASK, 0xff000, 0, KMA_DATA | KMA_ZERO,
++	    VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++		printf("SWEET MODEM: no contiguous bounce/SCM buffer\n");
++		return;
++	}
++	{
++		ppnum_t pn = pmap_find_phys(kernel_pmap, (addr64_t)scm_buf);
++
++		if (pn == 0) {
++			printf("SWEET MODEM: SCM buffer has no physical page\n");
++			return;
++		}
++		scm_pa = ptoa_64(pn);
++	}
++
++	if (fat_open() == 0) {
++		(void)modem_boot_mba();
++	}
++	printf("SWEET MODEM: step 2 finished\n");
+ }
+ 
+ int
+diff --git a/bsd/dev/santoni_sdhci.c b/bsd/dev/santoni_sdhci.c
+index cee3bc0..77e85c0 100644
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -3986,6 +3986,22 @@ santoni_sdhci_read_blocks(uint64_t lba, uint32_t count, void *buf)
+ 	return error;
+ }
+ 
++/*
++ * 0245: read-only access to absolute eMMC LBAs for the modem loader. The
++ * modem partition is a FAT16 image; lavender_modem.c walks it to find MBA.MBN.
++ * The write path stays private and partition-fenced.
++ */
++int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
++
++int
++santoni_emmc_read(uint64_t lba, uint32_t count, void *buf)
++{
++	if (!se.ready) {
++		return ENXIO;
++	}
++	return santoni_sdhci_read_blocks(lba, count, buf);
++}
++
+ static int
+ santoni_sdhci_write_blocks(uint64_t lba, uint32_t count, const void *buf)
+ {

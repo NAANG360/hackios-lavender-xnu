@@ -1,0 +1,348 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+index 1a3e9f6..31d881c 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -112,5 +112,6 @@ bsd/dev/sweet_touch.c			standard
+ bsd/dev/santoni_sdhci.c			standard
+ bsd/dev/santoni_touch.c			standard
++bsd/dev/lavender_gpu.c			standard
+ bsd/dev/sweet_rpmh.c			standard
+ bsd/dev/sweet_spmi.c			standard
+ bsd/dev/sweet_usb.c			standard
+diff --git a/bsd/dev/santoni_sdhci.c b/bsd/dev/santoni_sdhci.c
+index 3495028..80daf56 100644
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -5017,6 +5017,13 @@ santoni_sdhci_init(void)
+ #if defined(ARM64_BOARD_CONFIG_WHYRED) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	/* Boot-arg sweetouchi2c=1: does the touch controller answer at all? */
+ 	santoni_touch_probe();
++#endif
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/* 0236: boot-arg lavgpu=N, Adreno 512 bring-up ladder (read-only first). */
++	{
++		extern int lavender_gpu_probe(void);
++		(void)lavender_gpu_probe();
++	}
+ #endif
+ 	return 0;
+ }
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/bsd/dev/lavender_gpu.c
+@@ -0,0 +1,313 @@
++/*
++ * lavender: Adreno 512 bring-up ladder (M1). Boot-arg gated, off by default.
++ *
++ *   lavgpu=N        run the ladder up to step N (0 or absent: nothing happens)
++ *   lavgpudelay=S   seconds to wait after boot before step 1 (default 25), so
++ *                   the log flusher and the USB live log are up
++ *
++ * Steps, each one announced BEFORE the access, with a 2 s pause so the log
++ * reaches the eMMC ring / USB (a wrong access on this SoC usually resets it
++ * without a word):
++ *   1  reads only: GCC branch state, and (if the GPU config AHB clock is on)
++ *      the GPUCC block: PLLs, GDSCs, branches
++ *   2  vote gcc_gpu_bimc_gfx_clk and gcc_bimc_gfx_clk, check the halt bits
++ *   3  switch the CX GDSC on if it is off
++ *   4  switch the GX GDSC on, release the GMEM clamp, enable the GFX3D core
++ *      and RBBM timer branches (RCG left as the bootloader set it), then READ
++ *      the RBBM / CP registers at 0x05000000
++ * Nothing in this file writes a register inside the GPU block (0x05000000);
++ * steps 2-4 write only GCC branch votes, GDSC controls and gpucc branches. No rail (CPR/RPM) vote is made:
++ * step 4 is exactly the question "is the bootloader's rail state enough?".
++ *
++ * Offsets: Linux gcc-sdm660.c / gpucc-sdm660.c and Mesa a5xx.xml, read as
++ * behaviour reference (values only, no code copied).
++ */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/errno.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++
++#define GCC_PA          0x00100000u
++#define GCC_SIZE        0x80000u
++#define GPUCC_PA        0x05065000u
++#define GPUCC_SIZE      0x10000u
++#define GPU_PA          0x05000000u
++#define GPU_SIZE        0x40000u
++
++/* GCC (byte offsets from GCC_PA) */
++#define GCC_GPU_CFG_AHB         0x71004u
++#define GCC_GPU_BIMC_GFX        0x71010u
++#define GCC_BIMC_GFX            0x7106cu
++#define GCC_GPLL0_VOTE          0x5200cu        /* bit 4 = gcc_gpu_gpll0_clk */
++
++/* GPUCC (byte offsets from GPUCC_PA) */
++#define CC_GPU_PLL0_MODE        0x0000u
++#define CC_GPU_PLL1_MODE        0x0040u
++#define CC_CX_GDSCR             0x1004u
++#define CC_CX_GDS_HW_CTRL       0x1008u
++#define CC_GX_GDSCR             0x1094u
++#define CC_GX_CLAMP_IO          0x0130u
++#define CC_GFX3D_CLK            0x1098u
++#define CC_GFX3D_RCG_CMD        0x1070u
++#define CC_GFX3D_RCG_CFG        0x1074u
++#define CC_RBBMTIMER_CLK        0x10d0u
++#define CC_RBBMTIMER_RCG_CMD    0x10b0u
++#define CC_RBCPR_CLK            0x1054u
++#define CC_RBCPR_RCG_CMD        0x1030u
++#define CC_CX_GFX3D_CLK         0x1020u
++
++/* GPU block (byte offsets; A5xx dword offsets from a5xx.xml times 4) */
++#define A5_CP_RB_BASE           (0x0800u * 4)
++#define A5_CP_RB_CNTL           (0x0802u * 4)
++#define A5_RBBM_SW_RESET_CMD    (0x0043u * 4)
++#define A5_RBBM_CLOCK_CNTL      (0x0067u * 4)
++#define A5_RBBM_INT_0_STATUS    (0x04e1u * 4)
++#define A5_RBBM_AHB_ERR_STATUS  (0x04f4u * 4)
++#define A5_RBBM_STATUS          (0x04f5u * 4)
++#define A5_RBBM_STATUS3         (0x0530u * 4)
++#define A5_RBBM_SECVID_TRUST    (0xf400u * 4)
++
++#define CBCR_OFF        (1u << 31)
++#define CBCR_EN         (1u << 0)
++#define GDSC_PWR_ON     (1u << 31)
++#define GDSC_COLLAPSE   (1u << 0)
++
++static vm_offset_t gcc, gpucc, gpu;
++static int lav_chan;
++
++static inline uint32_t
++rd(vm_offset_t base, uint32_t off)
++{
++	uint32_t v = *(volatile uint32_t *)(base + off);
++	__asm__ volatile("dsb ld" ::: "memory");
++	return v;
++}
++
++static inline void
++wr(vm_offset_t base, uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(base + off) = v;
++	__asm__ volatile("dsb osh" ::: "memory");
++}
++
++static void
++lav_wait(unsigned ms)
++{
++	uint64_t deadline;
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&lav_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++/* Announce, then give the log 2 s to leave the machine. */
++static void
++lav_announce(const char *what)
++{
++	printf("LAVGPU: about to %s\n", what);
++	lav_wait(2000);
++}
++
++/* Poll a bit until it equals want; returns the last value. */
++static uint32_t
++lav_poll(vm_offset_t base, uint32_t off, uint32_t mask, uint32_t want)
++{
++	uint32_t v = 0;
++	for (int i = 0; i < 100; i++) {
++		v = rd(base, off);
++		if ((v & mask) == want) {
++			break;
++		}
++		lav_wait(10);
++	}
++	return v;
++}
++
++static void
++step1_reads(void)
++{
++	uint32_t ahb;
++
++	lav_announce("step 1: read GCC GPU branches (read only)");
++	ahb = rd(gcc, GCC_GPU_CFG_AHB);
++	printf("LAVGPU: GCC cfg_ahb %08x bimc_gfx %08x gcc_bimc_gfx %08x "
++	    "gpll0_vote %08x\n", ahb, rd(gcc, GCC_GPU_BIMC_GFX),
++	    rd(gcc, GCC_BIMC_GFX), rd(gcc, GCC_GPLL0_VOTE));
++	if (ahb & CBCR_OFF) {
++		printf("LAVGPU: gcc_gpu_cfg_ahb_clk is OFF, GPUCC not read "
++		    "(it would be an unclocked access)\n");
++		return;
++	}
++	lav_announce("step 1: read GPUCC (AHB clock is on)");
++	printf("LAVGPU: pll0 mode %08x pll1 mode %08x\n",
++	    rd(gpucc, CC_GPU_PLL0_MODE), rd(gpucc, CC_GPU_PLL1_MODE));
++	printf("LAVGPU: CX gdscr %08x hwctrl %08x GX gdscr %08x clamp %08x\n",
++	    rd(gpucc, CC_CX_GDSCR), rd(gpucc, CC_CX_GDS_HW_CTRL),
++	    rd(gpucc, CC_GX_GDSCR), rd(gpucc, CC_GX_CLAMP_IO));
++	printf("LAVGPU: gfx3d clk %08x rcg cmd %08x cfg %08x; rbbmtimer clk "
++	    "%08x rcg %08x; rbcpr clk %08x rcg %08x; cx_gfx3d %08x\n",
++	    rd(gpucc, CC_GFX3D_CLK), rd(gpucc, CC_GFX3D_RCG_CMD),
++	    rd(gpucc, CC_GFX3D_RCG_CFG), rd(gpucc, CC_RBBMTIMER_CLK),
++	    rd(gpucc, CC_RBBMTIMER_RCG_CMD), rd(gpucc, CC_RBCPR_CLK),
++	    rd(gpucc, CC_RBCPR_RCG_CMD), rd(gpucc, CC_CX_GFX3D_CLK));
++}
++
++static void
++vote_branch(const char *name, uint32_t off)
++{
++	uint32_t v = rd(gcc, off);
++	printf("LAVGPU: %s before %08x\n", name, v);
++	wr(gcc, off, v | CBCR_EN);
++	v = lav_poll(gcc, off, CBCR_OFF, 0);
++	printf("LAVGPU: %s after %08x (%s)\n", name, v,
++	    (v & CBCR_OFF) ? "STILL OFF" : "on");
++}
++
++static void
++step2_votes(void)
++{
++	lav_announce("step 2: vote gcc_gpu_bimc_gfx_clk and gcc_bimc_gfx_clk");
++	vote_branch("gpu_bimc_gfx", GCC_GPU_BIMC_GFX);
++	vote_branch("bimc_gfx", GCC_BIMC_GFX);
++}
++
++static int
++gdsc_on(const char *name, uint32_t off)
++{
++	uint32_t v = rd(gpucc, off);
++
++	if (v & GDSC_PWR_ON) {
++		printf("LAVGPU: %s GDSC already on (%08x)\n", name, v);
++		return 0;
++	}
++	printf("LAVGPU: %s GDSC off (%08x), clearing SW_COLLAPSE\n", name, v);
++	wr(gpucc, off, v & ~GDSC_COLLAPSE);
++	v = lav_poll(gpucc, off, GDSC_PWR_ON, GDSC_PWR_ON);
++	printf("LAVGPU: %s GDSC now %08x (%s)\n", name, v,
++	    (v & GDSC_PWR_ON) ? "on" : "STILL OFF");
++	return (v & GDSC_PWR_ON) ? 0 : EIO;
++}
++
++static int
++step3_cx(void)
++{
++	if (rd(gcc, GCC_GPU_CFG_AHB) & CBCR_OFF) {
++		return EIO;
++	}
++	lav_announce("step 3: CX GDSC on");
++	return gdsc_on("CX", CC_CX_GDSCR);
++}
++
++static void
++dump_gpu(void)
++{
++	printf("LAVGPU: RBBM_STATUS %08x STATUS3 %08x INT_0 %08x AHB_ERR %08x\n",
++	    rd(gpu, A5_RBBM_STATUS), rd(gpu, A5_RBBM_STATUS3),
++	    rd(gpu, A5_RBBM_INT_0_STATUS), rd(gpu, A5_RBBM_AHB_ERR_STATUS));
++	printf("LAVGPU: SECVID_TRUST_CNTL %08x CLOCK_CNTL %08x SW_RESET %08x "
++	    "CP_RB_BASE %08x CP_RB_CNTL %08x\n", rd(gpu, A5_RBBM_SECVID_TRUST),
++	    rd(gpu, A5_RBBM_CLOCK_CNTL), rd(gpu, A5_RBBM_SW_RESET_CMD),
++	    rd(gpu, A5_CP_RB_BASE), rd(gpu, A5_CP_RB_CNTL));
++}
++
++static void
++step4_gx(void)
++{
++	uint32_t v;
++
++	lav_announce("step 4: GX GDSC on (needs the GX rail from the bootloader)");
++	if (gdsc_on("GX", CC_GX_GDSCR)) {
++		return;
++	}
++	v = rd(gpucc, CC_GX_CLAMP_IO);
++	printf("LAVGPU: GMEM clamp before %08x, clearing bit 0\n", v);
++	wr(gpucc, CC_GX_CLAMP_IO, v & ~1u);
++	lav_announce("step 4: enable gfx3d and rbbmtimer branches");
++	for (int i = 0; i < 2; i++) {
++		uint32_t off = i ? CC_RBBMTIMER_CLK : CC_GFX3D_CLK;
++		v = rd(gpucc, off);
++		wr(gpucc, off, v | CBCR_EN);
++		v = lav_poll(gpucc, off, CBCR_OFF, 0);
++		printf("LAVGPU: %s clk %08x (%s)\n", i ? "rbbmtimer" : "gfx3d",
++		    v, (v & CBCR_OFF) ? "STILL OFF" : "on");
++	}
++	lav_announce("step 4: READ the GPU block at 0x05000000");
++	dump_gpu();
++	printf("LAVGPU: step 4 done, the GPU block answered\n");
++}
++
++static void
++lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
++{
++	uint32_t step = 0, delay_s = 25;
++
++	(void)PE_parse_boot_argn("lavgpu", &step, sizeof(step));
++	(void)PE_parse_boot_argn("lavgpudelay", &delay_s, sizeof(delay_s));
++	if (delay_s > 300) {
++		delay_s = 300;
++	}
++	printf("LAVGPU: ladder up to step %u in %u s\n", step, delay_s);
++	lav_wait(delay_s * 1000);
++
++	gcc = ml_io_map(GCC_PA, GCC_SIZE);
++	gpucc = ml_io_map(GPUCC_PA, GPUCC_SIZE);
++	if (gcc == 0 || gpucc == 0) {
++		printf("LAVGPU: map failed gcc %p gpucc %p\n", (void *)gcc,
++		    (void *)gpucc);
++		return;
++	}
++	step1_reads();
++	if (step >= 2) {
++		step2_votes();
++	}
++	if (step >= 3 && step3_cx() != 0) {
++		printf("LAVGPU: stopped before step 4 (CX or AHB not ready)\n");
++		return;
++	}
++	if (step >= 4) {
++		gpu = ml_io_map(GPU_PA, GPU_SIZE);
++		if (gpu == 0) {
++			printf("LAVGPU: GPU block map failed\n");
++			return;
++		}
++		step4_gx();
++	}
++	printf("LAVGPU: ladder finished\n");
++}
++
++int
++lavender_gpu_probe(void)
++{
++	static int started;
++	uint32_t step = 0;
++	thread_t thread;
++
++	if (started || !PE_parse_boot_argn("lavgpu", &step, sizeof(step)) ||
++	    step == 0) {
++		return 0;
++	}
++	started = 1;
++	if (kernel_thread_start(lavender_gpu_thread, NULL, &thread) ==
++	    KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++	return 0;
++}
++
++#else /* !ARM64_BOARD_CONFIG_LAVENDER */
++
++int lavender_gpu_probe(void);
++int
++lavender_gpu_probe(void)
++{
++	return 0;
++}
++
++#endif

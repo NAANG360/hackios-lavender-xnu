@@ -1,0 +1,62 @@
+diff --git a/iokit/Kernel/arm/LavenderGPU.cpp b/iokit/Kernel/arm/LavenderGPU.cpp
+index 9f9720c..6cae868 100644
+--- a/iokit/Kernel/arm/LavenderGPU.cpp
++++ b/iokit/Kernel/arm/LavenderGPU.cpp
+@@ -42,6 +42,7 @@ enum {
+ 	kLavBufFree     = 2,
+ 	kLavSubmit      = 3,
+ 	kLavSubmitBuf   = 4,
++	kLavMetal       = 5,
+ };
+ 
+ #define LAV_BUFFERS     64
+@@ -115,6 +116,36 @@ LavenderGPUStart(void)
+ 	gpu->release();
+ }
+ 
++/*
++ * Metal finds its device through the IOKit service of class IOAcceleratorES (the empty one the framebuffer driver publishes):
++ * it reads MetalPluginName and MetalPluginClassName from it and loads /System/Library/Extensions/<name>.bundle. The properties
++ * are put there only when a client asks (and taken away again), so the rest of the system keeps drawing as it did.
++ */
++static IOReturn
++lavMetalSet(uint32_t on)
++{
++	OSDictionary * match = IOService::serviceMatching("IOAcceleratorES");
++	IOService * accel = match != NULL ? IOService::copyMatchingService(match) : NULL;
++
++	if (match != NULL) {
++		match->release();
++	}
++	if (accel == NULL) {
++		IOLog("LavenderGPU: Metal: there is no IOAcceleratorES service\n");
++		return kIOReturnNotFound;
++	}
++	if (on) {
++		accel->setProperty("MetalPluginName", "LavenderMetal");
++		accel->setProperty("MetalPluginClassName", "LavenderMetalDevice");
++	} else {
++		accel->removeProperty("MetalPluginName");
++		accel->removeProperty("MetalPluginClassName");
++	}
++	IOLog("LavenderGPU: Metal: plug-in properties %s on IOAcceleratorES\n", on ? "set" : "removed");
++	accel->release();
++	return kIOReturnSuccess;
++}
++
+ class LavenderGPUUserClient : public IOUserClient
+ {
+ 	OSDeclareDefaultStructors(LavenderGPUUserClient);
+@@ -377,6 +408,12 @@ LavenderGPUUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
+ 		ret = submitBuf((const struct lav_submit_buf *)args->structureInput, &r.out);
+ 		outSize = sizeof(r.out);
+ 		break;
++	case kLavMetal:
++		if (args->structureInput == NULL || size < sizeof(uint32_t)) {
++			return kIOReturnBadArgument;
++		}
++		ret = lavMetalSet(*(const uint32_t *)args->structureInput);
++		break;
+ 	default:
+ 		IOLog("LavenderGPU: request %u is not known here\n", selector);
+ 		return kIOReturnUnsupported;

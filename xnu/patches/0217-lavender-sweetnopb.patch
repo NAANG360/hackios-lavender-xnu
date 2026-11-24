@@ -1,0 +1,77 @@
+From: port_ios lavender
+Subject: [PATCH 0217] lavender: sweetnopb boot arg to keep PosterBoard from running (diagnostic)
+
+SpringBoard prewarms PosterBoard when the display turns off into the lock
+screen (sweetlog-0203-touch-hid: "SWEET FB: display off ignored" and then
+"exec PosterBoard"). PosterBoard traps in
+-[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]
+because its in-memory switcher configuration is already set when the
+first-time path runs (ivar _stateLock_switcherConfiguration, offset 0x98,
+asserted nil), so launchd restarts it and the poster service never answers.
+
+There is no Apple source to fix and the state lives in the HFSX data store,
+so this patch only gives the bring-up a switch: sweetnopb=1 makes execve()
+of /Applications/PosterBoard.app/PosterBoard fail with EPERM and logs it.
+That isolates the poster process from the rest of the lock screen: if the
+UI stays alive without it, the freeze follows PosterBoard; if the lock
+screen still does not update, the poster is not the gate. Default off.
+
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -4937,6 +4937,41 @@
+  *
+  * TODO:	Dynamic linker header address on stack is copied via suword()
+  */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++/*
++ * 0217: diagnostic lever for the PosterBoard crash. Sweetlog-0203 shows
++ * PosterBoard trapping in
++ * -[PBFPosterExtensionDataStore _stateLock_setupSwitcherConfigurationForFirstTime]
++ * every time SpringBoard prewarms it for the lock screen, and the launchd job
++ * restarts it. With sweetnopb=1 the exec fails with EPERM instead, so a boot
++ * can tell whether the frozen lock screen is the poster process (the service
++ * never answers) or something else. Off unless the boot arg is present.
++ */
++static int
++sweet_refuse_posterboard(user_addr_t fname)
++{
++	static int enabled = -1;
++	char path[64];
++
++	if (enabled < 0) {
++		int on = 0;
++		(void)PE_parse_boot_argn("sweetnopb", &on, sizeof(on));
++		enabled = on;
++	}
++	if (!enabled) {
++		return 0;
++	}
++	if (copyinstr(fname, path, sizeof(path), NULL) != 0) {
++		return 0;
++	}
++	if (strcmp(path, "/Applications/PosterBoard.app/PosterBoard") != 0) {
++		return 0;
++	}
++	printf("SWEET EXEC: refusing PosterBoard (sweetnopb=1)\n");
++	return 1;
++}
++#endif /* ARM64_BOARD_CONFIG_LAVENDER */
++
+ int
+ __mac_execve(proc_t p, struct __mac_execve_args *uap, int32_t *retval __unused)
+ {
+@@ -4984,6 +5019,13 @@
+ 	imgp->ip_simulator_binary = IMGPF_SB_DEFAULT;
+ 	imgp->ip_subsystem_root_path = NULL;
+ 	uthread_set_exec_data(current_uthread(), imgp);
++
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (sweet_refuse_posterboard(uap->fname)) {
++		error = EPERM;
++		goto exit_with_error;
++	}
++#endif /* ARM64_BOARD_CONFIG_LAVENDER */
+ 
+ #if CONFIG_MACF
+ 	if (uap->mac_p != USER_ADDR_NULL) {

@@ -1,0 +1,206 @@
+From: port_ios lavender
+Subject: [PATCH 0230] lavender: touch bit-bang with real timing (delay() never spins here)
+
+Live logs of the touch work (live-touch, live-touch-ultimo): with the
+user touching for 18-25 minutes the kernel saw 2 and 11 contacts, a
+move every ~2.7 s, and swipes arrived as one down plus one move. The
+probe log (sweetlog-0204) shows consecutive reads of a held finger far
+apart and torn records (... ff ff, 4095,4095): every read is slow.
+
+Cause: XNU's delay() only spins when the interval is shorter than
+cpu_idle_latency (ml_delay_should_spin), which is the CPU's
+powergate_latency; the SWEET CPU driver (0018) registers every CPU with
+ml_processor_info_t zeroed, so the latency is 0 and every delay(), even
+delay(1), blocks until a timer interrupt. The bit-bang I2C does ~1800
+of them per 65-byte frame.
+
+- bb_delay() and the line-release waits spin on mach_absolute_time()
+  (touch_spin_us); sweetouchus=N sets the half-bit (default 10 us, the
+  ~50 kHz of 0206, now real).
+- The thread reads 12 bytes (slots 1-2) every 10 ms while nothing is
+  down and the full 65-byte frame every 2 ms while a contact is active.
+- Self-test at thread start: "timing: 50x delay(1) = N us, 50x spin(1)
+  = M us"; every 10 s while active: frames, full frames, errors, avg/max
+  read time, events, contacts.
+
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+index da566e8..28de9d8 100644
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -170,10 +170,50 @@ pin_read(struct touch_pin *p)
+  */
+ #define TOUCH_LINE_WAIT_US	2000
+ 
++/*
++ * 0230: busy-wait timing for the bit-bang. delay() on this port never spins:
++ * XNU's ml_delay_should_spin() compares the interval with cpu_idle_latency,
++ * which comes from ml_processor_info_t.powergate_latency, and the SWEET CPU
++ * driver (0018) registers every CPU with it left at 0 - so every delay(),
++ * even delay(1), blocks the thread until a timer interrupt wakes it. A
++ * 65-byte frame costs ~1800 of them: frames took seconds, contacts were
++ * missed, a swipe came in as one down and one move, and records were torn
++ * (the firmware rewrote the buffer during the slow read). Spinning on the
++ * timebase gives the real bus rate. sweetouchus=N sets the half-bit time
++ * (default TOUCH_I2C_DELAY_US, ~50 kHz, the rate 0206 found reliable).
++ */
++static uint64_t touch_abs_per_us;
++static uint32_t touch_half_bit_us = TOUCH_I2C_DELAY_US;
++
++static void
++touch_spin_us(uint32_t us)
++{
++	if (touch_abs_per_us == 0) {
++		uint64_t t = 0;
++
++		nanoseconds_to_absolutetime(1000, &t);
++		touch_abs_per_us = t ? t : 1;
++	}
++	uint64_t end = mach_absolute_time() + touch_abs_per_us * us;
++
++	while (mach_absolute_time() < end) {
++		__asm__ volatile ("yield");
++	}
++}
++
++static uint64_t
++touch_abs_to_us(uint64_t abs)
++{
++	uint64_t ns = 0;
++
++	absolutetime_to_nanoseconds(abs, &ns);
++	return ns / 1000;
++}
++
+ static void
+ bb_delay(void)
+ {
+-	delay(TOUCH_I2C_DELAY_US);
++	touch_spin_us(touch_half_bit_us);
+ }
+ 
+ static void
+@@ -198,7 +238,7 @@ sda_release(void)
+ 		if (pin_read(&touch_sda)) {
+ 			return 1;
+ 		}
+-		delay(1);
++		touch_spin_us(1);
+ 	}
+ 	return 0;
+ }
+@@ -213,7 +253,7 @@ scl_release(void)
+ 		if (pin_read(&touch_scl)) {
+ 			return 1;
+ 		}
+-		delay(1);
++		touch_spin_us(1);
+ 	}
+ 	return 0;
+ }
+@@ -1114,9 +1154,33 @@ santoni_touch_thread(void *arg, wait_result_t wr)
+ 	int active[10], last_x[10], last_y[10];
+ 	int irq_level;
+ 	unsigned i;
++	/* 0230: frame/timing statistics, printed every 10 s while active */
++	uint64_t st_start = 0, st_sum = 0, st_max = 0;
++	unsigned st_frames = 0, st_full = 0, st_err = 0, st_events = 0, st_quiet = 0;
++	unsigned contacts = 0;
+ 
+ 	(void)arg;
+ 	(void)wr;
++	{
++		uint32_t us = 0;
++
++		if (PE_parse_boot_argn("sweetouchus", &us, sizeof(us)) && us >= 1u && us <= 100u) {
++			touch_half_bit_us = us;
++		}
++		uint64_t t0 = mach_absolute_time();
++		for (i = 0; i < 50u; i++) {
++			delay(1);
++		}
++		uint64_t t1 = mach_absolute_time();
++		for (i = 0; i < 50u; i++) {
++			touch_spin_us(1);
++		}
++		uint64_t t2 = mach_absolute_time();
++		printf("WHYRED TOUCH: timing: 50x delay(1) = %llu us, 50x spin(1) = %llu us; "
++		    "half bit %u us\n", touch_abs_to_us(t1 - t0), touch_abs_to_us(t2 - t1),
++		    touch_half_bit_us);
++		st_start = mach_absolute_time();
++	}
+ 	for (i = 0; i < 10u; i++) {
+ 		active[i] = 0;
+ 		last_x[i] = 0;
+@@ -1158,10 +1222,28 @@ santoni_touch_thread(void *arg, wait_result_t wr)
+ 				irq_level = level;
+ 			}
+ 		}
+-		err = nvt_read_fw(touch_fw_addr, 0x00, buf, (int)sizeof(buf));
++		/*
++		 * 0230: with no contact the first finger always lands in slot 1,
++		 * so 12 bytes (slots 1-2) are enough to see it; the full 65-byte
++		 * frame is read only while something is down.
++		 */
++		int len = contacts ? (int)sizeof(buf) : 12;
++		uint64_t f0 = mach_absolute_time();
++
++		err = nvt_read_fw(touch_fw_addr, 0x00, buf, len);
++		uint64_t fdt = mach_absolute_time() - f0;
++		st_frames++;
++		st_full += (len == (int)sizeof(buf));
++		st_sum += fdt;
++		if (fdt > st_max) {
++			st_max = fdt;
++		}
++		if (err) {
++			st_err++;
++		}
+ 
+ 		if (err == 0) {
+-			for (i = 0; i < 10u; i++) {
++			for (i = 0; i < (unsigned)len / 6u; i++) {
+ 				const uint8_t *p = buf + 6 * i;
+ 				unsigned slot = p[0] >> 3;
+ 				unsigned type = p[0] & 7u;
+@@ -1182,6 +1264,7 @@ santoni_touch_thread(void *arg, wait_result_t wr)
+ 				if (!active[slot - 1u] ||
+ 				    last_x[slot - 1u] != (int)px ||
+ 				    last_y[slot - 1u] != (int)py) {
++					st_events++;
+ 					sweet_hid_touch((int)(slot - 1u), 1,
+ 					    (int)px, (int)py);
+ 					active[slot - 1u] = 1;
+@@ -1191,13 +1274,32 @@ santoni_touch_thread(void *arg, wait_result_t wr)
+ 			}
+ 			for (i = 0; i < 10u; i++) {
+ 				if (active[i] && !(mask & (1u << i))) {
++					st_events++;
+ 					sweet_hid_touch((int)i, 0, last_x[i],
+ 					    last_y[i]);
+ 					active[i] = 0;
+ 				}
+ 			}
++			contacts = 0;
++			for (i = 0; i < 10u; i++) {
++				contacts += active[i] ? 1u : 0u;
++			}
+ 		}
+-		delay(1000);
++		if (mach_absolute_time() - st_start >= touch_abs_per_us * 10000000ull) {
++			/* print while touches happen, and for the first minute */
++			if (st_events || st_err || st_quiet < 6u) {
++				printf("WHYRED TOUCH: 10s frames %u (full %u) err %u avg %llu us max %llu us "
++				    "events %u contacts %u\n", st_frames, st_full, st_err,
++				    st_frames ? touch_abs_to_us(st_sum / st_frames) : 0ull,
++				    touch_abs_to_us(st_max), st_events, contacts);
++			}
++			st_quiet = st_events ? 0u : st_quiet + 1u;
++			st_frames = st_full = st_err = st_events = 0;
++			st_sum = st_max = 0;
++			st_start = mach_absolute_time();
++		}
++		/* about 500 Hz while touched, 100 Hz when idle (blocking sleep) */
++		delay(contacts ? 2000 : 10000);
+ 	}
+ }
+ 

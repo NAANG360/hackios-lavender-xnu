@@ -1,0 +1,109 @@
+From: port_ios lavender
+Subject: [PATCH 0202] lavender: uptime stamp on every console-ring line
+
+The second lavender boot took ~20 min and the pulled SANTONILOG1 ring
+could not say where: 654 flushes and no times. launchd's own lines show
+early boot complete at 120 s and SpringBoard's first log at 1011 s, but
+the ~1100 kernel lines in between carry no time at all.
+
+- santoni_log_append() starts every line with "[  SSS.mmm] " (uptime).
+- CNTVCT / 19.2 MHz (SDM660 arch timer, ADT timebase-frequency), integer
+  math only: absolutetime_to_nanoseconds() divides by rtclock state that
+  is still zero for the first console lines. QEMU (62.5 MHz) reads 3.26x
+  fast.
+- Line-start flag shared without a lock: CPUs racing can drop or double
+  a stamp, never corrupt the ring. The 0200 USB live log reads the same
+  ring and gets the stamps too.
+- Host test tests/test_log_stamp.c; work/sweetlog-timeline.py reads them.
+
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -4643,12 +4643,24 @@ static int santoni_log_chan;
+ /* Called for all console output from any context: never blocks */
+ void santoni_log_append(const char *c, int size);
+ 
+-void
+-santoni_log_append(const char *c, int size)
++/*
++ * 0202: every ring line starts with "[  SSS.mmm] " (uptime). The second
++ * lavender boot took ~20 min and the log could not say where: 654 flushes,
++ * no times. The stamp is CNTVCT / 19.2 MHz (SDM660 arch timer, the ADT
++ * timebase-frequency; QEMU's 62.5 MHz reads 3.26x too fast). Integer math
++ * on mach_absolute_time() only: absolutetime_to_nanoseconds() divides by
++ * rtclock state that is still zero for the first console lines.
++ * The line-start flag is shared without a lock; two CPUs racing can drop
++ * or double a stamp, never corrupt the ring.
++ */
++#define SANTONI_LOG_TIMEBASE_HZ   19200000ull
++#define SANTONI_LOG_STAMP_LEN     12            /* "[" 5 "." 3 "] " */
++
++static _Atomic bool santoni_log_bol = true;
++
++static void
++santoni_log_put(const char *c, int size)
+ {
+-	if (size <= 0) {
+-		return;
+-	}
+ 	uint64_t at = os_atomic_add_orig(&santoni_log_total, (uint64_t)size,
+ 	    relaxed);
+ 
+@@ -4657,6 +4669,58 @@ santoni_log_append(const char *c, int size)
+ 	}
+ }
+ 
++static void
++santoni_log_stamp(void)
++{
++	uint64_t ms = mach_absolute_time() / (SANTONI_LOG_TIMEBASE_HZ / 1000);
++	uint64_t s = ms / 1000;
++	char b[24];
++	int n = sizeof(b);
++
++	b[--n] = ' ';
++	b[--n] = ']';
++	for (int k = 0; k < 3; k++) {
++		b[--n] = (char)('0' + ms % 10);
++		ms /= 10;
++	}
++	b[--n] = '.';
++	do {
++		b[--n] = (char)('0' + s % 10);
++		s /= 10;
++	} while (s != 0 && n > 1);
++	while ((int)sizeof(b) - n < SANTONI_LOG_STAMP_LEN - 1) {
++		b[--n] = ' ';
++	}
++	b[--n] = '[';
++	santoni_log_put(b + n, (int)sizeof(b) - n);
++}
++
++void
++santoni_log_append(const char *c, int size)
++{
++	int i = 0;
++
++	while (i < size) {
++		int j = i;
++
++		if (os_atomic_load(&santoni_log_bol, relaxed)) {
++			os_atomic_store(&santoni_log_bol, false, relaxed);
++			santoni_log_stamp();
++		}
++		while (j < size && c[j] != '\n') {
++			j++;
++		}
++		if (j < size) {
++			j++;            /* keep the '\n' with its line */
++		}
++		santoni_log_put(c + i, j - i);
++		if (c[j - 1] == '\n') {
++			os_atomic_store(&santoni_log_bol, true, relaxed);
++		}
++		i = j;
++	}
++}
++
+ /*
+  * 0176: one-shot test pattern in the boot framebuffer, gated on
+  * sweetfbtest=1. The console is on the UART (serial=3) and kPEAcquireScreen

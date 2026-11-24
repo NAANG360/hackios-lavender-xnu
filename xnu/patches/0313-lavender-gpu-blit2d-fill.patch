@@ -1,0 +1,158 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index f89d71e..4c52458 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1758,6 +1758,143 @@ step19_blit_rgba(void)
+ 	}
+ }
+ 
++/*
++ * Step 20 (M4.2): a solid colour fill of a 16x8 box in an RGBA8 image with the
++ * 2D core. Mesa's fd5 does not use a 2D fill, so the register recipe is tried in
++ * variants (a5xx.xml: RB_2D_SRC_SOLID_DW0..3, "0x86000000 for copy, 0x00000000 for
++ * fill?"): 0 = copy control word, op FILL, integer components; 1 = control word 0;
++ * 2 = copy control word, float components. Each variant gets a fresh destination.
++ */
++static void
++step20_blit_fill(void)
++{
++	static const uint32_t cntl[3] = { 0x86000000u, 0x00000000u, 0x86000000u };
++	static const uint32_t colour[3][4] = {
++		{ 0x33, 0x66, 0xcc, 0xff },
++		{ 0x33, 0x66, 0xcc, 0xff },
++		{ 0x3e4ccccdu, 0x3ecccccdu, 0x3f4ccccdu, 0x3f800000u },	/* 0.2 0.4 0.8 1.0 */
++	};
++	const uint32_t want = 0xffcc6633u;			/* bytes R G B A = 33 66 cc ff */
++	const uint32_t dx = 8, dy = 4, bw = 16, bh = 8;
++	vm_offset_t va = 0;
++	uint64_t pa = 0;
++
++	if (ring_va == 0 || ring_pa == 0) {
++		printf("LAVGPU: step 20 needs steps 10-12\n");
++		return;
++	}
++	if (lav_alloc(0x2000, PAGE_MASK, &va, &pa)) {
++		printf("LAVGPU: no pages for the images\n");
++		return;
++	}
++	for (int v = 0; v < 3; v++) {
++		uint64_t src_pa = pa, dst_pa = pa + 0x1000;
++		volatile uint32_t *dst = (volatile uint32_t *)(va + 0x1000);
++		uint32_t inside = 0, outside = 0, first = 0;
++
++		for (uint32_t i = 0; i < IMG_W * IMG_H; i++) {
++			dst[i] = 0xdeadbeefu;
++		}
++		flush_dcache64((addr64_t)dst_pa, IMG_BYTES, TRUE);
++		lav_announce("step 20: submit a 2D solid fill variant");
++		ring_reg(0xe141u, 0x8);
++		ring_reg(0x2100u, cntl[v]);
++		ring_reg(0x2180u, cntl[v]);
++		ring_reg(0x2184u, 0x9);
++		ring_reg(0xe140u, 1u << 17);
++		ring_reg(0x0cc6u, 1u << 1);
++		ring_reg(R_SP_MODE_CNTL, 0xc);
++		ring_reg(R_TPL1_MODE_CNTL, 0x244u | (1u << 7));
++		ring_reg(R_HLSQ_MODE_CNTL, 0x2);
++		ring_reg(0xe000u, 0x181);
++		ring_pkt7(CP_SET_RENDER_MODE, 1);
++		ring_put(5);
++		ring_pkt4(0x2101u, 4);				/* RB_2D_SRC_SOLID_DW0..3 */
++		for (int i = 0; i < 4; i++) {
++			ring_put(colour[v][i]);
++		}
++		ring_pkt4(0x2107u, 9);
++		ring_put(0x30);
++		ring_put((uint32_t)src_pa);
++		ring_put((uint32_t)(src_pa >> 32));
++		ring_put((IMG_PITCH >> 6) | ((IMG_BYTES >> 6) << 16));
++		for (int i = 0; i < 5; i++) {
++			ring_put(0);
++		}
++		ring_reg(0x2181u, 0x30);
++		ring_pkt4(0x2110u, 9);
++		ring_put(0x30);
++		ring_put((uint32_t)dst_pa);
++		ring_put((uint32_t)(dst_pa >> 32));
++		ring_put((IMG_PITCH >> 6) | ((IMG_BYTES >> 6) << 16));
++		for (int i = 0; i < 5; i++) {
++			ring_put(0);
++		}
++		ring_reg(0x2182u, 0x30);
++		ring_pkt4(0x2000u, 5);
++		ring_put(0x30);
++		ring_put(IMG_W | (IMG_H << 15));
++		ring_put((uint32_t)src_pa);
++		ring_put((uint32_t)(src_pa >> 32));
++		ring_put((IMG_PITCH >> 6) << 9);
++		ring_reg(0x2040u, 0x30u << 3);
++		ring_pkt7(CP_BLIT, 5);
++		ring_put(0);					/* BLIT_OP_FILL */
++		ring_put(0);
++		ring_put(0);
++		ring_put(dx | (dy << 16));
++		ring_put((dx + bw - 1) | ((dy + bh - 1) << 16));
++		ring_pkt7(CP_SET_RENDER_MODE, 1);
++		ring_put(8);
++		ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++		ring_pkt7(CP_EVENT_WRITE, 4);
++		ring_put(0x1du | (1u << 30));
++		ring_put((uint32_t)(fence_pa + 0x100));
++		ring_put((uint32_t)((fence_pa + 0x100) >> 32));
++		ring_put(0x5678u);
++		ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++		ring_pkt4(R_UCHE_INVALIDATE_MIN, 5);
++		ring_put(0);
++		ring_put(0);
++		ring_put(0);
++		ring_put(0);
++		ring_put(0x12);
++		ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++		ring_pkt7(CP_EVENT_WRITE, 4);
++		ring_put(0x4u | (1u << 30));
++		ring_put((uint32_t)(fence_pa + 0xc0));
++		ring_put((uint32_t)((fence_pa + 0xc0) >> 32));
++		ring_put(0x1234u);
++		ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++		if (ring_submit("solid fill") != 0) {
++			printf("LAVGPU: variant %d: the CP did not consume the fill\n", v);
++			return;
++		}
++		lav_wait(50);
++		flush_dcache64((addr64_t)dst_pa, IMG_BYTES, TRUE);
++		for (uint32_t y = 0; y < IMG_H; y++) {
++			for (uint32_t x = 0; x < IMG_W; x++) {
++				uint32_t got = dst[y * IMG_W + x];
++				bool in_box = x >= dx && x < dx + bw && y >= dy && y < dy + bh;
++				if (in_box) {
++					if (got == want) {
++						inside++;
++					} else if (first == 0) {
++						first = got;
++					}
++				} else if (got == 0xdeadbeefu) {
++					outside++;
++				}
++			}
++		}
++		printf("LAVGPU: fill variant %d: %u of %u box pixels right, %u of %u outside untouched%s"
++		    "; first wrong %08x, pixel(8,4) %08x\n", v, inside, bw * bh, outside,
++		    IMG_W * IMG_H - bw * bh,
++		    (inside == bw * bh && outside == IMG_W * IMG_H - bw * bh) ? " (ALL CORRECT)" : "",
++		    first, dst[dy * IMG_W + dx]);
++	}
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -1830,6 +1967,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 19) {
+ 		step19_blit_rgba();
+ 	}
++	if (step >= 20) {
++		step20_blit_fill();
++	}
+ 	if (step == 17) {
+ 		step13_compute(4);	/* 64 threads: probe the local id */
+ 		step13_compute(5);	/* 64 threads: out[tid] = in[tid] + K */

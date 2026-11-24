@@ -1,0 +1,48 @@
+diff --git a/bsd/dev/lavender_modem.c b/bsd/dev/lavender_modem.c
+index 783712a..c1a50bd 100644
+--- a/bsd/dev/lavender_modem.c
++++ b/bsd/dev/lavender_modem.c
+@@ -64,6 +64,10 @@ extern int santoni_emmc_read(uint64_t lba, uint32_t count, void *buf);
+ #define MBA_SIZE        0x00200000u
+ #define MBA_ASSIGN_SIZE 0x00100000u
+ 
++/* modem_fw_region@8ac00000 (126 MiB) from the SDM660 DTB */
++#define MODEM_FW_PA     0x8ac00000u
++#define MODEM_FW_SIZE   0x07e00000u
++
+ /* GCC byte offsets from GCC_PA (gcc-sdm660.c) */
+ #define GCC_MSS_CFG_AHB         0x8a000u
+ #define GCC_MSS_MNOC_BIMC_AXI   0x8a004u
+@@ -372,10 +376,10 @@ scm_mem_assign(uint32_t pa, uint32_t size, const uint32_t *src_vmids,
+ 		uint32_t pad;
+ 	};
+ 	uint8_t *buf = scm_buf;
+-	struct mem_prot_info *mp = (struct mem_prot_info *)buf;
+-	uint32_t *src = (uint32_t *)(buf + 0x40);
+-	struct dest_info *dst = (struct dest_info *)(buf + 0x80);
+-	uint64_t *extra = (uint64_t *)(buf + 0x200);
++	struct mem_prot_info *mp = (struct mem_prot_info *)(void *)buf;
++	uint32_t *src = (uint32_t *)(void *)(buf + 0x40);
++	struct dest_info *dst = (struct dest_info *)(void *)(buf + 0x80);
++	uint64_t *extra = (uint64_t *)(void *)(buf + 0x200);
+ 	uint64_t ret = 0;
+ 	uint32_t fn = SCM_FN(SCM_SVC_MP, MEM_PROT_ASSIGN_ID);
+ 	int err;
+@@ -402,7 +406,7 @@ scm_mem_assign(uint32_t pa, uint32_t size, const uint32_t *src_vmids,
+ 	flush_dcache64((addr64_t)scm_pa, SCM_BUF_SIZE, TRUE);
+ 	__asm__ volatile("dsb sy" ::: "memory");
+ 
+-	err = modem_scm7(fn, SCM_ARGINFO_7, scm_pa, sizeof(*mp), scm_pa + 0x40,
++	err = (int)modem_scm7(fn, SCM_ARGINFO_7, scm_pa, sizeof(*mp), scm_pa + 0x40,
+ 	    scm_pa + 0x200, &ret);
+ 	printf("SWEET MODEM: SCM assign %08x+%x src %u dst %u ret %d res %llx\n",
+ 	    pa, size, nsrc, ndst, err, (unsigned long long)ret);
+@@ -1198,6 +1202,8 @@ lavender_modem_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	printf("SWEET MODEM: step %u finished\n", step);
+ }
+ 
++int lavender_modem_probe(void);
++
+ int
+ lavender_modem_probe(void)
+ {

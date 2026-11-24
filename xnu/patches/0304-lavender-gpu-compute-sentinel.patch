@@ -1,0 +1,22 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 4e94deb..282b917 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1309,7 +1309,7 @@ step13_compute(int mode)
+ 	wr(gpu, 0x0e8du * 4 + 4, 0);
+ 	wr(gpu, 0x0e81u * 4, 1u << 29);				/* UCHE_MODE_CNTL */
+ 
+-	*out = 0;
++	*out = mode ? 0xdeadbeefu : 0;				/* a store of 0 must not look like no store */
+ 	flush_dcache64((addr64_t)(out_pa & ~63ull), 64, TRUE);
+ 
+ 	lav_announce("step 13: submit the compute dispatch");
+@@ -1409,6 +1409,8 @@ step13_compute(int mode)
+ 	flush_dcache64((addr64_t)((fence_pa + 0x80) & ~63ull), 64, TRUE);
+ 	printf("LAVGPU: cache flush event word %08x (expect 00001234 if the event ran)\n",
+ 	    *(volatile uint32_t *)(rptr_va + 0x180));
++	flush_dcache64((addr64_t)(in_pa & ~63ull), 64, TRUE);
++	printf("LAVGPU: input buffer now %08x\n", *in);
+ recover:
+ 	lav_announce("step 13: RBBM software reset after the failed dispatch");
+ 	wr(gpu, A5_RBBM_SW_RESET_CMD, 1);

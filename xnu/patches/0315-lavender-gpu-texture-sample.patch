@@ -1,0 +1,152 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 730bb75..25e2b48 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1230,7 +1230,7 @@ step13_compute(int mode)
+ 		0x0e80u, 0x0ec1u, 0x0f01u,
+ 	};
+ 	vm_offset_t sh_va = 0;
+-	vm_offset_t cb = smmu_va + 0x4000u + SMMU_CB * 0x1000u;	/* GPU context bank 4 */
++	vm_offset_t cb = smmu_va + 0x8000u + SMMU_CB * 0x1000u;	/* GPU context bank 4 */
+ 	uint64_t sh_pa = 0, out_pa = mode >= 4 ? rptr_pa + 0x600 : mode ? rptr_pa + 0x240 : fence_pa + 0x40;
+ 	/* mode 2 loads the word the step 13 shader stored (written by the GPU), not a CPU written one */
+ 	uint64_t in_pa = mode >= 4 ? rptr_pa + 0x400 : mode == 3 ? fence_pa + 0x40 : rptr_pa + 0x200;
+@@ -1351,7 +1351,7 @@ step13_compute(int mode)
+ 	wr(gpu, 0x0e87u * 4 + 4, 0x0001ffffu);
+ 	wr(gpu, 0x0e8bu * 4, 0x00100000u);			/* UCHE_GMEM_RANGE_MIN */
+ 	wr(gpu, 0x0e8bu * 4 + 4, 0);
+-	wr(gpu, 0x0e8du * 4, 0x00100000u + 0x40000u - 1);	/* UCHE_GMEM_RANGE_MAX */
++	wr(gpu, 0x0e8du * 4, 0x00100000u + 0x80000u - 1);	/* UCHE_GMEM_RANGE_MAX */
+ 	wr(gpu, 0x0e8du * 4 + 4, 0);
+ 	wr(gpu, 0x0e81u * 4, 1u << 29);				/* UCHE_MODE_CNTL */
+ 
+@@ -1972,7 +1972,7 @@ shader_store_tail(uint32_t *p, int at, uint64_t addr, uint32_t val)
+ }
+ 
+ static void
+-step21_draw(void)
++step21_draw(bool tex)
+ {
+ 	static const uint32_t vtx[3][4] = {
+ 		{ 0xbf000000u, 0xbf000000u, 0, 0x3f800000u },	/* (-0.5,-0.5) -> px (16,16) */
+@@ -1986,12 +1986,14 @@ step21_draw(void)
+ 	uint32_t in_ok = 0, in_n = 0, out_ok = 0, out_n = 0, first_bad = 0xffffffffu;
+ 	uint32_t pc0[4] = { 0, 0, 0, 0 };
+ 	const uint32_t hbb = 1;	/* highest bank bit 14 - 13, as the 2D steps use */
++	const uint32_t texel_want = 0xff905077u;	/* texel (2,1) of the 4x4 texture */
++	const uint32_t want = tex ? texel_want : D_COLOUR;
+ 
+ 	if (ring_va == 0 || ring_pa == 0) {
+ 		printf("LAVGPU: step 21 needs steps 10-12\n");
+ 		return;
+ 	}
+-	if (lav_alloc(0x8000, PAGE_MASK, &va, &pa)) {
++	if (lav_alloc(0xa000, PAGE_MASK, &va, &pa)) {
+ 		printf("LAVGPU: no pages for the draw\n");
+ 		return;
+ 	}
+@@ -2006,12 +2008,35 @@ step21_draw(void)
+ 
+ 	/* VS: the position is already in r0.xyzw; it also stores a marker word */
+ 	shader_store_tail(vs, 0, pa + 0x7000, 0xa5a50002u);
+-	/* FS: r0.xyzw = (1.0, 0.2, 0.6, 1.0), and it stores a marker word */
+-	shader_mov(&fs[0], 0, 0x3f800000u);
+-	shader_mov(&fs[2], 1, 0x3e4ccccdu);
+-	shader_mov(&fs[4], 2, 0x3f19999au);
+-	shader_mov(&fs[6], 3, 0x3f800000u);
+-	shader_store_tail(fs, 8, pa + 0x7040, 0xf5f50001u);
++	if (tex) {
++		uint32_t *tx = (uint32_t *)(va + 0x8000);
++
++		/* 4x4 RGBA8 linear texture, pitch 256 bytes (64 texels, as fdl5 aligns); texel(x,y) = ff | (x*0x40+0x10) | (y*0x40+0x10) | 77 */
++		for (uint32_t y = 0; y < 4; y++) {
++			for (uint32_t x = 0; x < 4; x++) {
++				tx[y * 64 + x] = 0xff000000u | ((x * 0x40 + 0x10) << 16) |
++				    ((y * 0x40 + 0x10) << 8) | 0x77u;
++			}
++		}
++		flush_dcache64((addr64_t)(pa + 0x8000), 0x2000, TRUE);
++		/* FS: r1.xy = (0.625, 0.375); sam (f32)(xyzw)r0.x, r1.x, s#0, t#0; (sy)nop; store marker; end */
++		shader_mov(&fs[0], 4, 0x3f200000u);
++		shader_mov(&fs[2], 5, 0x3ec00000u);
++		fs[4] = 0;
++		fs[5] = 0x00000500u;
++		fs[6] = 1u | (4u << 1);				/* FULL, SRC1 r1.x, SAMP 0, TEX 0 */
++		fs[7] = 0xa0c01f00u;				/* sam, f32, wrmask xyzw, dst r0.x */
++		fs[8] = 0;
++		fs[9] = 0x10000000u;				/* (sy)nop */
++		shader_store_tail(fs, 10, pa + 0x7040, 0xf5f50001u);
++	} else {
++		/* FS: r0.xyzw = (1.0, 0.2, 0.6, 1.0), and it stores a marker word */
++		shader_mov(&fs[0], 0, 0x3f800000u);
++		shader_mov(&fs[2], 1, 0x3e4ccccdu);
++		shader_mov(&fs[4], 2, 0x3f19999au);
++		shader_mov(&fs[6], 3, 0x3f800000u);
++		shader_store_tail(fs, 8, pa + 0x7040, 0xf5f50001u);
++	}
+ 	for (int i = 0; i < 3; i++) {
+ 		for (int c = 0; c < 4; c++) {
+ 			vb[i * 4 + c] = vtx[i][c];
+@@ -2266,6 +2291,30 @@ step21_draw(void)
+ 	if (draw_mark("prog2")) {
+ 		return;
+ 	}
++	if (tex) {
++		ring_pkt7(CP_LOAD_STATE4, 3 + 4);		/* sampler: nearest, clamp to edge */
++		ring_put((4u << 18) | (1u << 22));		/* SS4_DIRECT, SB4_FS_TEX, 1 unit */
++		ring_put(0);					/* ST4_SHADER */
++		ring_put(0);
++		ring_put(0x920u);				/* WRAP_S/T/R = CLAMP_TO_EDGE */
++		ring_put((32u << 8) | (32u << 20));		/* MAX_LOD, MIN_LOD = 0.125 */
++		ring_put(0);
++		ring_put(0);
++		ring_pkt7(CP_LOAD_STATE4, 3 + 12);		/* texture constants */
++		ring_put((4u << 18) | (1u << 22));
++		ring_put(1);					/* ST4_CONSTANTS */
++		ring_put(0);
++		ring_put(0x30u << 22 | (1u << 7) | (2u << 10) | (3u << 13));	/* RGBA8_UNORM, swizzle xyzw */
++		ring_put(4u | (4u << 15));			/* 4x4 */
++		ring_put((1u << 29) | (256u << 7) | 2u);	/* 2D, pitch 256, PITCHALIGN log2(256/64) */
++		ring_put(2);					/* ARRAY_PITCH: 8 KB layer >> 12 */
++		ring_put((uint32_t)(pa + 0x8000));		/* BASE_LO */
++		ring_put((uint32_t)((pa + 0x8000) >> 32) | (1u << 17));	/* BASE_HI, DEPTH 1 */
++		for (int i = 0; i < 6; i++) {
++			ring_put(0);
++		}
++		ring_reg(0xe750u, 1);				/* TPL1_FS_TEX_COUNT */
++	}
+ 	ring_pkt4(0xe401u, 5);					/* VFD_CONTROL_1..5 */
+ 	ring_put(0xfcu | (0xfcu << 8) | 0xfc0000u);
+ 	ring_put(0xfcfcu);
+@@ -2364,7 +2413,7 @@ step21_draw(void)
+ 				bool outside = x < 14 || y < 14 || x + y >= 67;
+ 				if (inside) {
+ 					in_n++;
+-					if (chan_ok(got, D_COLOUR)) {
++					if (chan_ok(got, want)) {
+ 						in_ok++;
+ 					} else if (first_bad == 0xffffffffu) {
+ 						first_bad = y * D_W + x;
+@@ -2401,7 +2450,7 @@ step21_draw(void)
+ 		    rt[24 * D_W + 24], rt[30 * D_W + 30], rt[20 * D_W + 40], rt[50 * D_W + 50], rt[2 * D_W + 2]);
+ 		if (first_bad != 0xffffffffu) {
+ 			printf("LAVGPU: first wrong inside pixel (%u,%u): got %08x want %08x\n",
+-			    first_bad % D_W, first_bad / D_W, rt[first_bad], D_COLOUR);
++			    first_bad % D_W, first_bad / D_W, rt[first_bad], want);
+ 		}
+ 		if (in_ok == in_n && out_ok == out_n) {
+ 			break;
+@@ -2484,8 +2533,11 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step == 20) {
+ 		step20_blit_fill();
+ 	}
+-	if (step >= 21) {
+-		step21_draw();
++	if (step == 21) {
++		step21_draw(false);
++	}
++	if (step >= 22) {
++		step21_draw(true);
+ 	}
+ 	if (step == 17) {
+ 		step13_compute(4);	/* 64 threads: probe the local id */

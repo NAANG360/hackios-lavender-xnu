@@ -1,0 +1,111 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -1046,6 +1046,65 @@
+ static uint8_t touch_fw_addr;
+ static uint32_t touch_max_x, touch_max_y;
+ static int touch_thread_started;
++static vm_offset_t touch_north;
++
++static int
++santoni_touch_reinit(void)
++{
++	struct touch_pin rst;
++	uint8_t p[17];
++	unsigned max = 0;
++	uint32_t w = 0, h = 0;
++	uint8_t addr = 0;
++	int i;
++
++	if (touch_north == 0) {
++		return ENXIO;
++	}
++	/*
++	 * The panel DSI init leaves the NT36672A answering I2C but no longer
++	 * scanning (bergamota 1010): the probe sees event frames, the thread
++	 * that runs later sees only the down/up latches. Pulse reset after the
++	 * panel is up, then boot the firmware exactly as the probe does.
++	 */
++	pin_setup(&rst, touch_north, WHYRED_RST);
++	pin_out(&rst, 0);
++	delay(20000);
++	pin_out(&rst, 1);
++	delay(250000);
++	if (i2c_ack(0x62)) {
++		addr = 0x62;
++		if (nvt_write_cmd(addr, 0x00, 0x69) == 0) {
++			delay(35000);
++			for (i = 0; i < 100; i++) {
++				if (i2c_ack(0x01)) {
++					addr = 0x01;
++					break;
++				}
++				delay(10000);
++			}
++		}
++	} else if (i2c_ack(0x01)) {
++		addr = 0x01;
++	}
++	if (addr == 0) {
++		printf("WHYRED TOUCH: reinit no ack\n");
++		return ENXIO;
++	}
++	if (nvt_params(addr, p, &max, &w, &h) != 0) {
++		printf("WHYRED TOUCH: reinit params failed at 0x%02x\n", addr);
++		return EIO;
++	}
++	if (nvt_set_xdata(addr, NVT_XDATA_BUF) != 0) {
++		printf("WHYRED TOUCH: reinit xdata failed\n");
++		return EIO;
++	}
++	touch_fw_addr = addr;
++	touch_max_x = w;
++	touch_max_y = h;
++	printf("WHYRED TOUCH: reinit ok at 0x%02x, %ux%u\n", addr, w, h);
++	return 0;
++}
+ 
+ /*
+  * Permanent polling thread: one xdata frame lists every active contact.
+@@ -1066,6 +1125,24 @@
+ 		active[i] = 0;
+ 		last_x[i] = 0;
+ 		last_y[i] = 0;
++	}
++	{
++		uint32_t reinit_s = 0;
++
++		(void)PE_parse_boot_argn("sweetouchdelay", &reinit_s,
++		    sizeof(reinit_s));
++		if (reinit_s) {
++			if (reinit_s > 600u) {
++				reinit_s = 600u;
++			}
++			printf("WHYRED TOUCH: waiting %u s for panel init\n",
++			    reinit_s);
++			delay((int)(reinit_s * 1000000u));
++			printf("WHYRED TOUCH: reinit after panel init\n");
++			(void)santoni_touch_reinit();
++			printf("WHYRED TOUCH: poll irq %d after reinit\n",
++			    touch_irq_ready ? pin_read(&touch_irq) : 1);
++		}
+ 	}
+ 	if (nvt_set_xdata(touch_fw_addr, NVT_XDATA_BUF) != 0) {
+ 		printf("WHYRED TOUCH: poll xdata select failed\n");
+@@ -1124,7 +1201,7 @@
+ 				}
+ 			}
+ 		}
+-		delay(10000);
++		delay(1000);
+ 	}
+ }
+ 
+@@ -1179,6 +1256,7 @@
+ 		    (void *)south, (void *)north);
+ 		return ENOMEM;
+ 	}
++	touch_north = north;
+ 
+ 	/* Raw reset/IRQ state before anything is touched. */
+ 	rst_cfg = tlmm_rd(north + TLMM_REG_SIZE * WHYRED_RST + TLMM_CTRL);

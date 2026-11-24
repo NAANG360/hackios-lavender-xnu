@@ -1,0 +1,151 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -1225,6 +1225,135 @@
+ 	    touch_max_x, touch_max_y);
+ }
+ 
++/*
++ * 0221: remote touch injection over the USB NCM link. The host sends a UDP
++ * datagram to 192.168.7.2:5141 with an ASCII command prefixed by "SWEET ":
++ *   SWEET tap X Y
++ *   SWEET down X Y | move X Y | up X Y
++ *   SWEET swipe X1 Y1 X2 Y2 [MS]
++ *   SWEET key N D          (0 power, 1 vol+, 2 vol-, 3 home)
++ * Called from the USB kernel thread (ud_rx_done), so sweet_hid_touch() is
++ * safe here.
++ */
++static int
++santoni_cmd_uint(const char **pp, int *out)
++{
++	const char *p = *pp;
++	int v = 0, n = 0;
++
++	while (*p == ' ') {
++		p++;
++	}
++	while (*p >= '0' && *p <= '9') {
++		v = v * 10 + (*p - '0');
++		p++;
++		n++;
++	}
++	if (n == 0) {
++		return 0;
++	}
++	*pp = p;
++	*out = v;
++	return 1;
++}
++
++void
++santoni_touch_remote(const uint8_t *frame, uint32_t len)
++{
++	extern void sweet_hid_key(int key, int down);
++	const uint8_t *ip, *udp, *payload;
++	uint32_t ihl, udplen, plen;
++	char buf[96];
++	const char *p;
++	int x, y, x2, y2, ms, n, i;
++
++	if (len < 14 + 20 + 8 || frame[12] != 0x08 || frame[13] != 0x00) {
++		return;
++	}
++	ip = frame + 14;
++	if ((ip[0] >> 4) != 4 || ip[9] != 17) {
++		return;
++	}
++	ihl = (uint32_t)(ip[0] & 0x0f) * 4;
++	if (ihl < 20 || len < 14 + ihl + 8) {
++		return;
++	}
++	udp = ip + ihl;
++	if ((((uint32_t)udp[2] << 8) | udp[3]) != 5141) {
++		return;
++	}
++	udplen = ((uint32_t)udp[4] << 8) | udp[5];
++	if (udplen < 8 || 14 + ihl + udplen > len) {
++		return;
++	}
++	payload = udp + 8;
++	plen = udplen - 8;
++	if (plen >= sizeof(buf)) {
++		plen = sizeof(buf) - 1;
++	}
++	memcpy(buf, payload, plen);
++	buf[plen] = 0;
++	if (strncmp(buf, "SWEET ", 6) != 0) {
++		return;
++	}
++	p = buf + 6;
++	if (!strncmp(p, "down ", 5)) {
++		p += 5;
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
++			sweet_hid_touch(0, 1, x, y);
++		}
++	} else if (!strncmp(p, "move ", 5)) {
++		p += 5;
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
++			sweet_hid_touch(0, 1, x, y);
++		}
++	} else if (!strncmp(p, "up ", 3)) {
++		p += 3;
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
++			sweet_hid_touch(0, 0, x, y);
++		}
++	} else if (!strncmp(p, "tap ", 4)) {
++		p += 4;
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
++			sweet_hid_touch(0, 1, x, y);
++			delay(30000);
++			sweet_hid_touch(0, 0, x, y);
++		}
++	} else if (!strncmp(p, "swipe ", 6)) {
++		p += 6;
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y) &&
++		    santoni_cmd_uint(&p, &x2) && santoni_cmd_uint(&p, &y2)) {
++			if (!santoni_cmd_uint(&p, &ms)) {
++				ms = 300;
++			}
++			if (ms < 20) {
++				ms = 20;
++			}
++			if (ms > 2000) {
++				ms = 2000;
++			}
++			n = ms / 20;
++			if (n < 2) {
++				n = 2;
++			}
++			sweet_hid_touch(0, 1, x, y);
++			for (i = 1; i <= n; i++) {
++				int ix = x + (x2 - x) * i / n;
++				int iy = y + (y2 - y) * i / n;
++
++				sweet_hid_touch(0, 1, ix, iy);
++				delay(20000);
++			}
++			sweet_hid_touch(0, 0, x2, y2);
++		}
++	} else if (!strncmp(p, "key ", 4)) {
++		p += 4;
++		if (santoni_cmd_uint(&p, &x) && santoni_cmd_uint(&p, &y)) {
++			sweet_hid_key(x, y);
++		}
++	}
++}
++
+ int
+ santoni_touch_probe(void)
+ {
+diff --git a/bsd/dev/sweet_usb.c b/bsd/dev/sweet_usb.c
+--- a/bsd/dev/sweet_usb.c
++++ b/bsd/dev/sweet_usb.c
+@@ -519,6 +519,8 @@
+ 			stats.packets_in = 1;
+ 			stats.bytes_in = len;
+ 			ud.rx_frames++;
++			extern void santoni_touch_remote(const uint8_t *, uint32_t);
++			santoni_touch_remote(frame, len);
+ 			ifnet_input(ud.ifp, m, &stats);
+ 		} else if (m != NULL) {
+ 			mbuf_freem(m);

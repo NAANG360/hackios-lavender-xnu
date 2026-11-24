@@ -1,0 +1,174 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 29e2913..e4434b3 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -49,6 +49,7 @@
+  *                   spare register 0xf070 (write/read-back/restore)
+  *   lavaud=10       also configure and start the AFE INT4_MI2S_RX port 0x1036
+  *                   over APR (I2S 48 kHz/16-bit/SD0, then DEVICE_START)
++ *   lavaud=11       also open an ADM playback device path (COPP) to 0x1036
+  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
+  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
+  *   lavaudprobe=1   A3: read the carve-out and print copy progress every 256K
+@@ -319,6 +320,14 @@ struct smp2p_entry {
+ #define AFE_CLK_INT4_MI2S_IBIT         0x00000113u
+ #define AFE_PORT_INT4_MI2S_RX          0x1036u
+ 
++/* ADM, F6: the playback device path (COPP) to the AFE port. */
++#define APR_SVC_ASM                    7u
++#define APR_SVC_ADM                    8u
++#define ADM_CMD_DEVICE_OPEN_V5         0x00010326u
++#define ADM_CMDRSP_DEVICE_OPEN_V5      0x00010329u
++#define ADM_PATH_PLAYBACK              1u
++#define ADM_TOPOLOGY_NONE              0x00010312u
++
+ struct glink_msg {
+ 	uint16_t cmd, p1;
+ 	uint32_t p2;
+@@ -2130,8 +2139,8 @@ glink_intents(uint32_t count, uint32_t size)
+ }
+ 
+ static int
+-glink_send_apr_pkt(uint8_t dest_svc, uint32_t opcode, const void *payload,
+-    uint32_t payload_len, uint32_t token)
++glink_send_apr_pkt(uint8_t dest_svc, uint16_t src_port, uint32_t opcode,
++    const void *payload, uint32_t payload_len, uint32_t token)
+ {
+ 	struct apr_hdr a;
+ 	struct glink_data_hdr h;
+@@ -2146,7 +2155,7 @@ glink_send_apr_pkt(uint8_t dest_svc, uint32_t opcode, const void *payload,
+ 	a.pkt_size = (uint16_t)(sizeof(a) + payload_len);
+ 	a.src_svc = dest_svc;
+ 	a.src_domain = APR_DOMAIN_APPS;
+-	a.src_port = 1;
++	a.src_port = src_port;
+ 	a.dest_svc = dest_svc;
+ 	a.dest_domain = APR_DOMAIN_ADSP;
+ 	a.dest_port = 0;
+@@ -2186,7 +2195,7 @@ glink_send_apr_pkt(uint8_t dest_svc, uint32_t opcode, const void *payload,
+ static int
+ glink_send_apr(void)
+ {
+-	return glink_send_apr_pkt(APR_SVC_ADSP_CORE, APR_CMD_GET_FWK_VERSION,
++	return glink_send_apr_pkt(APR_SVC_ADSP_CORE, 1, APR_CMD_GET_FWK_VERSION,
+ 	    NULL, 0, 1);
+ }
+ 
+@@ -2296,15 +2305,19 @@ glink_rx_one(void)
+ 			    "opcode %08x token %u len %u\n", a->src_svc,
+ 			    a->src_domain, a->dest_svc, a->dest_domain,
+ 			    a->opcode, a->token, len);
+-			if (a->opcode == 0x000110E8u &&
+-			    len >= sizeof(*a) + 8) {
+-				const uint8_t *p =
+-				    (const uint8_t *)(const void *)buf +
+-				    sizeof(*a);
+-
+-				printf("SWEET AUDIO: APR basic rsp opcode "
+-				    "%08x status %u\n", audio_le32(p),
+-				    audio_le32(p + 4));
++			{
++				uint32_t hdr_bytes =
++				    ((a->hdr_field >> 4) & 0x0fu) * 4u;
++
++				if ((a->opcode == 0x000110E8u ||
++				    a->opcode == ADM_CMDRSP_DEVICE_OPEN_V5) &&
++				    len >= hdr_bytes + 8) {
++					const uint8_t *p = buf + hdr_bytes;
++
++					printf("SWEET AUDIO: APR rsp %08x "
++					    "payload %08x %08x\n", a->opcode,
++					    audio_le32(p), audio_le32(p + 4));
++				}
+ 				printf("SWEET AUDIO: APR raw len %u pkt %u "
+ 				    "hdr %04x chunk %u:", len, a->pkt_size,
+ 				    a->hdr_field, h.chunk);
+@@ -2478,7 +2491,7 @@ audio_afe_port(void)
+ 	clk_pkt.clk.attribute = 4;      /* INVERT_COUPLE_NO */
+ 	clk_pkt.clk.root = 0;
+ 	clk_pkt.clk.enable = 1;
+-	(void)glink_send_apr_pkt(APR_SVC_AFE, AFE_SVC_CMD_SET_PARAM, &clk_pkt,
++	(void)glink_send_apr_pkt(APR_SVC_AFE, 1, AFE_SVC_CMD_SET_PARAM, &clk_pkt,
+ 	    sizeof(clk_pkt), 2);
+ 	for (ms = 0; ms < 1000; ms += 10) {
+ 		while (glink_rx_one()) {
+@@ -2500,7 +2513,7 @@ audio_afe_port(void)
+ 	pkt.cfg.ws_src = 1;             /* internal */
+ 	pkt.cfg.sample_rate = 48000;
+ 
+-	if (!glink_send_apr_pkt(APR_SVC_AFE, AFE_PORT_CMD_SET_PARAM_V2,
++	if (!glink_send_apr_pkt(APR_SVC_AFE, 1, AFE_PORT_CMD_SET_PARAM_V2,
+ 	    &pkt, sizeof(pkt), 3)) {
+ 		printf("SWEET AUDIO: AFE config not sent\n");
+ 		return;
+@@ -2512,7 +2525,7 @@ audio_afe_port(void)
+ 	}
+ 	printf("SWEET AUDIO: AFE 0x1036 I2S config sent (16-bit 48k SD0)\n");
+ 
+-	if (!glink_send_apr_pkt(APR_SVC_AFE, AFE_PORT_CMD_DEVICE_START,
++	if (!glink_send_apr_pkt(APR_SVC_AFE, 1, AFE_PORT_CMD_DEVICE_START,
+ 	    &start, sizeof(start), 4)) {
+ 		printf("SWEET AUDIO: AFE start not sent\n");
+ 		return;
+@@ -2526,6 +2539,51 @@ audio_afe_port(void)
+ 	    glink_tx_msgs, glink_rx_msgs);
+ }
+ 
++/*
++ * F6 control plane, step 1: ask ADM for a playback device path (COPP) to the
++ * AFE port. The response is ADM_CMDRSP_DEVICE_OPEN_V5 and carries the COPP in
++ * its first word (the raw dump below shows the payload).
++ */
++static void
++audio_adm_open(void)
++{
++	struct {
++		uint16_t flags, mode, endpoint1, endpoint2;
++		uint32_t topology;
++		uint16_t channels, bits;
++		uint32_t rate;
++		uint8_t map[8];
++	} __attribute__((packed)) open;
++	uint32_t ms;
++
++	if (audio_step < 11) {
++		return;
++	}
++	audio_announce("ADM device open (COPP) for INT4_MI2S_RX 0x1036");
++	memset(&open, 0, sizeof(open));
++	open.mode = ADM_PATH_PLAYBACK;
++	open.endpoint1 = AFE_PORT_INT4_MI2S_RX;
++	open.endpoint2 = 0xffff;
++	open.topology = ADM_TOPOLOGY_NONE;
++	open.channels = 2;
++	open.bits = 24;
++	open.rate = 48000;
++	open.map[0] = 1;                /* PCM_CHANNEL_FL */
++	open.map[1] = 2;                /* PCM_CHANNEL_FR */
++	if (!glink_send_apr_pkt(APR_SVC_ADM, 0, ADM_CMD_DEVICE_OPEN_V5,
++	    &open, sizeof(open), 5)) {
++		printf("SWEET AUDIO: ADM open not sent\n");
++		return;
++	}
++	for (ms = 0; ms < 1500; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	printf("SWEET AUDIO: ADM open for 0x1036 sent (tx %u rx %u)\n",
++	    glink_tx_msgs, glink_rx_msgs);
++}
++
+ /*
+  * F4: PM660L analog codec read-only probe. The codec is the SPMI device at
+  * SID 3, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
+@@ -2944,6 +3002,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (audio_step >= 10) {
+ 		audio_afe_port();
+ 	}
++	if (audio_step >= 11) {
++		audio_adm_open();
++	}
+ 
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }

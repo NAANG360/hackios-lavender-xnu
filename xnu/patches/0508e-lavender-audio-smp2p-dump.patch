@@ -1,0 +1,35 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 01d55f6..5db19c4 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -1791,6 +1791,8 @@ audio_smp2p_in_value(const char *name, int *found)
+ 	return 0;
+ }
+ 
++static void audio_smp2p_item(const uint8_t *data, uint32_t len);
++
+ static void
+ audio_smp2p_wait_ready(void)
+ {
+@@ -1807,11 +1809,20 @@ audio_smp2p_wait_ready(void)
+ 		printf("SWEET AUDIO: cached 443 hdr magic %08x fv %08x rl %08x "
+ 		    "vt %08x\n", h->magic, h->feature_version,
+ 		    h->rem_loc_proc_id, h->valid_total_ent);
++		printf("SWEET AUDIO: 443 entries before the wait:\n");
++		audio_smp2p_item(smp2p_in, smp2p_in_len);
++		printf("SWEET AUDIO: 443 entry dump done\n");
+ 	}
+ 	/* The ADSP only fills the 443 entries after it has seen the AP's 429. */
+ 	audio_wait(3000);
++	printf("SWEET AUDIO: 443 wait loop start\n");
+ 	for (int i = 0; i < 50; i++) {
+-		uint32_t v = audio_smp2p_in_value("slave-kernel", &found);
++		uint32_t v;
++
++		if (i < 2) {
++			printf("SWEET AUDIO: 443 value call %d\n", i);
++		}
++		v = audio_smp2p_in_value("slave-kernel", &found);
+ 
+ 		if (audio_probe && (i % 5) == 0) {
+ 			printf("SWEET AUDIO: 443 wait t=%d found %d v %08x\n",

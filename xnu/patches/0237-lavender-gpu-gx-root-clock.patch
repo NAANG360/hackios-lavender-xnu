@@ -1,0 +1,102 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index c3259a0..39190d7 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -75,6 +75,8 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ #define A5_RBBM_STATUS3         (0x0530u * 4)
+ #define A5_RBBM_SECVID_TRUST    (0xf400u * 4)
+ 
++#define RCG_ROOT_EN     (1u << 1)
++#define RCG_ROOT_OFF    (1u << 31)
+ #define CBCR_OFF        (1u << 31)
+ #define CBCR_EN         (1u << 0)
+ #define GDSC_PWR_ON     (1u << 31)
+@@ -117,10 +119,10 @@ lav_announce(const char *what)
+ 
+ /* Poll a bit until it equals want; returns the last value. */
+ static uint32_t
+-lav_poll(vm_offset_t base, uint32_t off, uint32_t mask, uint32_t want)
++lav_poll_n(vm_offset_t base, uint32_t off, uint32_t mask, uint32_t want, int n)
+ {
+ 	uint32_t v = 0;
+-	for (int i = 0; i < 100; i++) {
++	for (int i = 0; i < n; i++) {
+ 		v = rd(base, off);
+ 		if ((v & mask) == want) {
+ 			break;
+@@ -130,6 +132,12 @@ lav_poll(vm_offset_t base, uint32_t off, uint32_t mask, uint32_t want)
+ 	return v;
+ }
+ 
++static uint32_t
++lav_poll(vm_offset_t base, uint32_t off, uint32_t mask, uint32_t want)
++{
++	return lav_poll_n(base, off, mask, want, 100);
++}
++
+ static void
+ step1_reads(void)
+ {
+@@ -179,7 +187,7 @@ step2_votes(void)
+ }
+ 
+ static int
+-gdsc_on(const char *name, uint32_t off)
++gdsc_on_n(const char *name, uint32_t off, int polls)
+ {
+ 	uint32_t v = rd(gpucc, off);
+ 
+@@ -189,12 +197,18 @@ gdsc_on(const char *name, uint32_t off)
+ 	}
+ 	printf("LAVGPU: %s GDSC off (%08x), clearing SW_COLLAPSE\n", name, v);
+ 	wr(gpucc, off, v & ~GDSC_COLLAPSE);
+-	v = lav_poll(gpucc, off, GDSC_PWR_ON, GDSC_PWR_ON);
++	v = lav_poll_n(gpucc, off, GDSC_PWR_ON, GDSC_PWR_ON, polls);
+ 	printf("LAVGPU: %s GDSC now %08x (%s)\n", name, v,
+ 	    (v & GDSC_PWR_ON) ? "on" : "STILL OFF");
+ 	return (v & GDSC_PWR_ON) ? 0 : EIO;
+ }
+ 
++static int
++gdsc_on(const char *name, uint32_t off)
++{
++	return gdsc_on_n(name, off, 100);
++}
++
+ static int
+ step3_cx(void)
+ {
+@@ -222,8 +236,32 @@ step4_gx(void)
+ {
+ 	uint32_t v;
+ 
++	/*
++	 * Run 3 (0236): the GX GDSC left the off state (GDSCR 08222000) but never
++	 * reported PWR_ON. The DT marks it qcom,force-enable-root-clk with
++	 * core_root_clk = the GFX3D RCG, which was still ROOT_OFF. Turn the root on
++	 * first; its source is XO (cfg 0, 19.2 MHz), no PLL and no rail involved.
++	 */
++	lav_announce("step 4: force the GFX3D RCG root on (XO source)");
++	v = rd(gpucc, CC_GFX3D_RCG_CMD);
++	printf("LAVGPU: gfx3d rcg cmd before %08x cfg %08x\n", v,
++	    rd(gpucc, CC_GFX3D_RCG_CFG));
++	wr(gpucc, CC_GFX3D_RCG_CMD, v | RCG_ROOT_EN);
++	v = lav_poll(gpucc, CC_GFX3D_RCG_CMD, RCG_ROOT_OFF, 0);
++	printf("LAVGPU: gfx3d rcg cmd after %08x (%s)\n", v,
++	    (v & RCG_ROOT_OFF) ? "root STILL OFF" : "root on");
+ 	lav_announce("step 4: GX GDSC on (needs the GX rail from the bootloader)");
+-	if (gdsc_on("GX", CC_GX_GDSCR)) {
++	if (gdsc_on_n("GX", CC_GX_GDSCR, 300)) {
++		lav_wait(1000);
++		printf("LAVGPU: GX after 1 more s: gdscr %08x cfg(0x1098) %08x\n",
++		    rd(gpucc, CC_GX_GDSCR), rd(gpucc, CC_GFX3D_CLK));
++		/* leave the domain as found: collapse it, drop the forced root */
++		wr(gpucc, CC_GX_GDSCR, rd(gpucc, CC_GX_GDSCR) | GDSC_COLLAPSE);
++		wr(gpucc, CC_GFX3D_RCG_CMD,
++		    rd(gpucc, CC_GFX3D_RCG_CMD) & ~RCG_ROOT_EN);
++		lav_wait(100);
++		printf("LAVGPU: GX collapsed again: gdscr %08x rcg %08x\n",
++		    rd(gpucc, CC_GX_GDSCR), rd(gpucc, CC_GFX3D_RCG_CMD));
+ 		return;
+ 	}
+ 	v = rd(gpucc, CC_GX_CLAMP_IO);

@@ -1,0 +1,78 @@
+From: port_ios lavender
+Subject: [PATCH 0234] lavender: SweetHIDTouch uses the real panel size (1080x2340), not 2400
+
+With sweetfb_native=1 userland sees the real panel, 1080x2340 on lavender
+(SweetFramebuffer: fLogicalH = fHeight). SweetHIDTouch still normalised y by
+a hard-coded 2400 and treated y > 2399-48 as the bottom edge:
+
+- a finger at the bottom was reported ~2.5 % too high (about 58 px at
+  y = 2339), a vertical offset that grows downwards;
+- no touch reports y above 2339, so the bottom-edge band (y > 2351) was
+  unreachable: the home/unlock swipe could not start from a real finger.
+
+The size now comes from the boot video (PE_state.video), with 1080x2400 as
+the fallback; clamps, offsets, normalisation and the edge bands use it.
+
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -373,6 +373,7 @@
+ 	int    fSwipeStep;              /* -1 idle, 0..steps */
+ 	IOLock *fLock;
+ 	int fLogicalW, fLogicalH, fOffX, fOffY;
++	int fPanelW, fPanelH;           /* real panel pixels, from the boot video */
+ 	bool fDown[SWEET_TOUCH_FINGERS];
+ 	bool fEdge[SWEET_TOUCH_FINGERS];
+ 	IOFixed fX[SWEET_TOUCH_FINGERS];
+@@ -439,10 +440,26 @@
+ 	}
+ 	int native = 0;
+ 	PE_parse_boot_argn("sweetfb_native", &native, sizeof(native));
+-	fLogicalW = native ? 1080 : 1125;
+-	fLogicalH = native ? 2400 : 2436;
+-	fOffX = ((fLogicalW - 1080) / 2) & ~3;           /* as SweetFramebuffer.cpp */
+-	fOffY = (fLogicalH - 2400) / 2;
++	/*
++	 * 0234: the touch panel and the framebuffer are the real panel size (1080x2340
++	 * on lavender; 2400 is the sweet board). With sweetfb_native=1 userland sees
++	 * exactly that size, so dividing by a hard-coded 2400 shrank every y by up to
++	 * 2.5 % (a finger at the bottom landed ~58 px too high) and the bottom edge
++	 * test (y > 2399-48) could never be true: no touch reports y above 2339, so
++	 * the home gesture could not start from a real finger.
++	 */
++	fPanelW = (int)PE_state.video.v_width;
++	fPanelH = (int)PE_state.video.v_height;
++	if (fPanelW < 480 || fPanelW > 4096 || fPanelH < 480 || fPanelH > 4096) {
++		fPanelW = 1080;
++		fPanelH = 2400;
++	}
++	fLogicalW = native ? fPanelW : 1125;
++	fLogicalH = native ? fPanelH : 2436;
++	fOffX = ((fLogicalW - fPanelW) / 2) & ~3;        /* as SweetFramebuffer.cpp */
++	fOffY = (fLogicalH - fPanelH) / 2;
++	IOLog("SWEET HID: touch panel %dx%d, logical %dx%d, offset %d,%d\n",
++	    fPanelW, fPanelH, fLogicalW, fLogicalH, fOffX, fOffY);
+ 	/* The digitizer covers the main display (backboardd maps it 1:1). */
+ 	setProperty("DisplayIntegrated", kOSBooleanTrue);
+ 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
+@@ -471,8 +488,8 @@
+ 	if (finger < 0 || finger >= SWEET_TOUCH_FINGERS) {
+ 		return;
+ 	}
+-	x = x < 0 ? 0 : (x > 1079 ? 1079 : x);
+-	y = y < 0 ? 0 : (y > 2399 ? 2399 : y);
++	x = x < 0 ? 0 : (x > fPanelW - 1 ? fPanelW - 1 : x);
++	y = y < 0 ? 0 : (y > fPanelH - 1 ? fPanelH - 1 : y);
+ 
+ 	IOLockLock(fLock);
+ 	bool was = fDown[finger];
+@@ -485,8 +502,8 @@
+ 		return;
+ 	}
+ 	if (!was && down) {
+-		fEdge[finger] = x < SWEET_TOUCH_EDGE_PX || x > 1079 - SWEET_TOUCH_EDGE_PX ||
+-		    y < SWEET_TOUCH_EDGE_PX || y > 2399 - SWEET_TOUCH_EDGE_PX;
++		fEdge[finger] = x < SWEET_TOUCH_EDGE_PX || x > fPanelW - 1 - SWEET_TOUCH_EDGE_PX ||
++		    y < SWEET_TOUCH_EDGE_PX || y > fPanelH - 1 - SWEET_TOUCH_EDGE_PX;
+ 	}
+ 
+ 	collection = IOHIDEvent::digitizerEvent(now, 0, kIOHIDDigitizerTransducerTypeHand, false, 0, 0, 0);

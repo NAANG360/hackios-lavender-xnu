@@ -1,0 +1,24 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index db26dbc..4f14dcb 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1500,8 +1500,17 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 13) {
+ 		step13_compute(0);
+ 	}
+-	if (step >= 14) {
+-		step13_compute(step == 14 ? 2 : step == 16 ? 3 : 1);	/* 14: ldg+stg copy, 15: ldg+add+stg, 16: copy of a GPU-written word */
++	if (step == 14 || step == 16) {
++		step13_compute(step == 14 ? 2 : 3);	/* 14: ldg+stg copy, 16: copy of a GPU-written word */
++	}
++	if (step == 15) {
++		/* 15: the copy three times (is it repeatable?), then ldg+add+stg three times */
++		for (int i = 0; i < 3; i++) {
++			step13_compute(2);
++		}
++		for (int i = 0; i < 3; i++) {
++			step13_compute(1);
++		}
+ 	}
+ 	printf("LAVGPU: ladder finished\n");
+ }

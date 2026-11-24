@@ -1,0 +1,213 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -787,10 +787,163 @@ panel_report(int acks, uint8_t first)
+ static int
+ panel_report(int acks, uint8_t first)
+ {
+ 	return panel_fill_rows(panel_code(acks, first),
+ 	    acks > 0 ? 0xff20e020 : 0xffe02020);
+ }
+ 
++/*
++ * A 16x16 square at the reported contact, in panel-native coordinates.
++ * Diagnostic only: it shows whether the controller's x/y follow the finger.
++ */
++static void
++panel_dot(int x, int y, uint32_t colour)
++{
++	volatile uint32_t *fb = panel_map();
++	int dx, dy;
++
++	if (fb == NULL || x < 0 || y < 0 ||
++	    x >= (int)WHYRED_FB_WIDTH || y >= (int)WHYRED_FB_HEIGHT) {
++		return;
++	}
++	for (dy = -8; dy <= 8; dy++) {
++		int yy = y + dy;
++		volatile uint32_t *line;
++
++		if (yy < 0 || yy >= (int)WHYRED_FB_HEIGHT) {
++			continue;
++		}
++		line = fb + (uint64_t)yy * (WHYRED_FB_STRIDE / 4);
++		for (dx = -8; dx <= 8; dx++) {
++			int xx = x + dx;
++
++			if (xx >= 0 && xx < (int)WHYRED_FB_WIDTH) {
++				line[xx] = colour;
++			}
++		}
++	}
++}
++
++/*
++ * NT36672 parameter page (Linux novatek-nvt-ts.c): register 0x78 returns
++ * width, height, max contacts and the chip id. The lavender DTB names the
++ * node novatek@62, so 0x62 is the normal firmware address, not just the
++ * loader.
++ */
++static int
++nvt_params(uint8_t addr, uint8_t p[15], unsigned *max, uint32_t *w,
++    uint32_t *h)
++{
++	unsigned i;
++	int err;
++
++	for (i = 0; i < 15u; i++) {
++		p[i] = 0;
++	}
++	err = nvt_read(addr, 0x00, 0x78, p, 15);
++	printf("WHYRED TOUCH: nvt params err=%d: %02x %02x %02x %02x "
++	    "w=%u h=%u max=%u buttons=%u irq=%u chip=%02x\n", err,
++	    p[0], p[1], p[2], p[3],
++	    ((unsigned)p[4] << 8) | p[5], ((unsigned)p[6] << 8) | p[7],
++	    p[9], p[10], p[11], p[14]);
++	if (err) {
++		return err;
++	}
++	*w = ((uint32_t)p[4] << 8) | p[5];
++	*h = ((uint32_t)p[6] << 8) | p[7];
++	*max = p[9];
++	if (*max == 0u || *max > 10u || *w == 0u || *h == 0u) {
++		return EIO;
++	}
++	return 0;
++}
++
++/*
++ * Poll the 6-byte-per-slot report page for SECONDS and draw each contact.
++ * One frame lists every active contact; a slot absent from the frame is not
++ * released here, matching the vendor driver's per-frame mask.
++ */
++static void
++nvt_poll(uint8_t addr, unsigned max, uint32_t w, uint32_t h, uint32_t seconds)
++{
++	uint8_t buf[6 * 10];
++	int last_x[10], last_y[10], last_type[10];
++	uint32_t polls = 0, reports = 0, i;
++	uint32_t ticks;
++
++	if (max == 0u || max > 10u) {
++		return;
++	}
++	if (seconds > 60u) {
++		seconds = 60u;
++	}
++	ticks = seconds * 100u;	/* 10 ms per poll */
++	for (i = 0; i < 10u; i++) {
++		last_x[i] = -1;
++		last_y[i] = -1;
++		last_type[i] = -1;
++	}
++	while (polls < ticks) {
++		int err = nvt_read(addr, 0x00, 0x00, buf, (int)(6u * max));
++
++		if (err) {
++			printf("WHYRED TOUCH: nvt report read err=%d poll=%u\n",
++			    err, polls);
++			delay(10000);
++			polls++;
++			continue;
++		}
++		for (i = 0; i < max; i++) {
++			const uint8_t *p = buf + 6 * i;
++			unsigned slot, type, px, py;
++
++			if (p[0] == 0xffu) {
++				continue;
++			}
++			slot = p[0] >> 3;
++			type = p[0] & 7u;
++			if (slot < 1 || slot > max) {
++				continue;
++			}
++			if (type == 3u) {
++				if (last_type[slot - 1] != 3) {
++					printf("WHYRED TOUCH: nvt slot %u release\n",
++					    slot);
++					last_type[slot - 1] = 3;
++				}
++				continue;
++			}
++			if (type != 1u && type != 2u) {
++				continue;
++			}
++			px = ((unsigned)p[1] << 4) | (p[3] >> 4);
++			py = ((unsigned)p[2] << 4) | (p[3] & 15u);
++			if (px >= w || py >= h) {
++				printf("WHYRED TOUCH: nvt slot %u type %u out of "
++				    "range %u,%u (w=%u h=%u)\n", slot, type, px,
++				    py, w, h);
++				continue;
++			}
++			reports++;
++			if (last_x[slot - 1] != (int)px ||
++			    last_y[slot - 1] != (int)py ||
++			    last_type[slot - 1] != (int)type) {
++				printf("WHYRED TOUCH: nvt slot %u type %u x %u y %u "
++				    "raw %02x %02x %02x %02x %02x %02x\n", slot,
++				    type, px, py, p[0], p[1], p[2], p[3], p[4],
++				    p[5]);
++				last_x[slot - 1] = (int)px;
++				last_y[slot - 1] = (int)py;
++				last_type[slot - 1] = (int)type;
++			}
++			panel_dot((int)px, (int)py, 0xff0000ff);
++		}
++		delay(10000);
++		polls++;
++	}
++	printf("WHYRED TOUCH: nvt poll done polls=%u reports=%u\n", polls,
++	    reports);
++}
++
+ int
+ santoni_touch_probe(void)
+ {
+@@ -797,5 +950,6 @@ santoni_touch_probe(void)
+ 	uint8_t id[3] = { 0, 0, 0 };
+ 	uint8_t first_ack = 0;
++	uint8_t nvt_addr = 0;
+ 	struct dsx_funcs dsx;
+ 	int addr, acks = 0, pulsed, saw_rmi = 0;
+ 	uint32_t touch_s;
+@@ -862,4 +1016,7 @@ santoni_touch_probe(void)
+ 		printf("WHYRED TOUCH: ack 0x%02x\n", addr);
++		if (addr != DSX_ADDR && nvt_addr == 0) {
++			nvt_addr = (uint8_t)addr;
++		}
+ 		if (addr == DSX_ADDR) {
+ 			/* Synaptics DSX: the Novatek page protocol would only
+ 			 * return noise, the DSX page-table dump below is the
+@@ -878,13 +1035,27 @@ santoni_touch_probe(void)
+ 	printf("WHYRED TOUCH: scan done, %d address(es) acknowledged; sda %d "
+ 	    "scl %d\n", acks, pin_read(&touch_sda), pin_read(&touch_scl));
+ 
++	touch_s = 0;
++	(void)PE_parse_boot_argn("sweetouchtouch", &touch_s, sizeof(touch_s));
++	if (nvt_addr != 0) {
++		uint8_t nvt_p[15];
++		unsigned nvt_max = 0;
++		uint32_t nvt_w = 0, nvt_h = 0;
++
++		if (nvt_params(nvt_addr, nvt_p, &nvt_max, &nvt_w, &nvt_h) == 0) {
++			if (touch_s) {
++				if (panel_report(acks, first_ack) != 0) {
++					printf("WHYRED TOUCH: panel paint failed\n");
++				}
++				nvt_poll(nvt_addr, nvt_max, nvt_w, nvt_h, touch_s);
++			}
++		}
++	}
+ 	if (saw_rmi) {
+ 		touch_irq_setup(north);
+ 		dsx_diag();
+ 		dsx_identify(&dsx);
+-		touch_s = 0;
+-		if (PE_parse_boot_argn("sweetouchtouch", &touch_s,
+-		    sizeof(touch_s)) && touch_s) {
++		if (touch_s) {
+ 			dsx_touch_test(&dsx, touch_s);
+ 		}
+ 	}

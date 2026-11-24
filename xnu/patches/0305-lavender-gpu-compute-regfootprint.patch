@@ -1,0 +1,13 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 282b917..c5be6b5 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1333,7 +1333,7 @@ step13_compute(int mode)
+ 	/* cs_program_emit with instrlen = 1 */
+ 	ring_reg(R_SP_SP_CNTL, 0);
+ 	ring_reg(R_HLSQ_CONTROL_0, 0x880);			/* TWO_QUADS | 0x880 */
+-	ring_reg(R_SP_CS_CTRL_REG0, (2u << 10) | (1u << 2) | 0x2);	/* 2 full regs, BUFFER */
++	ring_reg(R_SP_CS_CTRL_REG0, ((mode ? 4u : 2u) << 10) | (1u << 2) | 0x2);	/* r0..r3 = 4 full regs for the buffer shaders, BUFFER */
+ 	ring_reg(R_HLSQ_CS_CONFIG, 1);
+ 	ring_reg(R_HLSQ_CS_CNTL, 1u << 1);			/* INSTRLEN 1 */
+ 	ring_reg(R_SP_CS_CONFIG, 1);

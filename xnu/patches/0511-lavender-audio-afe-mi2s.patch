@@ -1,0 +1,201 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index a6fc582..c0fc75e 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -47,6 +47,8 @@
+  *                   peripheral 0xf0) read-only
+  *   lavaud=9        also test the guarded SPMI write path on the PM660L DIG
+  *                   spare register 0xf070 (write/read-back/restore)
++ *   lavaud=10       also configure and start the AFE INT4_MI2S_RX port 0x1036
++ *                   over APR (I2S 48 kHz/16-bit/SD0, then DEVICE_START)
+  *   lavaudforce=1   A3: load even if SMEM shows an ADSP from an earlier run
+  *   lavaudcopy=0    A3: skip the segment copy (test a preloaded carve-out)
+  *   lavaudprobe=1   A3: read the carve-out and print copy progress every 256K
+@@ -305,6 +307,14 @@ struct smp2p_entry {
+ #define APR_CMD_GET_FWK_VERSION    0x0001292Cu
+ #define APR_RSP_GET_FWK_VERSION    0x0001292Du
+ 
++/* AFE service, F5: INT4 MI2S RX on the SDM660 sound card. */
++#define APR_SVC_AFE                    4u
++#define AFE_PORT_CMD_SET_PARAM_V2      0x000100EFu
++#define AFE_PORT_CMD_DEVICE_START      0x000100E5u
++#define AFE_MODULE_AUDIO_DEV_INTERFACE 0x0001020Cu
++#define AFE_PARAM_ID_I2S_CONFIG        0x0001020Du
++#define AFE_PORT_INT4_MI2S_RX          0x1036u
++
+ struct glink_msg {
+ 	uint16_t cmd, p1;
+ 	uint32_t p2;
+@@ -329,6 +339,14 @@ struct apr_hdr {
+ 	uint32_t token, opcode;
+ } __attribute__((packed));
+ 
++/* AFE_PARAM_ID_I2S_CONFIG payload (apr_audio-v2.h). */
++struct afe_i2s_cfg {
++	uint32_t version;
++	uint16_t bit_width, channel_mode, mono_stereo, ws_src;
++	uint32_t sample_rate;
++	uint16_t data_format, reserved;
++} __attribute__((packed));
++
+ /* SMEM's remote spinlock: TCSR mutex, lock 3 (vendor smem.c/hwspinlock). */
+ #define TCSR_MUTEX_PA           0x01f40000u
+ #define TCSR_MUTEX_SIZE         0x00004000u
+@@ -2099,50 +2117,66 @@ glink_intents(uint32_t count, uint32_t size)
+ }
+ 
+ static int
+-glink_send_apr(void)
++glink_send_apr_pkt(uint8_t dest_svc, uint32_t opcode, const void *payload,
++    uint32_t payload_len, uint32_t token)
+ {
+ 	struct apr_hdr a;
+ 	struct glink_data_hdr h;
++	uint8_t buf[GLINK_DATA_MAX];
+ 	unsigned i;
+ 
++	if (sizeof(a) + payload_len > sizeof(buf)) {
++		return 0;
++	}
+ 	memset(&a, 0, sizeof(a));
+ 	a.hdr_field = (uint16_t)((2u << 8) | (5u << 4) | 0u);
+-	a.pkt_size = sizeof(a);
+-	a.src_svc = APR_SVC_ADSP_CORE;
++	a.pkt_size = (uint16_t)(sizeof(a) + payload_len);
++	a.src_svc = dest_svc;
+ 	a.src_domain = APR_DOMAIN_APPS;
+ 	a.src_port = 1;
+-	a.dest_svc = APR_SVC_ADSP_CORE;
++	a.dest_svc = dest_svc;
+ 	a.dest_domain = APR_DOMAIN_ADSP;
+ 	a.dest_port = 0;
+-	a.token = 1;
+-	a.opcode = APR_CMD_GET_FWK_VERSION;
++	a.token = token;
++	a.opcode = opcode;
++	memcpy(buf, &a, sizeof(a));
++	if (payload_len != 0) {
++		memcpy(buf + sizeof(a), payload, payload_len);
++	}
+ 
+ 	for (i = 0; i < glink_ri_count; i++) {
+ 		if (!glink_ri[i].used &&
+-		    glink_ri[i].size >= sizeof(a)) {
++		    glink_ri[i].size >= sizeof(a) + payload_len) {
+ 			break;
+ 		}
+ 	}
+ 	if (i == glink_ri_count) {
+-		printf("SWEET AUDIO: no remote GLINK intent for APR (%u)\n",
+-		    glink_ri_count);
++		printf("SWEET AUDIO: no remote GLINK intent for APR svc %u "
++		    "opcode %08x (%u)\n", dest_svc, opcode, glink_ri_count);
+ 		return 0;
+ 	}
+ 	h.m.cmd = GCMD_TX_DATA;
+ 	h.m.p1 = GLINK_LCID;
+ 	h.m.p2 = glink_ri[i].id;
+-	h.chunk = sizeof(a);
++	h.chunk = (uint32_t)(sizeof(a) + payload_len);
+ 	h.left = 0;
+ 	glink_ri[i].used = 1;
+-	if (!glink_tx_write(&h, sizeof(h), &a, sizeof(a))) {
++	if (!glink_tx_write(&h, sizeof(h), buf, h.chunk)) {
+ 		glink_ri[i].used = 0;
+ 		return 0;
+ 	}
+-	printf("SWEET AUDIO: APR GET_FWK_VERSION -> lcid %u intent %u\n",
+-	    GLINK_LCID, glink_ri[i].id);
++	printf("SWEET AUDIO: APR -> svc %u opcode %08x len %u intent %u\n",
++	    dest_svc, opcode, h.chunk, glink_ri[i].id);
+ 	return 1;
+ }
+ 
++static int
++glink_send_apr(void)
++{
++	return glink_send_apr_pkt(APR_SVC_ADSP_CORE, APR_CMD_GET_FWK_VERSION,
++	    NULL, 0, 1);
++}
++
+ static int
+ glink_rx_one(void)
+ {
+@@ -2370,6 +2404,67 @@ audio_glink_apr(void)
+ 	    glink_tx_msgs, glink_rx_msgs);
+ }
+ 
++/*
++ * F5: AFE INT4_MI2S_RX. SET_PARAM_V2 carries the I2S configuration (48 kHz,
++ * 16-bit, SD0, stereo, internal WS), then DEVICE_START starts the port.
++ */
++static void
++audio_afe_port(void)
++{
++	struct {
++		uint16_t port_id, payload_size;
++		uint32_t module, param;
++		uint16_t size, reserved;
++		struct afe_i2s_cfg cfg;
++	} __attribute__((packed)) pkt;
++	struct {
++		uint16_t port_id, reserved;
++	} __attribute__((packed)) start = { AFE_PORT_INT4_MI2S_RX, 0 };
++	uint32_t ms;
++
++	if (audio_step < 10) {
++		return;
++	}
++	audio_announce("AFE INT4_MI2S_RX (0x1036) I2S config and start");
++	memset(&pkt, 0, sizeof(pkt));
++	pkt.port_id = AFE_PORT_INT4_MI2S_RX;
++	pkt.module = AFE_MODULE_AUDIO_DEV_INTERFACE;
++	pkt.param = AFE_PARAM_ID_I2S_CONFIG;
++	pkt.size = sizeof(pkt.cfg);
++	pkt.payload_size = sizeof(pkt) - 4;
++	pkt.cfg.version = 1;
++	pkt.cfg.bit_width = 16;
++	pkt.cfg.channel_mode = 1;       /* AFE_PORT_I2S_SD0 */
++	pkt.cfg.mono_stereo = 1;        /* AFE_PORT_I2S_STEREO */
++	pkt.cfg.ws_src = 1;             /* internal */
++	pkt.cfg.sample_rate = 48000;
++
++	if (!glink_send_apr_pkt(APR_SVC_AFE, AFE_PORT_CMD_SET_PARAM_V2,
++	    &pkt, sizeof(pkt), 2)) {
++		printf("SWEET AUDIO: AFE config not sent\n");
++		return;
++	}
++	for (ms = 0; ms < 1000; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	printf("SWEET AUDIO: AFE 0x1036 I2S config sent (16-bit 48k SD0)\n");
++
++	if (!glink_send_apr_pkt(APR_SVC_AFE, AFE_PORT_CMD_DEVICE_START,
++	    &start, sizeof(start), 3)) {
++		printf("SWEET AUDIO: AFE start not sent\n");
++		return;
++	}
++	for (ms = 0; ms < 2000; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	printf("SWEET AUDIO: AFE 0x1036 start sent (tx %u rx %u)\n",
++	    glink_tx_msgs, glink_rx_msgs);
++}
++
+ /*
+  * F4: PM660L analog codec read-only probe. The codec is the SPMI device at
+  * SID 3, base 0xf000 (vendor msm-analog-cdc.c); the lavender observer read
+@@ -2785,6 +2880,9 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (audio_step >= 9) {
+ 		audio_pm660l_write();
+ 	}
++	if (audio_step >= 10) {
++		audio_afe_port();
++	}
+ 
+ 	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }

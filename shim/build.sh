@@ -1,0 +1,206 @@
+#!/bin/bash
+# Build the freestanding shim and wrap it in an Android boot.img for an
+# SDM660/SDM636 board (BOARD=whyred by default, BOARD=lavender for the
+# Redmi Note 7).
+set -euo pipefail
+
+BOARD="${BOARD:-whyred}"
+case "$BOARD" in
+	whyred|WHYRED)   BOARD_LC=whyred;  BOARD_DEFINE=-DBOARD_WHYRED ;;
+	lavender|LAVENDER) BOARD_LC=lavender; BOARD_DEFINE=-DBOARD_LAVENDER ;;
+	*) echo "error: BOARD must be whyred or lavender (got '$BOARD')" >&2; exit 2 ;;
+esac
+
+PAYLOAD="${1:-}"
+if [ -z "$PAYLOAD" ]; then
+	if [ -f "$(dirname "$0")/../xnu/out/kernel.development.$BOARD_LC" ]; then
+		PAYLOAD="$(dirname "$0")/../xnu/out/kernel.development.$BOARD_LC"
+	elif [ -f "$(dirname "$0")/../xnu/out/kernel.development.santoni" ]; then
+		PAYLOAD="$(dirname "$0")/../xnu/out/kernel.development.santoni"
+	fi
+fi
+[ -n "$PAYLOAD" ] && [ -f "$PAYLOAD" ] && PAYLOAD="$(realpath "$PAYLOAD")"
+# Resolve IMAGE_GZ before the cd below: callers pass it relative to the repo
+# root ("shim/out/Image.z.gz"), and after `cd shim` that path points at
+# shim/shim/out/... - the file is silently missed and the build packs a gzip
+# Image instead of the pre-compressed one.
+[ -n "${IMAGE_GZ:-}" ] && [ -f "$IMAGE_GZ" ] && IMAGE_GZ="$(realpath "$IMAGE_GZ")"
+
+cd "$(dirname "$0")"
+
+CC="${CC:-clang}"
+OBJCOPY="${OBJCOPY:-llvm-objcopy}"
+READELF="${READELF:-llvm-readelf}"
+NM="${NM:-llvm-nm}"
+LD="${LD:-ld.lld}"
+HOST_CC="${HOST_CC:-clang}"
+
+CFLAGS="-target aarch64-linux-gnu -O2 -ffreestanding -nostdlib -fno-pic -fno-jump-tables -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra $BOARD_DEFINE"
+
+mkdir -p out
+
+# Fail on the host, not on the phone: a kernel built for another machine, or a
+# DTB whose qcom,msm-id/board-id the ABL does not accept, only shows up as
+# "Failed to load/authenticate boot image" in the bootloader.
+if [ -n "$PAYLOAD" ] && [ -f "$PAYLOAD" ]; then
+	python3 ../tools/check_payload.py --board "$BOARD_LC" --kernel "$PAYLOAD"
+else
+	echo "warning: no kernel payload; the boot image will contain only the shim" >&2
+fi
+if [ -f "../resources/${BOARD_LC}_dtb.bin" ]; then
+	python3 ../tools/check_payload.py --board "$BOARD_LC" --dtb "../resources/${BOARD_LC}_dtb.bin"
+else
+	echo "warning: resources/${BOARD_LC}_dtb.bin is missing; the stock ABL may reject the image" >&2
+	echo "         extract it with: python3 tools/extract_appended_dtb.py <boot.img> --board $BOARD_LC" >&2
+fi
+
+for f in start.S shim.c console.c mmu.c fdt.c loader.c; do
+	$CC $CFLAGS -c $f -o out/${f%.*}.o
+done
+
+abs=$($READELF -r out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o | grep -c ABS64 || true)
+[ "$abs" = 0 ] || { echo "error: $abs absolute relocations in C objects" >&2; exit 1; }
+
+$LD -T shim.ld --build-id=none -N \
+	out/start.o out/shim.o out/console.o out/mmu.o out/fdt.o out/loader.o -o out/shim.elf
+
+$OBJCOPY -O binary out/shim.elf out/Image
+
+size=$((16#$($NM out/shim.elf | awk '$3=="_end"{print $1}')))
+truncate -s "$size" out/Image
+
+# Build static Mach-O PID 1 init test program
+echo "Building static Mach-O PID 1 init..."
+$CC -target arm64-apple-ios16.0 -c ../tools/santoni-init.S -o out/$BOARD_LC-init.o
+python3 ../tools/mkinit.py out/$BOARD_LC-init.o out/init.macho
+
+# Ramdisk / Payload packaging
+RAMDISK="out/ramdisk.bin"
+# Root device: the ram disk by default (safe fallback), or emmcroot0 once an
+# iOS root is staged in userdata. EXTRA_CMDLINE carries e.g. emmcrw=1.
+ROOTDEV="${ROOTDEV:-md0}"
+EXTRA_CMDLINE="${EXTRA_CMDLINE:-}"
+# Verbosity is a build knob, not a source change. The diagnostic image keeps
+# -enable_kprintf_spam; the fast one sets KPRINTF_SPAM= (empty) because every
+# extra line costs 115200-baud UART time and, with cs_debug=2, megabytes of it.
+# Unset means "spam", so a hand build keeps the old command line.
+KPRINTF_SPAM="${KPRINTF_SPAM--enable_kprintf_spam}"
+[ -n "$KPRINTF_SPAM" ] && KPRINTF_SPAM="$KPRINTF_SPAM "
+# Display profile, ported from the lavender image that reached the lockscreen
+# (lavender e72d3a5). With disable_kprintf_output=0 the framebuffer console
+# repaints the boot log over the graphical boot, so the panel shows scrolling
+# text and never the Apple logo; KPRINTF_MUTE=1 keeps the log off the panel and
+# adds sweetfb_stayon=1 (do not blank mid-boot) and sweetfb_hz=60. The SYSTEM
+# ring still records everything: 0143 appends in _cnputs before the mute check.
+# KPRINTF_MUTE=0 keeps today's exact command line, so a hand build and the
+# diagnostic image are unchanged; only the workflow sets it to 1.
+KPRINTF_MUTE="${KPRINTF_MUTE:-0}"
+if [ "$KPRINTF_MUTE" = 1 ]; then
+	DISPLAY_ARGS="disable_kprintf_output=1 sweetfb_stayon=1 sweetfb_hz=60"
+else
+	DISPLAY_ARGS="disable_kprintf_output=0"
+fi
+# PANEL_NOCONSOLE=1 stops drawing the kernel console over the GUI from the
+# first AppleCLCD swap on (patch 0067). disable_kprintf_output would be the
+# obvious switch, but this kernel has no boot-arg of that name: the symbol is
+# there and nothing parses the string, so it changes nothing on the panel.
+# sweetfb_noconsole is parsed, and the console text still reaches the SYSTEM
+# ring (0143 appends in _cnputs before the mute check), so diagnostics are
+# not lost. Unset keeps the console on the panel.
+PANEL_NOCONSOLE="${PANEL_NOCONSOLE:-0}"
+[ "$PANEL_NOCONSOLE" = 1 ] && DISPLAY_ARGS="$DISPLAY_ARGS sweetfb_noconsole=1"
+SERIAL_NUM=$([ "$BOARD_LC" = "lavender" ] && echo 1 || echo 3)
+CMDLINE="debug=0x14e serial=$SERIAL_NUM $DISPLAY_ARGS ${KPRINTF_SPAM}sweetfb_native=1 sweetcpufreq=0 sweetbattery=0 rd=$ROOTDEV -v keepsyms=1 $BOARD_LC $EXTRA_CMDLINE"
+
+# Ensure a minimal ramdisk.bin is always present
+if command -v cpio >/dev/null 2>&1; then
+	(cd out && rm -rf rd && mkdir rd && cd rd && find . | cpio -o -H newc --quiet | gzip -9 > ../ramdisk.bin)
+else
+	python3 -c 'import gzip; h=b"07070100000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000b00000000TRAILER!!!\0\0\0\0"; open("out/ramdisk.bin","wb").write(gzip.compress(h + b"\0"*(512-len(h)), compresslevel=9))'
+fi
+RAMDISK="out/ramdisk.bin"
+
+if [ -n "$PAYLOAD" ]; then
+	magic=$(python3 -c "import sys; f=open(sys.argv[1],'rb'); b=f.read(4); print(b.hex())" "$PAYLOAD" 2>/dev/null || true)
+	if [ "$magic" = "cffaedfe" ] || [ "$magic" = "feedfacf" ]; then
+		echo "Detected raw Mach-O kernel ($PAYLOAD). Generating ADT and packing with mkpayload.py..."
+		# --native: the canvas advertised to iOS must be the panel we
+		# actually scan out. Without it mkadt.py publishes the iPhone X
+		# canvas (1125x2436), backboardd then creates 1125x2436 surfaces,
+		# and the 1080x2160 panel stays black while SpringBoard "runs".
+		python3 ../tools/mkadt.py out/$BOARD_LC.adt --board "$BOARD_LC" --native
+		python3 ../tools/mkpayload.py "$PAYLOAD" out/$BOARD_LC.adt out/payload.bin --cmdline "$CMDLINE" --ramdisk out/init.macho
+	fi
+fi
+
+# Append payload to Image after _end (allows ABL to load payload regardless of ramdisk handling)
+if [ -n "$PAYLOAD" ] && [ -f "out/payload.bin" ]; then
+	align_size=$(( (size + 0xfff) & ~0xfff ))
+	truncate -s "$align_size" out/Image
+	cat out/payload.bin >> out/Image
+	python3 -c 'import os,struct,sys; f=open(sys.argv[1],"r+b"); f.seek(16); f.write(struct.pack("<Q", os.path.getsize(sys.argv[1])))' out/Image
+	# The shim reads this line from the payload, not from the boot.img header:
+	# print it so a build that silently boots the ramdisk probe cannot pass as
+	# an iOS-root build.
+	python3 ../tools/payload_cmdline.py --payload out/payload.bin
+fi
+
+# Package as Image.gz-dtb (standard SDM660 kernel format for Qualcomm ABL)
+if [ -n "${IMAGE_GZ:-}" ] && [ -f "$IMAGE_GZ" ]; then
+	# Pre-compressed kernel, e.g. a zopfli stream when the ABL download limit is
+	# smaller than gzip -9 produces (whyred's rejects more than ~6 MiB).
+	cp "$IMAGE_GZ" out/Image.gz
+else
+	gzip -9 -c out/Image > out/Image.gz
+fi
+if [ -f "../resources/${BOARD_LC}_dtb.bin" ]; then
+	cat "../resources/${BOARD_LC}_dtb.bin" >> out/Image.gz
+fi
+
+# Packaging: wrap in boot.img using tools/mkbootimg.py with SDM660/SDM636 parameters
+# The dummy cpio only fills the ramdisk field; the real ramdisk rides inside the
+# payload. Dropping it saves one whole 4 KiB page, which matters for whyred: the
+# ABL rejects a single download over 6 MiB.
+if [ "${NO_DUMMY_RAMDISK:-0}" = "1" ]; then
+	RD_ARG=""
+else
+	RD_ARG="--ramdisk $RAMDISK"
+fi
+
+python3 ../tools/mkbootimg.py \
+	--kernel out/Image.gz \
+	$RD_ARG \
+	--output out/shim-boot.img \
+	--base 0x00000000 \
+	--kernel_offset 0x00008000 \
+	--ramdisk_offset 0x02000000 \
+	--tags_offset 0x00000100 \
+	--pagesize 4096 \
+	--header_version 0 \
+	--cmdline "$CMDLINE"
+
+# Hand-over check. whyred's ABL refuses a single download over 6 MiB, and the
+# command line that decides which root is booted lives in the payload, not in
+# this header, so verify the image that will actually be flashed. 0173 was
+# handed over as an "iOS root" image that booted the ramdisk probe because the
+# payload still said rd=md0.
+img_size=$(wc -c < out/shim-boot.img)
+MAX_SIZE=$([ "$BOARD_LC" = "lavender" ] && echo 7340032 || echo 6291456)
+if [ "$img_size" -gt "$MAX_SIZE" ]; then
+	echo "error: out/shim-boot.img is $img_size bytes; $BOARD_LC's ABL limit is $MAX_SIZE" >&2
+	exit 1
+fi
+python3 ../tools/payload_cmdline.py --image out/shim-boot.img \
+	--require "rd=$ROOTDEV"
+python3 -c 'import hashlib,sys; d=open(sys.argv[1],"rb").read(); print("%s  %d bytes  sha256 %s" % (sys.argv[1], len(d), hashlib.sha256(d).hexdigest()))' out/shim-boot.img
+
+# Host render of the console layout
+$HOST_CC -O2 -Wall -I. $BOARD_DEFINE -o out/host_test console.c host_test.c && ./out/host_test
+
+# Host unit test for Mach-O segment unroller and boot_args
+$HOST_CC -O2 -Wall -I. -o out/loader_test loader_test.c loader.c && ./out/loader_test
+
+# Unit tests and patch checks
+HOST_CC="$HOST_CC" OUT_DIR="$PWD/out" bash ../tests/run_tests.sh
+
+ls -l out/Image out/shim-boot.img

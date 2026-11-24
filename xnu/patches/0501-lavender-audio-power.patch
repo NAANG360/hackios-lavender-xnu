@@ -1,0 +1,176 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index d104853..5eb4b07 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -1,7 +1,9 @@
+ /*
+- * lavender: audio platform probe, A0. Boot-arg gated, read only.
++ * lavender: audio platform probe, A0/A1. Boot-arg gated.
+  *
+- *   lavaud=1        run the probe
++ *   lavaud=1        run the read-only probe (A0)
++ *   lavaud=2        also power up the LPASS ADSP domain if the bootloader
++ *                   left it off, then read the Q6SS (A1)
+  *   lavauddelay=S   seconds to wait after boot before it (default 25), so the
+  *                   console ring flusher and the USB live log are up
+  *
+@@ -23,10 +25,12 @@
+  *     GLINK item ids, which are not SM6225's 429/443/478-480.
+  *   - what does the APCS IPC register (0x17911008) show for the ADSP bits?
+  *
+- * It READS ONLY. A clock-gated LPASS block is not touched: if the ADSP domain
+- * is off, the Q6SS, codec and SMMU sections are skipped instead of risking a
+- * bus hang. Every access is announced 2 s in advance so the log leaves the
+- * machine even if the access kills it.
++ * It READS ONLY at lavaud=1. A clock-gated LPASS block is not touched: if the
++ * ADSP domain is off, the Q6SS, codec and SMMU sections are skipped instead of
++ * risking a bus hang. lavaud=2 clears the LPASS ADSP GDSC's SW_COLLAPSE (after
++ * voting the LPASS SMMU clock) and re-reads the Q6SS; if the domain does not
++ * come on it is put back and the rest is skipped. Every access is announced
++ * 2 s in advance so the log leaves the machine even if the access kills it.
+  *
+  * Register meanings: Linux gcc-sdm660.c, subsys-pil-tz.c and pil-q6v5.c, the
+  * SDM660 DTB and the SMEM partition layout already used by the topaz port,
+@@ -149,6 +153,7 @@ struct smp2p_entry {
+ 
+ static vm_offset_t gcc, q6ss, smmu, codec, pinctrl, mclk, avtimer, smem, apcs;
+ static int lpass_on;
++static uint32_t audio_step;
+ static int audio_chan;
+ 
+ static inline uint32_t
+@@ -160,6 +165,13 @@ audio_rd(vm_offset_t base, uint32_t off)
+ 	return v;
+ }
+ 
++static void
++audio_wr(vm_offset_t base, uint32_t off, uint32_t val)
++{
++	*(volatile uint32_t *)(base + off) = val;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
+ static void
+ audio_wait(unsigned ms)
+ {
+@@ -194,6 +206,73 @@ audio_gcc(void)
+ 	printf("SWEET AUDIO: LPASS ADSP domain is %s\n", lpass_on ? "ON" : "OFF");
+ }
+ 
++static int
++audio_poll(vm_offset_t base, uint32_t off, uint32_t mask, uint32_t want,
++    unsigned ms)
++{
++	for (unsigned i = 0; i < ms; i++) {
++		if ((audio_rd(base, off) & mask) == want) {
++			return 0;
++		}
++		audio_wait(1);
++	}
++	return ETIMEDOUT;
++}
++
++/*
++ * A1: the LPASS ADSP power domain. The bootloader leaves it collapsed on some
++ * boots; the GCC GDSC is the only LPASS power control the AP owns (the LPASS
++ * internal clocks belong to the DSP). The SMMU vote clock is taken first
++ * because the LPASS register window is not usable without it. If the GDSC
++ * never reports PWR_ON, the collapse bit is put back and the caller skips
++ * every read of the block.
++ */
++static int
++audio_power_up(void)
++{
++	uint32_t v, gdscr;
++
++	if (lpass_on) {
++		printf("SWEET AUDIO: LPASS ADSP already on; nothing to write\n");
++		return 0;
++	}
++	audio_announce("power up the LPASS ADSP domain (lavaud>=2)");
++
++	v = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
++	printf("SWEET AUDIO: smmu cbcr before %08x\n", v);
++	if (v & CBCR_OFF) {
++		audio_wr(gcc, GCC_LPASS_SMMU_CBCR, v | CBCR_EN);
++		if (audio_poll(gcc, GCC_LPASS_SMMU_CBCR, CBCR_OFF, 0, 100)) {
++			v = audio_rd(gcc, GCC_LPASS_SMMU_CBCR);
++			printf("SWEET AUDIO: smmu cbcr still off %08x\n", v);
++			return EIO;
++		}
++	}
++	printf("SWEET AUDIO: smmu cbcr after %08x (on)\n",
++	    audio_rd(gcc, GCC_LPASS_SMMU_CBCR));
++
++	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
++	printf("SWEET AUDIO: adsp gdscr before %08x\n", gdscr);
++	if (!(gdscr & GDSC_PWR_ON) || (gdscr & GDSC_SW_COLLAPSE)) {
++		audio_wr(gcc, GCC_LPASS_ADSP_GDSCR, gdscr & ~GDSC_SW_COLLAPSE);
++		if (audio_poll(gcc, GCC_LPASS_ADSP_GDSCR, GDSC_PWR_ON,
++		    GDSC_PWR_ON, 200)) {
++			gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
++			printf("SWEET AUDIO: adsp gdscr after %08x (STILL OFF), "
++			    "putting the collapse back\n", gdscr);
++			audio_wr(gcc, GCC_LPASS_ADSP_GDSCR,
++			    gdscr | GDSC_SW_COLLAPSE);
++			return EIO;
++		}
++	}
++	gdscr = audio_rd(gcc, GCC_LPASS_ADSP_GDSCR);
++	lpass_on = ((gdscr & GDSC_PWR_ON) != 0) &&
++	    ((gdscr & GDSC_SW_COLLAPSE) == 0);
++	printf("SWEET AUDIO: adsp gdscr after %08x (%s)\n", gdscr,
++	    lpass_on ? "on" : "still off");
++	return lpass_on ? 0 : EIO;
++}
++
+ static void
+ audio_q6ss(void)
+ {
+@@ -424,7 +503,8 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	if (delay_s > 300) {
+ 		delay_s = 300;
+ 	}
+-	printf("SWEET AUDIO: A0 platform probe in %u s\n", delay_s);
++	printf("SWEET AUDIO: A0/A1 probe (lavaud=%u) in %u s\n", audio_step,
++	    delay_s);
+ 	audio_wait(delay_s * 1000);
+ 
+ 	gcc = ml_io_map(GCC_PA, GCC_SIZE);
+@@ -434,6 +514,10 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 	}
+ 	audio_gcc();
+ 
++	if (audio_step >= 2) {
++		(void)audio_power_up();
++	}
++
+ 	q6ss = ml_io_map(Q6SS_PA, Q6SS_SIZE);
+ 	if (q6ss != 0) {
+ 		audio_q6ss();
+@@ -475,21 +559,22 @@ lavender_audio_thread(__unused void *arg, __unused wait_result_t wr)
+ 		printf("SWEET AUDIO: APCS map failed\n");
+ 	}
+ 
+-	printf("SWEET AUDIO: A0 probe done\n");
++	printf("SWEET AUDIO: probe done (lavaud=%u)\n", audio_step);
+ }
+ 
+ int
+ lavender_audio_probe(void)
+ {
+ 	static int started;
+-	uint32_t on = 0;
++	uint32_t step = 0;
+ 	thread_t thread;
+ 
+ 	if (started ||
+-	    !PE_parse_boot_argn("lavaud", &on, sizeof(on)) || on == 0) {
++	    !PE_parse_boot_argn("lavaud", &step, sizeof(step)) || step == 0) {
+ 		return 0;
+ 	}
+ 	started = 1;
++	audio_step = step;
+ 	if (kernel_thread_start(lavender_audio_thread, NULL, &thread) ==
+ 	    KERN_SUCCESS) {
+ 		thread_deallocate(thread);

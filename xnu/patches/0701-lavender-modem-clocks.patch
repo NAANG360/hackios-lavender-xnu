@@ -1,0 +1,298 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+index 9754e87..3dad9b9 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -114,6 +114,7 @@ bsd/dev/santoni_sdhci.c			standard
+ bsd/dev/santoni_touch.c			standard
+ bsd/dev/lavender_gpu.c			standard
+ bsd/dev/lavender_wlan.c			standard
++bsd/dev/lavender_modem.c			standard
+ bsd/dev/sweet_rpmh.c			standard
+ bsd/dev/sweet_spmi.c			standard
+ bsd/dev/sweet_usb.c			standard
+diff --git a/bsd/dev/lavender_modem.c b/bsd/dev/lavender_modem.c
+new file mode 100644
+index 0000000..faa2f35
+--- /dev/null
++++ b/bsd/dev/lavender_modem.c
+@@ -0,0 +1,264 @@
++/*
++ * lavender: modem (MSS/QDSP6) bring-up, F1 step 1. Boot-arg gated.
++ *
++ *   sweetmodem=1       enable the MSS clocks and read QDSP6/RMB (no reset)
++ *   sweetmodemdelay=S  seconds to wait after boot before it (default 25)
++ *
++ * F0b (`lavender_wlan.c`) showed the ABL left mss_cfg_ahb (0x8a000) and
++ * mss_snoc_axi (0x8a03c) off, while mss_q6_bimc_axi (0x8a040) was on. F1
++ * needs the full active-clock set of the modem node:
++ *
++ *   iface_clk      gcc_mss_cfg_ahb_clk        0x8a000 bit0
++ *   bus_clk        gcc_bimc_mss_q6_axi_clk    0x4401c bit0
++ *   mem_clk        gcc_boot_rom_ahb_clk       vote 0x52004 bit10
++ *   gpll0_mss_clk  gpll0_out_msscc            0x5200c bit2
++ *   snoc_axi_clk   gcc_mss_snoc_axi_clk       0x8a03c bit0
++ *   mnoc_axi_clk   gcc_mss_mnoc_bimc_axi_clk  0x8a004 bit0
++ *
++ * The offsets and halt/enable bits are from Linux gcc-sdm660.c and the SDM660
++ * DTB clock list (behaviour reference, values only).
++ *
++ * This step WRITES only the GCC enables. It does not touch QDSP6/RMB control
++ * registers. Reading the two blocks afterwards answers "with the clocks on,
++ * is the modem already running, in reset, or in an error state?" before F1
++ * loads the MBA. The first read is announced and spaced 2 s, like the GPU
++ * ladder: a wrong access on this SoC can reset it without a word.
++ */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/errno.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++
++#define GCC_PA          0x00100000u
++#define GCC_SIZE        0x94000u
++#define QDSP6_PA        0x04080000u
++#define QDSP6_SIZE      0x00001000u
++#define RMB_PA          0x04180000u
++#define RMB_SIZE        0x00001000u
++
++/* GCC byte offsets from GCC_PA (gcc-sdm660.c) */
++#define GCC_MSS_CFG_AHB         0x8a000u
++#define GCC_MSS_MNOC_BIMC_AXI   0x8a004u
++#define GCC_MSS_SNOC_AXI        0x8a03cu
++#define GCC_MSS_Q6_BIMC_AXI     0x8a040u
++#define GCC_BIMC_MSS_Q6_AXI     0x4401cu
++#define GCC_BOOT_ROM_AHB_HALT   0x38004u
++#define GCC_BOOT_ROM_AHB_VOTE   0x52004u
++#define GCC_BOOT_ROM_AHB_BIT    (1u << 10)
++#define GCC_GPLL0_OUT_MSSCC     0x5200cu
++#define GCC_GPLL0_OUT_MSSCC_BIT (1u << 2)
++#define CBCR_EN                 (1u << 0)
++#define CBCR_OFF                (1u << 31)
++
++/* QDSP6SS (pil-q6v5.c) */
++#define Q6_RESET                0x014u
++#define Q6_GFMUX_CTL            0x020u
++#define Q6_PWR_CTL              0x030u
++#define Q6V6_MEM_PWR_CTL        0x034u
++#define Q6_BHS_STATUS           0x078u
++#define Q6V62_BHS_STATUS        0x0c4u
++#define Q6_XO_CBCR              0x038u
++#define Q6_STRAP_ACC            0x110u
++
++/* RMB (pil-msa.c) */
++#define RMB_MBA_IMAGE           0x00u
++#define RMB_PBL_STATUS          0x04u
++#define RMB_MBA_COMMAND         0x08u
++#define RMB_MBA_STATUS          0x0cu
++#define RMB_PMI_META_DATA       0x10u
++#define RMB_PMI_CODE_START      0x14u
++#define RMB_PMI_CODE_LENGTH     0x18u
++#define RMB_PROTOCOL_VERSION    0x1cu
++#define RMB_DEBUG               0x20u
++
++static vm_offset_t gcc, q6, rmb;
++static int modem_chan;
++
++static inline uint32_t
++mrd(vm_offset_t base, uint32_t off)
++{
++	uint32_t v = *(volatile uint32_t *)(base + off);
++	__asm__ volatile("dsb ld" ::: "memory");
++	return v;
++}
++
++static inline void
++mwr(vm_offset_t base, uint32_t off, uint32_t v)
++{
++	*(volatile uint32_t *)(base + off) = v;
++	__asm__ volatile("dsb osh" ::: "memory");
++}
++
++static void
++modem_wait(unsigned ms)
++{
++	uint64_t deadline;
++
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&modem_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++/* Announce, then give the log 2 s to leave the machine. */
++static void
++modem_announce(const char *what)
++{
++	printf("SWEET MODEM: about to %s\n", what);
++	modem_wait(2000);
++}
++
++/* Read a branch's halt bit until it clears; returns the last value. */
++static uint32_t
++modem_poll_off(uint32_t off, int n)
++{
++	uint32_t v = 0;
++
++	for (int i = 0; i < n; i++) {
++		v = mrd(gcc, off);
++		if (!(v & CBCR_OFF)) {
++			break;
++		}
++		modem_wait(10);
++	}
++	return v;
++}
++
++static void
++gcc_branch(const char *name, uint32_t off)
++{
++	uint32_t v = mrd(gcc, off);
++
++	printf("SWEET MODEM: gcc %s before %08x\n", name, v);
++	if (!(v & CBCR_EN)) {
++		mwr(gcc, off, v | CBCR_EN);
++	}
++	v = modem_poll_off(off, 100);
++	printf("SWEET MODEM: gcc %s after %08x (%s)\n", name, v,
++	    (v & CBCR_OFF) ? "STILL OFF" : "on");
++}
++
++static void
++modem_clocks(void)
++{
++	uint32_t v;
++
++	modem_announce("enable the MSS clocks (GCC writes)");
++	gcc_branch("mss_cfg_ahb", GCC_MSS_CFG_AHB);
++	gcc_branch("bimc_mss_q6_axi", GCC_BIMC_MSS_Q6_AXI);
++
++	/* boot_rom_ahb is a voted branch: enable bit at 0x52004 bit10. */
++	v = mrd(gcc, GCC_BOOT_ROM_AHB_VOTE);
++	printf("SWEET MODEM: gcc boot_rom vote before %08x (halt %08x)\n", v,
++	    mrd(gcc, GCC_BOOT_ROM_AHB_HALT));
++	mwr(gcc, GCC_BOOT_ROM_AHB_VOTE, v | GCC_BOOT_ROM_AHB_BIT);
++	v = modem_poll_off(GCC_BOOT_ROM_AHB_HALT, 100);
++	printf("SWEET MODEM: gcc boot_rom vote after %08x (halt %08x, %s)\n",
++	    mrd(gcc, GCC_BOOT_ROM_AHB_VOTE), v,
++	    (v & CBCR_OFF) ? "STILL OFF" : "on");
++
++	/* gpll0_out_msscc is a gate2: no halt register, only the enable bit. */
++	v = mrd(gcc, GCC_GPLL0_OUT_MSSCC);
++	printf("SWEET MODEM: gcc gpll0_out_msscc before %08x\n", v);
++	mwr(gcc, GCC_GPLL0_OUT_MSSCC, v | GCC_GPLL0_OUT_MSSCC_BIT);
++	printf("SWEET MODEM: gcc gpll0_out_msscc after %08x\n",
++	    mrd(gcc, GCC_GPLL0_OUT_MSSCC));
++
++	gcc_branch("mss_snoc_axi", GCC_MSS_SNOC_AXI);
++	gcc_branch("mss_mnoc_bimc_axi", GCC_MSS_MNOC_BIMC_AXI);
++	/* Not in the DT clock list, but F0b saw it enabled by the ABL. */
++	printf("SWEET MODEM: gcc mss_q6_bimc_axi (reference) %08x\n",
++	    mrd(gcc, GCC_MSS_Q6_BIMC_AXI));
++}
++
++static void
++modem_dump_q6(void)
++{
++	modem_announce("read the QDSP6 and RMB blocks (clocks are on)");
++	printf("SWEET MODEM: Q6 reset %08x gfmux %08x pwr %08x mem_pwr %08x\n",
++	    mrd(q6, Q6_RESET), mrd(q6, Q6_GFMUX_CTL), mrd(q6, Q6_PWR_CTL),
++	    mrd(q6, Q6V6_MEM_PWR_CTL));
++	printf("SWEET MODEM: Q6 bhs %08x bhs62 %08x xo_cbcr %08x strap_acc "
++	    "%08x\n", mrd(q6, Q6_BHS_STATUS), mrd(q6, Q6V62_BHS_STATUS),
++	    mrd(q6, Q6_XO_CBCR), mrd(q6, Q6_STRAP_ACC));
++	printf("SWEET MODEM: RMB image %08x pbl %08x cmd %08x status %08x\n",
++	    mrd(rmb, RMB_MBA_IMAGE), mrd(rmb, RMB_PBL_STATUS),
++	    mrd(rmb, RMB_MBA_COMMAND), mrd(rmb, RMB_MBA_STATUS));
++	printf("SWEET MODEM: RMB meta %08x code_start %08x code_len %08x "
++	    "proto %08x debug %08x\n", mrd(rmb, RMB_PMI_META_DATA),
++	    mrd(rmb, RMB_PMI_CODE_START), mrd(rmb, RMB_PMI_CODE_LENGTH),
++	    mrd(rmb, RMB_PROTOCOL_VERSION), mrd(rmb, RMB_DEBUG));
++}
++
++static void
++lavender_modem_thread(__unused void *arg, __unused wait_result_t wr_)
++{
++	uint32_t step = 0, delay_s = 25;
++
++	(void)PE_parse_boot_argn("sweetmodem", &step, sizeof(step));
++	(void)PE_parse_boot_argn("sweetmodemdelay", &delay_s, sizeof(delay_s));
++	if (delay_s > 300) {
++		delay_s = 300;
++	}
++	printf("SWEET MODEM: F1 step %u in %u s\n", step, delay_s);
++	modem_wait(delay_s * 1000);
++
++	gcc = ml_io_map(GCC_PA, GCC_SIZE);
++	if (gcc == 0) {
++		printf("SWEET MODEM: GCC map failed\n");
++		return;
++	}
++	modem_clocks();
++
++	if (step < 1) {
++		printf("SWEET MODEM: step %u does nothing\n", step);
++		return;
++	}
++	q6 = ml_io_map(QDSP6_PA, QDSP6_SIZE);
++	rmb = ml_io_map(RMB_PA, RMB_SIZE);
++	if (q6 == 0 || rmb == 0) {
++		printf("SWEET MODEM: QDSP6/RMB map failed (q6 %p rmb %p)\n",
++		    (void *)q6, (void *)rmb);
++		return;
++	}
++	modem_dump_q6();
++	printf("SWEET MODEM: step 1 done (no reset, no firmware loaded)\n");
++}
++
++int
++lavender_modem_probe(void)
++{
++	static int started;
++	uint32_t step = 0;
++	thread_t thread;
++
++	if (started ||
++	    !PE_parse_boot_argn("sweetmodem", &step, sizeof(step)) ||
++	    step == 0) {
++		return 0;
++	}
++	started = 1;
++	if (kernel_thread_start(lavender_modem_thread, NULL, &thread) ==
++	    KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++	return 0;
++}
++
++#else /* !ARM64_BOARD_CONFIG_LAVENDER */
++
++int lavender_modem_probe(void);
++int
++lavender_modem_probe(void)
++{
++	return 0;
++}
++
++#endif
+diff --git a/bsd/dev/santoni_sdhci.c b/bsd/dev/santoni_sdhci.c
+index 2b2fcd2..cee3bc0 100644
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -5029,6 +5029,11 @@ santoni_sdhci_init(void)
+ 		extern int lavender_wlan_probe(void);
+ 		(void)lavender_wlan_probe();
+ 	}
++	/* 0244: boot-arg sweetmodem=N, MSS clocks and QDSP6/RMB state. */
++	{
++		extern int lavender_modem_probe(void);
++		(void)lavender_modem_probe();
++	}
+ #endif
+ 	return 0;
+ }

@@ -1,0 +1,50 @@
+From: port_ios lavender
+Subject: [PATCH 0216] lavender: calendar base from sweetrtc (no RTC driver yet)
+
+The PM660 RTC is not read by the port, PEGetUTCTimeOfDay() answers 0 and
+clock_initialize_calendar() turns that into 1970-01-01, which is why the
+lock screen shows 1969-12-31 16:00 PST plus uptime and why every file the
+system creates carries a 1970 timestamp (PosterBoard's data store compares
+those dates). The shim already knows the wall clock when it is packed:
+build it with EXTRA_CMDLINE containing sweetrtc=$(date +%s). When the
+platform clock answers 0, use that value as the calendar base and log it.
+A working platform clock (PMIC RTC driver, later) still wins over the arg.
+
+diff --git a/osfmk/kern/clock.c b/osfmk/kern/clock.c
+--- a/osfmk/kern/clock.c
++++ b/osfmk/kern/clock.c
+@@ -85,6 +85,9 @@
+ #include <sys/timex.h>
+ #include <kern/arithmetic_128.h>
+ #include <os/log.h>
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#include <pexpert/pexpert.h>
++#endif
+ 
+ #if HIBERNATION && HAS_CONTINUOUS_HWCLOCK
+ // On ARM64, the hwclock keeps ticking across a normal S2R so we use it to reset the
+@@ -1050,6 +1053,24 @@
+ #endif /* ENABLE_LEGACY_CLOCK_CODE */
+ 	//Get the UTC time and corresponding sys time
+ 	PEGetUTCTimeOfDay(&secs, &microsecs);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/*
++	 * 0214: the port has no RTC driver yet (the PM660 RTC is not read), so
++	 * the platform clock answers 0 and iOS starts at 1970-01-01. The shim
++	 * passes the time it was built with as sweetrtc=<unix seconds>; use it
++	 * as the calendar base so the lock screen clock shows a real date and
++	 * advances with the system time. Only replaces a zero reading: a real
++	 * platform clock, when one exists, still wins.
++	 */
++	if (secs == 0) {
++		uint32_t rtc = 0;
++		if (PE_parse_boot_argn("sweetrtc", &rtc, sizeof(rtc)) && rtc != 0) {
++			secs = (clock_sec_t)rtc;
++			microsecs = 0;
++			printf("SWEET RTC: calendar base %u s (sweetrtc)\n", rtc);
++		}
++	}
++#endif /* ARM64_BOARD_CONFIG_LAVENDER */
+ 	clock_get_system_microtime(&sys, &microsys);
+ 
+ #if ENABLE_LEGACY_CLOCK_CODE

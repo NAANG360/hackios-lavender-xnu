@@ -1,0 +1,12 @@
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -82,6 +82,6 @@
+ #define WHYRED_IRQ		67
+ 
+-#define TOUCH_I2C_DELAY_US	5	/* half a bit, ~100 kHz: the internal
+-					 * pull-up still sets the edge rate */
++#define TOUCH_I2C_DELAY_US	10	/* half a bit, ~50 kHz: the long
++					 * 65-byte read is reliable here */
+ 
+ static inline uint32_t

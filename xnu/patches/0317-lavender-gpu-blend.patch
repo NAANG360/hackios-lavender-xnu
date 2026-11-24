@@ -1,0 +1,116 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 4a6913c..4ee864b 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1911,6 +1911,8 @@ step20_blit_fill(void)
+ #define D_BYTES (D_PITCH * D_H)
+ #define D_COLOUR 0xff9933ffu	/* R 1.0, G 0.2, B 0.6, A 1.0 as RGBA8 */
+ #define D_SENTINEL 0xdeadbeefu
++#define D_DST 0xff208040u	/* blend test background: R 0x40, G 0x80, B 0x20, A 0xff */
++#define D_BLENDED 0x805d599fu	/* D_COLOUR with alpha 0.5, SRC_ALPHA/ONE_MINUS_SRC_ALPHA over D_DST; alpha ONE/ZERO -> 0.5 */
+ 
+ static int
+ chan_ok(uint32_t got, uint32_t want)
+@@ -2001,8 +2003,12 @@ step21_draw(int mode)
+ 	const uint32_t texel_want = 0xff905077u;	/* texel (2,1) of the 4x4 texture */
+ 	const bool dbg = mode == 3;	/* colour = the interpolated (u, v), no texture */
+ 	const bool tex = mode == 1 || mode == 2;
+-	const bool vary = mode >= 2;
+-	const uint32_t want = tex ? texel_want : D_COLOUR;
++	const bool blend = mode >= 4;	/* flat colour with alpha 0.5 blended over D_DST: 4 SRC_ALPHA/1-SRC_ALPHA, 5 ONE/ZERO, 6 ONE/ONE */
++	const uint32_t blend_ctl = mode == 4 ? 0x00010706u : mode == 5 ? 0x00010001u : 0x00010101u;
++	const uint32_t blend_want = mode == 4 ? D_BLENDED : mode == 5 ? 0x809933ffu : 0x80b9b3ffu;
++	const bool vary = mode >= 2 && mode <= 3;
++	const uint32_t fill = blend ? D_DST : D_SENTINEL;
++	const uint32_t want = blend ? blend_want : tex ? texel_want : D_COLOUR;
+ 	uint32_t bad_want = 0;
+ 
+ 	if (ring_va == 0 || ring_pa == 0) {
+@@ -2067,7 +2073,7 @@ step21_draw(int mode)
+ 		shader_mov(&fs[0], 0, 0x3f800000u);
+ 		shader_mov(&fs[2], 1, 0x3e4ccccdu);
+ 		shader_mov(&fs[4], 2, 0x3f19999au);
+-		shader_mov(&fs[6], 3, 0x3f800000u);
++		shader_mov(&fs[6], 3, blend ? 0x3f000000u : 0x3f800000u);
+ 		shader_store_tail(fs, 8, pa + 0x7040, 0xf5f50001u);
+ 	}
+ 	for (int i = 0; i < 3; i++) {
+@@ -2084,7 +2090,7 @@ step21_draw(int mode)
+ 		}
+ 	}
+ 	for (uint32_t i = 0; i < D_W * D_H; i++) {
+-		rt[i] = D_SENTINEL;
++		rt[i] = fill;
+ 	}
+ 	flush_dcache64((addr64_t)vs_pa, 0x1000, TRUE);
+ 	flush_dcache64((addr64_t)fs_pa, 0x1000, TRUE);
+@@ -2236,13 +2242,13 @@ step21_draw(int mode)
+ 	ring_reg(0xe006u, 0);					/* GRAS_CL_GUARDBAND_CLIP_ADJ */
+ 	ring_reg(0xe146u, 1);					/* RB_FS_OUTPUT_CNTL: MRT 1 */
+ 	ring_reg(0xe5cau, 1u | (0xfcu << 5) | (0xfcu << 13));	/* SP_FS_OUTPUT_CNTL */
+-	ring_reg(0xe150u, (3u << 3) | (0xfu << 7));		/* RB_MRT_CONTROL(0): ROP_COPY, all comps */
+-	ring_reg(0xe151u, 0x10001u);				/* RB_MRT_BLEND_CONTROL(0): src ONE, dst ZERO */
+-	ring_reg(0xe5c9u, 0x100);				/* SP_BLEND_CNTL */
++	ring_reg(0xe150u, (3u << 3) | (0xfu << 7) | (blend ? 3u : 0));		/* RB_MRT_CONTROL(0): ROP_COPY, all comps */
++	ring_reg(0xe151u, blend ? blend_ctl : 0x10001u);				/* RB_MRT_BLEND_CONTROL(0): src ONE, dst ZERO */
++	ring_reg(0xe5c9u, 0x100u | (blend ? 1u : 0));				/* SP_BLEND_CNTL */
+ 	if (draw_mark("state")) {
+ 		return;
+ 	}
+-	ring_reg(0xe1a9u, 0xffff0100u);				/* RB_BLEND_CNTL: sample mask, independent */
++	ring_reg(0xe1a9u, 0xffff0100u | (blend ? 1u : 0));				/* RB_BLEND_CNTL: sample mask, independent */
+ 	/* fd5_program_emit: VS in the SP, one output (the position), FS writes r0 */
+ 	ring_pkt4(0xe78bu, 5);					/* HLSQ_VS/FS/HS/DS/GS_CONFIG */
+ 	ring_put(1);
+@@ -2409,7 +2415,7 @@ step21_draw(int mode)
+ 		printf("LAVGPU: draw variant %d: RB_RENDER_CNTL %x GRAS_SC_CNTL %x\n", var,
+ 		    rc_var[var], sc_var[var]);
+ 		for (uint32_t i = 0; i < D_W * D_H; i++) {
+-			rt[i] = D_SENTINEL;
++			rt[i] = fill;
+ 		}
+ 		flush_dcache64((addr64_t)rt_pa, D_BYTES, TRUE);
+ 		*(volatile uint32_t *)(va + 0x7000) = 0;
+@@ -2486,7 +2492,7 @@ step21_draw(int mode)
+ 				}
+ 				if (inside) {
+ 					in_n++;
+-					if (dbg ? chan_tol(got, pw, 5) : chan_ok(got, pw)) {
++					if (dbg ? chan_tol(got, pw, 5) : blend ? chan_tol(got, pw, 3) : chan_ok(got, pw)) {
+ 						in_ok++;
+ 					} else if (first_bad == 0xffffffffu) {
+ 						first_bad = y * D_W + x;
+@@ -2494,7 +2500,7 @@ step21_draw(int mode)
+ 					}
+ 				} else if (outside) {
+ 					out_n++;
+-					out_ok += got == D_SENTINEL;
++					out_ok += got == fill;
+ 				}
+ 			}
+ 		}
+@@ -2510,7 +2516,7 @@ step21_draw(int mode)
+ 		{
+ 			uint32_t changed = 0, first = 0xffffffffu;
+ 			for (uint32_t i = 0; i < D_W * D_H; i++) {
+-				if (rt[i] != D_SENTINEL) {
++				if (rt[i] != fill) {
+ 					changed++;
+ 					if (first == 0xffffffffu) {
+ 						first = i;
+@@ -2616,9 +2622,14 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step == 23) {
+ 		step21_draw(2);
+ 	}
+-	if (step >= 24) {
++	if (step == 24) {
+ 		step21_draw(3);
+ 	}
++	if (step >= 25) {
++		step21_draw(4);
++		step21_draw(5);
++		step21_draw(6);
++	}
+ 	if (step == 17) {
+ 		step13_compute(4);	/* 64 threads: probe the local id */
+ 		step13_compute(5);	/* 64 threads: out[tid] = in[tid] + K */

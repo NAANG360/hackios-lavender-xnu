@@ -1,0 +1,60 @@
+diff --git a/bsd/dev/santoni_sdhci.c b/bsd/dev/santoni_sdhci.c
+--- a/bsd/dev/santoni_sdhci.c
++++ b/bsd/dev/santoni_sdhci.c
+@@ -63,5 +63,5 @@
+ static void santoni_log_start(void);
+ static void santoni_fb_test(void);
+-#if defined(ARM64_BOARD_CONFIG_WHYRED)
++#if defined(ARM64_BOARD_CONFIG_WHYRED) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ extern int santoni_touch_probe(void);
+ #endif
+@@ -4599,7 +4600,7 @@ santoni_sdhci_init(void)
+ 	santoni_log_start();
+ 	/* After the log: the WHYRED FB lines belong in the SYSTEM ring. */
+ 	santoni_fb_test();
+-#if defined(ARM64_BOARD_CONFIG_WHYRED)
++#if defined(ARM64_BOARD_CONFIG_WHYRED) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 	/* Boot-arg sweetouchi2c=1: does the touch controller answer at all? */
+ 	santoni_touch_probe();
+ #endif
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -44,12 +44,12 @@
+  * The probe is read-mostly on purpose: with no reset pulse it does not touch
+  * GPIO 66/67 at all, so the log still describes the state ABL handed over.
+  */
+ /* The shared entry point also builds as an unsupported-board stub. */
+ #include <sys/errno.h>
+ 
+ int santoni_touch_probe(void);
+ 
+-#if defined(ARM64_BOARD_CONFIG_WHYRED)
++#if defined(ARM64_BOARD_CONFIG_WHYRED) || defined(ARM64_BOARD_CONFIG_LAVENDER)
+ 
+ #include <sys/param.h>
+ #include <sys/systm.h>
+@@ -706,7 +706,11 @@ panel_code(int acks, uint8_t first)
+ #define WHYRED_FB_PHYS		0x9d400000ULL
+ #define WHYRED_FB_WIDTH		1080u
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#define WHYRED_FB_HEIGHT	2340u
++#else
+ #define WHYRED_FB_HEIGHT	2160u
++#endif
+ #define WHYRED_FB_STRIDE	4320u	/* bytes, 32 bpp */
+ 
+ static uint32_t
+ panel_code(int acks, uint8_t first)
+@@ -928,9 +928,9 @@ santoni_touch_probe(void)
+-#else /* !ARM64_BOARD_CONFIG_WHYRED */
++#else /* !ARM64_BOARD_CONFIG_WHYRED && !ARM64_BOARD_CONFIG_LAVENDER */
+ 
+ int
+ santoni_touch_probe(void)
+ {
+ 	return ENXIO;
+ }
+ 
+-#endif /* ARM64_BOARD_CONFIG_WHYRED */
++#endif /* ARM64_BOARD_CONFIG_WHYRED || ARM64_BOARD_CONFIG_LAVENDER */

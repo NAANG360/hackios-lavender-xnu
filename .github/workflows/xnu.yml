@@ -1,0 +1,552 @@
+name: xnu
+
+on:
+  workflow_dispatch:
+    inputs:
+      macos_version:
+        description: macOS release whose xnu to build (13.5 = xnu-8796, iOS 16 era)
+        default: "13.5"
+      kernel_config:
+        description: RELEASE / DEVELOPMENT / DEBUG
+        default: DEVELOPMENT
+      machine_config:
+        description: xnu MACHINE_CONFIG (LAVENDER for this repository; WHYRED kept for the shared packer)
+        default: LAVENDER
+      keep_going:
+        description: make -k (collect all compile errors in one run)
+        default: "true"
+      build_mode:
+        description: both / normal (no log capture) / log (ring + page dumps)
+        type: choice
+        options:
+          - both
+          - normal
+          - log
+        default: both
+      panel_console:
+        description: text (console drawn over the GUI) / hidden (sweetfb_noconsole=1)
+        type: choice
+        options:
+          - text
+          - hidden
+        default: text
+      fb_test_pattern:
+        description: on (four colour bars prove the panel scans out) / off (clean panel)
+        type: choice
+        options:
+          - "off"
+          - "on"
+        default: "off"
+  push:
+    branches: [main]
+    paths:
+      - "xnu/patches/**"
+      - "resources/**"
+      - ".github/workflows/xnu.yml"
+      # the host tests and patch checks gate the build: a change there must run
+      - "tests/**"
+      - "drivers/**"
+      - "shim/**"
+      - "tools/**"
+
+
+concurrency:
+  group: xnu-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DXB_REPO: https://github.com/blacktop/darwin-xnu-build
+  DXB_SHA: 663906528d1cd5ea8fde7de6f16de73db9511549
+  MACOS_VERSION: ${{ inputs.macos_version || '13.5' }}
+  KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
+  # lavender-ios16: every push builds the Redmi Note 7 kernel.
+  MACHINE_CONFIG: ${{ inputs.machine_config || 'LAVENDER' }}
+  # ccache: xnu is ~2000 compiles; a patch usually changes a few of them
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_COMPILERCHECK: content
+  CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime,file_macro,pch_defines
+  CCACHE_MAXSIZE: 3G
+  CCACHE_WRAP: ${{ github.workspace }}/ccache-bin
+
+jobs:
+  # lavender-ios16: the USB/keys drivers (0200/0201) on simulated registers.
+  # Linux only: the mocks stand in for XNU headers and are built against
+  # glibc, not the macOS SDK. Cheap, so it gates the macOS build.
+  host-tests:
+    name: host tests (USB/keys)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: USB/keys drivers on simulated registers
+        run: |
+          set -o pipefail
+          clang --version | head -1
+          bash tests/host/prepare-tree.sh "$RUNNER_TEMP/lavender-tree"
+          OUT_DIR="$RUNNER_TEMP/host-out" bash tests/host/run.sh "$RUNNER_TEMP/lavender-tree"
+
+  build:
+    needs: host-tests
+    # macos-14 still ships Xcode 15.x: its iig matches the xnu-8796 IORPC ABI
+    # (Xcode 16's iig emits IORPC.kernelContent, which this xnu lacks)
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host tests and patch validation
+        run: |
+          # Unified-diff structure of every patch (a corrupt hunk made CI drop
+          # 0143/0144) plus the three phase 4 host tests: SDHCI mock, hardened
+          # GPT with the SYSTEM log fence, and the console log ring.
+          #
+          # Republish the tail as ::error:: annotations: job logs need a
+          # token, but the annotations of a failed check are public, so a
+          # macOS-only failure can still be read back without one.
+          set -o pipefail
+          if ! bash tests/run_tests.sh 2>&1 | tee /tmp/host-tests.log; then
+            tail -25 /tmp/host-tests.log | while IFS= read -r line; do
+              printf '::error::%s\n' "${line//'%'/'%25'}"
+            done
+            exit 1
+          fi
+
+      - name: Fetch build script
+        run: |
+          git init -q dxb
+          git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
+          git -C dxb checkout -q FETCH_HEAD
+          # 12.5-14.3 use the top-level patches dir; ours go next to blacktop's
+          cp xnu/patches/*.patch xnu/patches/*.sh dxb/patches/
+          # libfirehose_kernel is built arm64e-only; the SWEET kernel is plain arm64.
+          # topaz: Cortex-A53/A73 (ARMv8.0), so the same -mcpu as the kernel
+          # (clang's apple-m1 default emits LSE atomics and LDAPR)
+          sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="arm64" VALID_ARCHS="arm64" OTHER_CFLAGS="-mkernel -nostdinc -Wno-packed -mcpu=cortex-a53"/' dxb/build.sh
+          grep -c 'OTHER_CFLAGS="-mkernel -nostdinc -Wno-packed -mcpu=cortex-a53"' dxb/build.sh
+          # xnu's makedefs take CC/CXX from the environment dxb exports; xcodebuild
+          # (mig, ctf tools) needs a single executable, so point at wrappers
+          sed -i '' 's|export CC="$(xcrun -find clang)"|export CC="$CCACHE_WRAP/clang"|; s|export CXX="$(xcrun -find clang++)"|export CXX="$CCACHE_WRAP/clang++"|' dxb/build.sh
+          grep -c 'export CC="$CCACHE_WRAP/clang"' dxb/build.sh
+          ls dxb/patches
+
+      - name: Deps
+        run: |
+          brew install jq gum bash cmake ninja ccache
+          # build.sh only checks that xcodes exists (Xcode is preinstalled); no bottle on macOS 14
+          printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
+          sudo chmod +x /usr/local/bin/xcodes
+          sw_vers
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_*.app | sort -V | head -1)
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+          xcrun --find iig
+          mkdir -p "$CCACHE_WRAP"
+          for t in clang clang++; do
+            printf '#!/bin/sh\nexec ccache %s "$@"\n' "$(xcrun -find $t)" > "$CCACHE_WRAP/$t"
+            chmod +x "$CCACHE_WRAP/$t"
+          done
+          cat "$CCACHE_WRAP/clang"
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ env.MACHINE_CONFIG }}-${{ env.KERNEL_CONFIG }}-${{ hashFiles('xnu/patches/**', '.github/workflows/xnu.yml') }}
+          restore-keys: |
+            ccache-${{ env.MACHINE_CONFIG }}-${{ env.KERNEL_CONFIG }}-
+
+      - name: Build
+        working-directory: dxb
+        env:
+          # keep going after errors so one run reports every compile failure
+          MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
+        run: |
+          set -o pipefail
+          ccache -z
+          bash build.sh 2>&1 | tee ../build.log
+          ccache -s
+
+      - name: Republish build errors
+        if: failure()
+        run: |
+          # Job logs need a token; the annotations of a failed check are
+          # public. The dxb build warns about its own patches (TrustCache,
+          # skywalk_sonoma, ...) on every run; those are not this build's
+          # errors. Keep only real compiler/linker errors.
+          if [ ! -f build.log ]; then
+            echo "::error::no build.log (build never started)"
+            exit 0
+          fi
+          grep -nE 'error:|fatal error:|ld: |Undefined symbols|undefined symbol' build.log \
+            | grep -vE 'Skipping patch|patch does not apply|already exists in working directory|patch failed|dxb/patches' \
+            | tail -9 | cut -c1-400 > /tmp/build-errors.txt || true
+          while IFS= read -r line; do
+            printf '::error::%s\n' "${line//'%'/'%25'}"
+          done < /tmp/build-errors.txt
+
+      - name: Republish build log tail
+        if: failure()
+        run: |
+          if [ ! -f build.log ]; then
+            exit 0
+          fi
+          tail -8 build.log | cut -c1-400 | while IFS= read -r line; do
+            printf '::error::%s\n' "${line//'%'/'%25'}"
+          done
+
+      - name: Fail if a storage or board patch was skipped
+        if: always()
+        run: |
+          # dxb applies patches with `git apply --check` and only warns on
+          # failure, so a malformed hunk silently ships a kernel without that
+          # feature. Make it fatal.
+          if [ ! -f build.log ]; then
+            echo "no build.log (build never started)"; exit 0
+          fi
+          if grep -E 'Skipping patch .*(014[2345689]|015[0-9]|016[0-9]|017[0-9]|018[0-9]|019[0-9]|02[0-9][0-9]|07[0-9][0-9])-' build.log; then
+            echo "::error::a critical patch was skipped by the build"
+            exit 1
+          fi
+          echo "no critical patch skipped"
+
+      - name: Package build tree for local compiles
+        if: always()
+        run: |
+          if [ ! -d dxb/xnu ] || [ ! -d dxb/build/xnu.obj ]; then
+            echo "no kernel build tree was created"
+            exit 0
+          fi
+          # Generated headers, config option headers, mig output and the patched
+          # source: enough to re-run any single compile command from the log locally.
+          SDK=$(xcrun --sdk macosx --show-sdk-path)
+          mkdir -p sdk-kernel-platform
+          cp -R "$SDK/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform" sdk-kernel-platform/ || true
+          tar czf buildtree.tgz \
+            --exclude='*.o' --exclude='*.cpo' --exclude='*.a' --exclude='*.dSYM' --exclude='*.unstripped' \
+            --exclude='kernel.development.*' --exclude='.git' \
+            -C dxb build/xnu.obj fakeroot/usr/local/include xnu \
+            -C .. sdk-kernel-platform
+          ls -la buildtree.tgz
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xnu-buildtree
+          path: buildtree.tgz
+          retention-days: 7
+
+      - name: Inspect closed KDK support libs
+        if: always()
+        run: |
+          mkdir -p out/kdk-libs
+          shopt -s nullglob
+          for lib in /Library/Developer/KDKs/*/System/Library/KernelSupport/lib*.a; do
+            b=$(basename "$lib" .a)
+            ar t "$lib" > "out/kdk-libs/$b.members.txt" 2>&1 || true
+            nm -m "$lib" > "out/kdk-libs/$b.nm.txt" 2>&1 || true
+            lipo -info "$lib" >> out/kdk-libs/arch.txt 2>&1 || true
+          done
+          ls -la out/kdk-libs
+
+      - name: Collect
+        if: always()
+        run: |
+          mkdir -p out
+          cp -R dxb/fakeroot/System/Library/Kernels/. out/ 2>/dev/null || true
+          ls -la out
+          (cd out && shasum -a 256 kernel.* > SHA256SUMS) || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xnu-kernel
+          path: out/
+          if-no-files-found: warn
+
+  # Second zip of a completed build: the flashable boot image. The kernel
+  # artifact cannot be downloaded without a token, and packing the shim by hand
+  # needs a Linux toolchain, so every build publishes the ready-to-flash
+  # shim-boot.img next to the kernel.
+  package:
+    name: boot image
+    needs: build
+    # This legacy shim packer uses Whyred's panel, DTB and image policy.
+    # Lavender's UniXNU payload/firmware are assembled by the consuming port.
+    if: ${{ (inputs.machine_config || 'LAVENDER') == 'WHYRED' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: xnu-kernel
+          path: xnu/out
+
+      - name: Install packaging toolchain
+        # A slow apt mirror once left this step running for 16 minutes. Keep
+        # the exact package set of the last green build (trimming it to
+        # binutils-only made the packaging step fail with exit 127), add apt
+        # retries, and cap the step so a bad mirror fails fast.
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -qq -o Acquire::Retries=3
+          sudo apt-get install -y -qq clang lld gcc-aarch64-linux-gnu zopfli
+          clang --version | head -1
+          ld.lld --version | head -1
+          aarch64-linux-gnu-objcopy --version | head -1
+          zopfli --version
+
+      - name: Build the boot image
+        env:
+          BOARD: whyred
+          CC: clang
+          LD: ld.lld
+          OBJCOPY: aarch64-linux-gnu-objcopy
+          READELF: aarch64-linux-gnu-readelf
+          NM: aarch64-linux-gnu-nm
+          HOST_CC: clang
+          NO_DUMMY_RAMDISK: "1"
+          # Root from the HFS+ (HFSX) volume staged in userdata, with writes
+          # enabled so HFS+ can replay its journal and mount read-write.
+          ROOTDEV: emmcroot0
+          # The two command lines live in the run block: this job publishes a
+          # fast image and a diagnostic one from the same kernel.
+        run: |
+          set -euo pipefail
+          KERNEL=xnu/out/kernel.development.whyred
+          test -f "$KERNEL" || { echo "::error::no whyred kernel in the artifact"; ls -lR xnu/out; exit 1; }
+          test -f resources/whyred_dtb.bin || { echo "::error::resources/whyred_dtb.bin missing"; exit 1; }
+          (cd xnu/out && sha256sum -c SHA256SUMS)
+
+          # Common switches. cs_enforcement_disable=1 is XNU's own switch
+          # (kern_cs.c cs_init) that stops the kernel from killing tasks for an
+          # unsealed root; debug= is already in the command line, so
+          # PE_i_can_has_debugger() is true.
+          #
+          # unentitled_ios_sim_launch=1 is required because this is an
+          # XNU_TARGET_OS_OSX kernel running an iOS userland: process_signature()
+          # refuses PLATFORM_IOS binaries unless the spawn carries the platform
+          # or this DEVELOPMENT tunable is set (EXEC_EXIT_REASON_WRONG_PLATFORM,
+          # namespace 9 code 0xe - the exact reason launchd died with).
+          # launchd_cache_loader looks for the AMFI IOKit service and aborts
+          # ("Unable to find AMFI", OS_REASON namespace 7 subcode 1) because
+          # this kernel only implements the AMFI MAC policy, not the service.
+          # The iOS 16 binary has launchd_unsecure_cache= for exactly this
+          # bring-up case: it skips the signature push and the AMFI lookup.
+          #
+          # Normal mode is quiet on purpose: no console ring, no cs_debug
+          # page dumps, no kprintf spam. Log mode adds all three.
+          # sweetlog=1 keeps the 4 MiB console ring on SYSTEM: the serial
+          # scrollback only reaches the tail (launchd respawn loop), and the
+          # backboardd/SpringBoard lines are at the start. Pull it from
+          # recovery with tools/sweet-log-pull.sh.
+          #
+          # sweetfbtest=1 draws four colour bars into the boot framebuffer
+          # once, early in BSD init. They were the only proof that MDSS still
+          # scans the ABL splash out; now that the lock screen is on the panel
+          # they are just visual noise, so the workflow default is off.
+          # Set fb_test_pattern=on to bring the scanout probe back.
+          #
+          # The normal image also carries the display profile of the lavender
+          # image that reached the lockscreen: sweetfb_stayon=1 and
+          # sweetfb_hz=60 (both parsed by this kernel). disable_kprintf_output
+          # comes from that same command line; it is inert here - this kernel
+          # has no boot-arg of that name - and is kept only so the line
+          # matches the one known to boot.
+          COMMON="emmcrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1"
+          FB_TEST="${{ inputs.fb_test_pattern || 'off' }}"
+          FB_ARG=""
+          FB_VERIFY="--reject sweetfbtest=1"
+          if [ "$FB_TEST" = "on" ]; then
+            FB_ARG="sweetfbtest=1"
+            FB_VERIFY="--require sweetfbtest=1"
+          fi
+          COMMON="$COMMON launchd_unsecure_cache=1 $FB_ARG"
+          # Log mode: sweetlog=1 records every console character to the 4 MiB
+          # ring on SYSTEM, cs_debug=2 prints the CD dump and the per-blob
+          # line for every validated page (megabytes), and
+          # -enable_kprintf_spam adds the rest. At 115200 baud that is the
+          # biggest single cost in boot time, so none of it is in the normal
+          # image.
+          DIAG="sweetlog=1 cs_debug=2"
+          SPAM="-enable_kprintf_spam"
+          # Manual runs choose which image(s) to build; a push builds both.
+          MODE="${{ inputs.build_mode || 'both' }}"
+          # Console on the panel: hidden stops drawing it on the first GUI
+          # swap (patch 0067), so the panel shows backboardd's IOSurfaces
+          # instead of scrolling kprintf text. The ring keeps the text either
+          # way, so a hidden-console boot is still diagnosable afterwards.
+          if [ "${{ inputs.panel_console || 'text' }}" = hidden ]; then
+            NOCONSOLE=1
+          else
+            NOCONSOLE=0
+          fi
+
+          mkdir -p images
+          # suffix extra cmdline spam mute(1=keep the log off the panel)
+          # noconsole(1=stop drawing the console over the GUI)
+          build_mode() { # suffix extra spam mute noconsole
+            rm -rf shim/out
+            EXTRA_CMDLINE="$COMMON $2" KPRINTF_SPAM="$3" KPRINTF_MUTE="$4" \
+              PANEL_NOCONSOLE="$5" bash shim/build.sh "$KERNEL"
+            # First pass produces the uncompressed Image; whyred's ABL rejects a
+            # single download over 6 MiB, and gzip -9 lands at ~6.31 MB, so
+            # compress that Image with zopfli and pack it in a second pass.
+            zopfli --i15 -c shim/out/Image > shim/out/Image.z.gz
+            # build.sh cd's into shim/, so IMAGE_GZ must be absolute: a relative
+            # path is re-resolved there, silently misses the file and the second
+            # pass packs a gzip -9 Image (6.54 MB) - exactly the failure this
+            # job exists to prevent.
+            test -s shim/out/Image.z.gz
+            EXTRA_CMDLINE="$COMMON $2" KPRINTF_SPAM="$3" KPRINTF_MUTE="$4" \
+              PANEL_NOCONSOLE="$5" IMAGE_GZ="$PWD/shim/out/Image.z.gz" \
+              bash shim/build.sh "$KERNEL"
+
+            # The image only boots if the storage fixes and the ram-disk root
+            # are in it: fail here instead of on the phone. bindfs must be in
+            # the payload: without it mount-phase-1 gets ENODEV(19) on the
+            # preboot bind mounts and launchd panics.
+            for s in "mockfs" "sweet_hfs" "bindfs" "bus width from ABL kept"; do
+              grep -aq "$s" shim/out/Image || { echo "::error::payload lacks '$s'"; exit 1; }
+            done
+            local size
+            size=$(stat -c%s shim/out/shim-boot.img)
+            echo "shim-boot$1.img = $size bytes (ABL limit 6291456)"
+            test "$size" -le 6291456 || { echo "::error::boot image exceeds the ABL download limit"; exit 1; }
+            cp shim/out/shim-boot.img "images/shim-boot$1.img"
+          }
+
+          case "$MODE" in
+            both)   build_mode ""     ""     ""     1 "$NOCONSOLE"
+                    build_mode "-log" "$DIAG" "$SPAM" 0 "$NOCONSOLE" ;;
+            normal) build_mode ""     ""     ""     1 "$NOCONSOLE" ;;
+            log)    build_mode "-log" "$DIAG" "$SPAM" 0 "$NOCONSOLE" ;;
+            *)      echo "::error::unknown build_mode '$MODE'"; exit 1 ;;
+          esac
+
+          # Prove each image carries the command line it claims. The switches
+          # that keep the unsealed iOS root alive are required in every image:
+          # cs_enforcement_disable=1, unentitled_ios_sim_launch=1 and
+          # launchd_unsecure_cache=1. The normal image must not carry the log
+          # switches (sweetlog, cs_debug, kprintf spam); the log image must.
+          for img in images/*.img; do
+            python3 tools/payload_cmdline.py --image "$img" \
+              --require rd=emmcroot0 --require emmcrw=1 \
+              --require cs_enforcement_disable=1 \
+              --require unentitled_ios_sim_launch=1 \
+              --require launchd_unsecure_cache=1 $FB_VERIFY
+            # ignition_level=<n> makes dyld's libignition search for the shared
+            # cache somewhere our root does not have it: level 0 skips the
+            # dyld_cache stage and level 1 searches System/Library/Caches/
+            # com.apple.dyld instead of the cryptexes. Either way ignition
+            # fails, the cache never maps and pid 1 dies with "no dyld cache".
+            # The default level 0x5 is what reached SpringBoard in 0174-0178.
+            python3 tools/payload_cmdline.py --image "$img" \
+              --reject 'ignition_level='
+            # The panel switch must match the run that was asked for; a
+            # hidden-console image that still draws text looks exactly like
+            # the bug it is meant to rule out.
+            if [ "$NOCONSOLE" = 1 ]; then
+              python3 tools/payload_cmdline.py --image "$img" \
+                --require sweetfb_noconsole=1
+            else
+              python3 tools/payload_cmdline.py --image "$img" \
+                --reject sweetfb_noconsole=1
+            fi
+          done
+          if [ -f images/shim-boot.img ]; then
+            echo "verifying the normal image carries no log capture"
+            python3 tools/payload_cmdline.py --image images/shim-boot.img \
+              --reject sweetlog=1 --reject cs_debug=2 \
+              --reject=-enable_kprintf_spam
+            # ...and keeps the boot log off the panel so the graphical boot
+            # (and the Apple logo) stays visible.
+            echo "verifying the normal image mutes the framebuffer console"
+            python3 tools/payload_cmdline.py --image images/shim-boot.img \
+              --require disable_kprintf_output=1 \
+              --require sweetfb_stayon=1 --require sweetfb_hz=60
+          fi
+          if [ -f images/shim-boot-log.img ]; then
+            echo "verifying the log image carries the ring and the dumps"
+            python3 tools/payload_cmdline.py --image images/shim-boot-log.img \
+              --require sweetlog=1 --require cs_debug=2 \
+              --require=-enable_kprintf_spam
+            # The diagnostic image must print: its whole point is the UART and
+            # the ring, so it keeps today's command line exactly.
+            echo "verifying the log image still prints everything"
+            python3 tools/payload_cmdline.py --image images/shim-boot-log.img \
+              --require disable_kprintf_output=0 \
+              --reject sweetfb_stayon=1 --reject sweetfb_hz=60
+          fi
+
+      - name: Collect the flashable image
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp images/*.img dist/
+          (cd dist && sha256sum *.img > SHA256SUMS)
+          cat > dist/FLASH.txt <<'EOF'
+          whyred (Redmi Note 5 / Note 5 Pro) iOS boot images
+          ==================================================
+
+          Every image loads the same XNU kernel from the kernel artifact of
+          this CI run and continues from the iOS HFSX root on eMMC. They
+          differ only in how much the kernel records.
+
+          shim-boot.img      normal: no console ring, no cs_debug=2 page
+                             dumps, no kprintf spam. The console still goes
+                             to the UART. This is the image to boot daily.
+
+          shim-boot-log.img  diagnostic: sweetlog=1 keeps a 4 MiB console
+                             ring on SYSTEM, cs_debug=2 dumps every validated
+                             code page and -enable_kprintf_spam adds the
+                             rest. Several times slower at 115200 baud. Use
+                             it when a line is missing, then pull the ring
+                             from recovery with tools/sweet-log-pull.sh.
+
+          A manual "Run workflow" chooses which of the two to build
+          (build_mode: both / normal / log). A push builds both.
+
+          Both draw four colour bars into the boot framebuffer once, early in
+          BSD init (sweetfbtest=1), so a lit panel proves MDSS still scans the
+          ABL splash out even while the console is on the UART.
+
+          Flash to the recovery partition (slot a on this phone):
+
+              fastboot flash recovery shim-boot.img
+              fastboot reboot recovery
+
+          Test without overwriting recovery:
+
+              fastboot boot shim-boot.img
+              fastboot boot shim-boot-log.img
+
+          Verify before flashing:
+
+              sha256sum -c SHA256SUMS
+          EOF
+          ls -l dist
+
+      - name: Summary
+        run: |
+          {
+            echo "### whyred boot image"
+            echo
+            echo "| file | size | sha256 |"
+            echo "| --- | --- | --- |"
+            for f in dist/*; do
+              [ -f "$f" ] || continue
+              echo "| $(basename "$f") | $(stat -c%s "$f") B | $(sha256sum "$f" | cut -d' ' -f1) |"
+            done
+            echo
+            echo "Kernel zip: \`xnu-kernel\` artifact. Image zip: \`whyred-boot-img\` artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whyred-boot-img
+          path: dist/
+          if-no-files-found: error

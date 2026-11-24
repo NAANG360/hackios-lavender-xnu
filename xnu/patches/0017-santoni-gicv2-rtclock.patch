@@ -1,0 +1,141 @@
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index 4ec6989..06b362a 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -3,6 +3,7 @@
+  */
+ 
+ #include <stdint.h>
++#include <libkern/section_keywords.h>
+ #include <arm64/proc_reg.h>
+ #include <kern/clock.h>
+ #include <mach/mach_time.h>
+@@ -200,8 +201,66 @@ pe_init_fiq()
+ #endif /* SWEET */
+ }
+ #else
++
++#if defined(SANTONI) || defined(SWEET)
++SECURITY_READ_ONLY_LATE(uint32_t) sweet_vtimer_intid = SWEET_VTIMER_INTID;
++SECURITY_READ_ONLY_LATE(vm_offset_t) gicc_base = 0;
++SECURITY_READ_ONLY_LATE(vm_offset_t) gicd_base = 0;
++#endif
++
+ void
+ pe_init_fiq()
+ {
++#if defined(SANTONI)
++	/*
++	 * Qualcomm MSM8937 (santoni) QGIC2: Cortex-A53 lacks GICv3 system registers.
++	 * Configure memory-mapped Distributor (0x0b000000) and CPU Interface (0x0b002000).
++	 */
++	DTEntry entry;
++	if (SecureDTLookupEntry(NULL, "/arm-io/gic", &entry) == kSuccess ||
++	    SecureDTLookupEntry(NULL, "/arm-io/interrupt-controller", &entry) == kSuccess) {
++		void const *timer_prop;
++		unsigned int timer_size;
++		if (SecureDTGetProperty(entry, "virtual-timer-intid", &timer_prop, &timer_size) == kSuccess &&
++		    timer_size == sizeof(uint32_t)) {
++			sweet_vtimer_intid = *(const uint32_t *)timer_prop;
++		}
++		void const *prop;
++		unsigned int prop_size;
++		if (SecureDTGetProperty(entry, "reg", &prop, &prop_size) == kSuccess && prop_size >= 32) {
++			vm_offset_t soc_base = pe_arm_get_soc_base_phys();
++			uint64_t gicd_prop = ((uint64_t const *)prop)[0];
++			uint64_t gicd_size = ((uint64_t const *)prop)[1];
++			uint64_t gicc_prop = ((uint64_t const *)prop)[2];
++			uint64_t gicc_size = ((uint64_t const *)prop)[3];
++			gicd_base = ml_io_map(soc_base + gicd_prop, gicd_size);
++			gicc_base = ml_io_map(soc_base + gicc_prop, gicc_size);
++			vm_offset_t gicd = gicd_base;
++			if (gicd && gicc_base) {
++				uint32_t typer = *(volatile uint32_t *)(gicd + 0x004);
++				uint32_t it_lines = (typer & 0x1f) + 1;
++				for (uint32_t i = 0; i < it_lines; i++) {
++					*(volatile uint32_t *)(gicd + 0x080 + (i * 4)) = 0xffffffff;
++				}
++				for (uint32_t i = 1; i < it_lines; i++) {
++					*(volatile uint32_t *)(gicd + 0x180 + (i * 4)) = 0xffffffff;
++					*(volatile uint32_t *)(gicd + 0x280 + (i * 4)) = 0xffffffff;
++				}
++				for (uint32_t i = 0; i < it_lines * 8; i++) {
++					*(volatile uint32_t *)(gicd + 0x400 + (i * 4)) = 0xa0a0a0a0;
++				}
++				for (uint32_t i = 8; i < it_lines * 8; i++) {
++					*(volatile uint32_t *)(gicd + 0x800 + (i * 4)) = 0x01010101;
++				}
++				*(volatile uint32_t *)(gicd + 0x100 + (sweet_vtimer_intid / 32) * 4) = (1U << (sweet_vtimer_intid % 32));
++				*(volatile uint32_t *)(gicc_base + 0x004) = 0xff;
++				*(volatile uint32_t *)(gicc_base + 0x008) = 0x00;
++				*(volatile uint32_t *)(gicc_base + 0x000) = 0x01;
++				*(volatile uint32_t *)(gicd + 0x000) = 0x01;
++				__builtin_arm_isb(ISB_SY);
++			}
++		}
++	}
++#endif /* SANTONI */
+ }
+ #endif
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1856,7 +1856,42 @@
+ #endif
+ 
+ 
+-#if defined(SWEET)
++#if defined(SANTONI)
++	/*
++	 * santoni: Cortex-A53 lacks GICv3 system registers.
++	 * Read/write memory-mapped CPU Interface (GICC_IAR / GICC_EOIR).
++	 */
++	uint32_t iar = *(volatile uint32_t *)(gicc_base + 0x00c);
++	uint32_t intid = iar & 0x3ff;
++
++	if (intid >= 1020 && intid <= 1023) {
++		return; /* spurious */
++	}
++	if (intid == sweet_vtimer_intid) {
++		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_TIMER);
++		cdp->cpu_decrementer = -1; /* Large */
++		INTERRUPT_MASKED_DEBUG_START(rtclock_intr, DBG_INTR_TYPE_TIMER);
++		rtclock_intr(TRUE);
++		INTERRUPT_MASKED_DEBUG_END();
++		*(volatile uint32_t *)(gicc_base + 0x010) = iar;
++	} else if (intid < 16) {
++		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_IPI);
++		/* Ack before handling so an IPI raised meanwhile is not lost */
++		*(volatile uint32_t *)(gicc_base + 0x010) = iar;
++		__builtin_arm_isb(ISB_SY);
++		cpu_signal_handler();
++	} else {
++		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_OTHER);
++		if (cdp->interrupt_handler) {
++			cdp->interrupt_handler(cdp->interrupt_target,
++			    cdp->interrupt_refCon,
++			    cdp->interrupt_nub,
++			    intid);
++		}
++		*(volatile uint32_t *)(gicc_base + 0x010) = iar;
++	}
++	__builtin_arm_isb(ISB_SY);
++#elif defined(SWEET)
+ 	/*
+ 	 * sweet: TrustZone owns GIC Group 0, so the timer and IPIs that other
+ 	 * ARM64 targets take as FIQs arrive here as Group 1 IRQs.
+diff --git a/pexpert/pexpert/arm/protos.h b/pexpert/pexpert/arm/protos.h
+--- a/pexpert/pexpert/arm/protos.h
++++ b/pexpert/pexpert/arm/protos.h
+@@ -36,6 +36,11 @@
+ int uart_getc(void);
+ 
+ void pe_init_fiq(void);
++#if defined(ARM64_BOARD_CONFIG_SANTONI) && !HAS_GIC_V3
++extern uint32_t sweet_vtimer_intid;
++extern vm_offset_t gicc_base;
++extern vm_offset_t gicd_base;
++#endif
+ 
+ #ifdef PRIVATE
+ /**

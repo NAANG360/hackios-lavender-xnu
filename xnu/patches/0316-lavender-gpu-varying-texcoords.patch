@@ -1,0 +1,270 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 25e2b48..4a6913c 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1924,6 +1924,18 @@ chan_ok(uint32_t got, uint32_t want)
+ 	return 1;
+ }
+ 
++static int
++chan_tol(uint32_t got, uint32_t want, int tol)
++{
++	for (int s = 0; s < 32; s += 8) {
++		int a = (int)((got >> s) & 0xff), b = (int)((want >> s) & 0xff);
++		if (a - b > tol || b - a > tol) {
++			return 0;
++		}
++	}
++	return 1;
++}
++
+ /* Queue a fence write and wait for it: proves the ME executed everything before it. */
+ static int
+ draw_mark(const char *what)
+@@ -1972,7 +1984,7 @@ shader_store_tail(uint32_t *p, int at, uint64_t addr, uint32_t val)
+ }
+ 
+ static void
+-step21_draw(bool tex)
++step21_draw(int mode)
+ {
+ 	static const uint32_t vtx[3][4] = {
+ 		{ 0xbf000000u, 0xbf000000u, 0, 0x3f800000u },	/* (-0.5,-0.5) -> px (16,16) */
+@@ -1987,7 +1999,11 @@ step21_draw(bool tex)
+ 	uint32_t pc0[4] = { 0, 0, 0, 0 };
+ 	const uint32_t hbb = 1;	/* highest bank bit 14 - 13, as the 2D steps use */
+ 	const uint32_t texel_want = 0xff905077u;	/* texel (2,1) of the 4x4 texture */
++	const bool dbg = mode == 3;	/* colour = the interpolated (u, v), no texture */
++	const bool tex = mode == 1 || mode == 2;
++	const bool vary = mode >= 2;
+ 	const uint32_t want = tex ? texel_want : D_COLOUR;
++	uint32_t bad_want = 0;
+ 
+ 	if (ring_va == 0 || ring_pa == 0) {
+ 		printf("LAVGPU: step 21 needs steps 10-12\n");
+@@ -2008,7 +2024,15 @@ step21_draw(bool tex)
+ 
+ 	/* VS: the position is already in r0.xyzw; it also stores a marker word */
+ 	shader_store_tail(vs, 0, pa + 0x7000, 0xa5a50002u);
+-	if (tex) {
++	if (dbg) {
++		fs[0] = 0x00002000u;				/* bary.f (ei)r0.z, 0, r0.x : colour = (i, j, u, v) */
++		fs[1] = 0x47328002u;
++		fs[2] = 0x00002001u;				/* bary.f (ei)r0.w, 1, r0.x */
++		fs[3] = 0x47328003u;
++		fs[4] = 0;
++		fs[5] = 0x10001500u;				/* (ss)(sy)(rpt5)nop */
++		shader_store_tail(fs, 6, pa + 0x7040, 0xf5f50001u);
++	} else if (tex) {
+ 		uint32_t *tx = (uint32_t *)(va + 0x8000);
+ 
+ 		/* 4x4 RGBA8 linear texture, pitch 256 bytes (64 texels, as fdl5 aligns); texel(x,y) = ff | (x*0x40+0x10) | (y*0x40+0x10) | 77 */
+@@ -2019,11 +2043,20 @@ step21_draw(bool tex)
+ 			}
+ 		}
+ 		flush_dcache64((addr64_t)(pa + 0x8000), 0x2000, TRUE);
+-		/* FS: r1.xy = (0.625, 0.375); sam (f32)(xyzw)r0.x, r1.x, s#0, t#0; (sy)nop; store marker; end */
+-		shader_mov(&fs[0], 4, 0x3f200000u);
+-		shader_mov(&fs[2], 5, 0x3ec00000u);
+-		fs[4] = 0;
+-		fs[5] = 0x00000500u;
++		/* FS: r1.xy = (0.625, 0.375) or the interpolated varying; sam (f32)(xyzw)r0.x, r1.x, s#0, t#0 */
++		if (vary) {
++			fs[0] = 0x00002000u;			/* bary.f (ei)r1.x, 0, r0.x */
++			fs[1] = 0x47328004u;
++			fs[2] = 0x00002001u;			/* bary.f (ei)r1.y, 1, r0.x */
++			fs[3] = 0x47328005u;
++			fs[4] = 0;
++			fs[5] = 0x10001500u;			/* (ss)(sy)(rpt5)nop */
++		} else {
++			shader_mov(&fs[0], 4, 0x3f200000u);
++			shader_mov(&fs[2], 5, 0x3ec00000u);
++			fs[4] = 0;
++			fs[5] = 0x00000500u;
++		}
+ 		fs[6] = 1u | (4u << 1);				/* FULL, SRC1 r1.x, SAMP 0, TEX 0 */
+ 		fs[7] = 0xa0c01f00u;				/* sam, f32, wrmask xyzw, dst r0.x */
+ 		fs[8] = 0;
+@@ -2038,8 +2071,16 @@ step21_draw(bool tex)
+ 		shader_store_tail(fs, 8, pa + 0x7040, 0xf5f50001u);
+ 	}
+ 	for (int i = 0; i < 3; i++) {
++		static const uint32_t uvs[3][2] = { { 0, 0 }, { 0x3f800000u, 0 }, { 0, 0x3f800000u } };
++
+ 		for (int c = 0; c < 4; c++) {
+-			vb[i * 4 + c] = vtx[i][c];
++			vb[i * (vary ? 8 : 4) + c] = vtx[i][c];
++		}
++		if (vary) {
++			vb[i * 8 + 4] = uvs[i][0];
++			vb[i * 8 + 5] = uvs[i][1];
++			vb[i * 8 + 6] = 0;
++			vb[i * 8 + 7] = 0x3f800000u;
+ 		}
+ 	}
+ 	for (uint32_t i = 0; i < D_W * D_H; i++) {
+@@ -2190,7 +2231,7 @@ step21_draw(bool tex)
+ 	ring_put(0);
+ 	ring_put(0);
+ 	ring_put(0);
+-	ring_reg(0xe384u, 4);					/* PC_PRIMITIVE_CNTL: STRIDE_IN_VPC 4 */
++	ring_reg(0xe384u, vary ? 6 : 4);					/* PC_PRIMITIVE_CNTL: STRIDE_IN_VPC 4 */
+ 	ring_reg(0xe000u, 0);					/* GRAS_CL_CNTL */
+ 	ring_reg(0xe006u, 0);					/* GRAS_CL_GUARDBAND_CLIP_ADJ */
+ 	ring_reg(0xe146u, 1);					/* RB_FS_OUTPUT_CNTL: MRT 1 */
+@@ -2229,14 +2270,14 @@ step21_draw(bool tex)
+ 	ring_pkt4(0xe7d7u, 2);					/* HLSQ_FS_CONSTLEN, _INSTRLEN */
+ 	ring_put(0);
+ 	ring_put(1);
+-	ring_reg(0xe590u, (2u << 10) | (1u << 2) | 0x2);	/* SP_VS_CTRL_REG0 */
++	ring_reg(0xe590u, ((vary ? 3u : 2u) << 10) | (1u << 2) | 0x2);	/* SP_VS_CTRL_REG0 */
+ 	ring_pkt4(0xe294u, 4);					/* VPC_VAR_DISABLE(0..3): no varyings */
++	ring_put(vary ? 0xfffffffcu : 0xffffffffu);
+ 	ring_put(0xffffffffu);
+ 	ring_put(0xffffffffu);
+ 	ring_put(0xffffffffu);
+-	ring_put(0xffffffffu);
+-	ring_reg(0xe593u, 0xf00u);				/* SP_VS_OUT_REG(0): A = r0, mask xyzw */
+-	ring_reg(0xe5a3u, 0);					/* SP_VS_VPC_DST_REG(0): OUTLOC0 0 */
++	ring_reg(0xe593u, vary ? 0x0f000308u : 0xf00u);				/* SP_VS_OUT_REG(0): A = r0, mask xyzw */
++	ring_reg(0xe5a3u, vary ? 0x200u : 0);					/* SP_VS_VPC_DST_REG(0): OUTLOC0 0 */
+ 	ring_pkt4(0xe5acu, 2);					/* SP_VS_OBJ_START */
+ 	ring_put((uint32_t)vs_pa);
+ 	ring_put((uint32_t)(vs_pa >> 32));
+@@ -2248,8 +2289,8 @@ step21_draw(bool tex)
+ 	ring_put((uint32_t)vs_pa);
+ 	ring_put((uint32_t)(vs_pa >> 32));
+ 	ring_reg(0xe385u, 0);					/* PC_PRIM_VTX_CNTL */
+-	ring_reg(0xe592u, 1);					/* SP_PRIMITIVE_CNTL: VSOUT 1 */
+-	ring_reg(0xe280u, 4u | 0x10000u);			/* VPC_CNTL_0 */
++	ring_reg(0xe592u, vary ? 2 : 1);					/* SP_PRIMITIVE_CNTL: VSOUT 1 */
++	ring_reg(0xe280u, vary ? (6u | 0x800u | 0x10000u) : (4u | 0x10000u));			/* VPC_CNTL_0 */
+ 	ring_pkt4(0xe5c3u, 2);					/* SP_FS_OBJ_START */
+ 	ring_put((uint32_t)fs_pa);
+ 	ring_put((uint32_t)(fs_pa >> 32));
+@@ -2257,22 +2298,22 @@ step21_draw(bool tex)
+ 	ring_put(0x880);
+ 	ring_put(63);
+ 	ring_put(0xfcfcfcfcu);
++	ring_put(dbg ? 0xfcfcfc00u : vary ? 0xfcfcfc00u : 0xfcfcfcfcu);		/* HLSQ_CONTROL_3: IJ_PERSP_PIXEL = r0.x */
+ 	ring_put(0xfcfcfcfcu);
+-	ring_put(0xfcfcfcfcu);
+-	ring_reg(0xe5c0u, 0x40002u | (1u << 2) | (2u << 10));	/* SP_FS_CTRL_REG0 */
++	ring_reg(0xe5c0u, 0x40002u | (1u << 2) | ((dbg ? 3u : 2u) << 10) | (vary ? 0x10000u : 0));	/* SP_FS_CTRL_REG0 */
+ 	ring_reg(R_HLSQ_UPDATE_CNTL, 0x20fffffu);
+ 	ring_reg(0xe298u, 0xffffu);				/* VPC_GS_SIV_CNTL */
+ 	ring_reg(R_SP_SP_CNTL, 0x10);
+-	ring_reg(0xe005u, 0);					/* GRAS_CNTL */
++	ring_reg(0xe005u, vary ? 1 : 0);					/* GRAS_CNTL */
+ 	ring_pkt4(0xe144u, 2);					/* RB_RENDER_CONTROL0, 1 */
+-	ring_put(0);
++	ring_put(vary ? 1 : 0);
+ 	ring_put(0);
+ 	ring_pkt4(0xe5cbu, 8);					/* SP_FS_OUTPUT_REG(0..7): colour in r0 */
+ 	ring_put(0);
+ 	for (int i = 1; i < 8; i++) {
+ 		ring_put(0xfc);
+ 	}
+-	ring_reg(0xe29du, 0xff00u);				/* VPC_PACK: NUMNONPOSVAR 0, PSIZELOC off */
++	ring_reg(0xe29du, vary ? (0xff00u | 2u) : 0xff00u);				/* VPC_PACK: NUMNONPOSVAR 0, PSIZELOC off */
+ 	ring_pkt4(0xe282u, 8);					/* VPC_VARYING_INTERP_MODE(0..7) */
+ 	for (int i = 0; i < 8; i++) {
+ 		ring_put(0);
+@@ -2322,16 +2363,29 @@ step21_draw(bool tex)
+ 	ring_put(0xfcu);
+ 	ring_put(0);
+ 	/* fd5_emit_vertex_bufs: one fetch, float4 into r0.xyzw */
+-	ring_pkt4(0xe40au, 4);					/* VFD_FETCH(0) */
++	ring_pkt4(0xe40au, vary ? 8 : 4);			/* VFD_FETCH(0..) */
+ 	ring_put((uint32_t)vb_pa);
+ 	ring_put((uint32_t)(vb_pa >> 32));
+-	ring_put(48);
+-	ring_put(16);
+-	ring_pkt4(0xe48au, 2);					/* VFD_DECODE(0) */
++	ring_put(vary ? 96 : 48);
++	ring_put(vary ? 32 : 16);
++	if (vary) {
++		ring_put((uint32_t)(vb_pa + 16));
++		ring_put((uint32_t)((vb_pa + 16) >> 32));
++		ring_put(80);
++		ring_put(32);
++	}
++	ring_pkt4(0xe48au, vary ? 4 : 2);			/* VFD_DECODE(0..) */
+ 	ring_put(0u | (0x82u << 20) | (1u << 30) | (1u << 31));
+ 	ring_put(1);
++	if (vary) {
++		ring_put(1u | (0x82u << 20) | (1u << 30) | (1u << 31));
++		ring_put(1);
++	}
+ 	ring_reg(0xe4cau, 0xfu | (0u << 4));			/* VFD_DEST_CNTL(0): xyzw -> r0 */
+-	ring_reg(0xe400u, 1);					/* VFD_CONTROL_0: VTXCNT 1 */
++	if (vary) {
++		ring_reg(0xe4cbu, 0xfu | (8u << 4));		/* VFD_DEST_CNTL(1): xyzw -> r2 (the VS marker tail uses r1) */
++	}
++	ring_reg(0xe400u, vary ? 2 : 1);			/* VFD_CONTROL_0: VTXCNT */
+ 	ring_pkt4(0xe408u, 2);					/* VFD_INDEX_OFFSET, _INSTANCE_START_OFFSET */
+ 	ring_put(0);
+ 	ring_put(0);
+@@ -2411,12 +2465,32 @@ step21_draw(bool tex)
+ 				 * 2 pixel margin from the edges so rasterisation rules do not matter */
+ 				bool inside = x >= 18 && y >= 18 && x + y <= 61;
+ 				bool outside = x < 14 || y < 14 || x + y >= 67;
++				uint32_t pw = want;
++				bool skip = false;
++
++				if (vary && inside) {
++					/* texel = ((x-16)>>3, (y-16)>>3); skip the pixels next to a texel edge */
++					uint32_t fx = (x - 16) & 7, fy = (y - 16) & 7;
++
++					skip = fx == 0 || fx == 7 || fy == 0 || fy == 7;
++					pw = 0xff000000u | ((((x - 16) >> 3) * 0x40 + 0x10) << 16) |
++					    ((((y - 16) >> 3) * 0x40 + 0x10) << 8) | 0x77u;
++				}
++				if (dbg && inside) {
++					uint32_t ur = (2 * x + 1 - 32) * 255 / 64, vg = (2 * y + 1 - 32) * 255 / 64;
++
++					pw = 0xff000000u | (vg << 8) | ur;
++				}
++				if (inside && skip) {
++					continue;
++				}
+ 				if (inside) {
+ 					in_n++;
+-					if (chan_ok(got, want)) {
++					if (dbg ? chan_tol(got, pw, 5) : chan_ok(got, pw)) {
+ 						in_ok++;
+ 					} else if (first_bad == 0xffffffffu) {
+ 						first_bad = y * D_W + x;
++						bad_want = pw;
+ 					}
+ 				} else if (outside) {
+ 					out_n++;
+@@ -2450,7 +2524,7 @@ step21_draw(bool tex)
+ 		    rt[24 * D_W + 24], rt[30 * D_W + 30], rt[20 * D_W + 40], rt[50 * D_W + 50], rt[2 * D_W + 2]);
+ 		if (first_bad != 0xffffffffu) {
+ 			printf("LAVGPU: first wrong inside pixel (%u,%u): got %08x want %08x\n",
+-			    first_bad % D_W, first_bad / D_W, rt[first_bad], want);
++			    first_bad % D_W, first_bad / D_W, rt[first_bad], bad_want);
+ 		}
+ 		if (in_ok == in_n && out_ok == out_n) {
+ 			break;
+@@ -2534,10 +2608,16 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 		step20_blit_fill();
+ 	}
+ 	if (step == 21) {
+-		step21_draw(false);
++		step21_draw(0);
++	}
++	if (step == 22) {
++		step21_draw(1);
++	}
++	if (step == 23) {
++		step21_draw(2);
+ 	}
+-	if (step >= 22) {
+-		step21_draw(true);
++	if (step >= 24) {
++		step21_draw(3);
+ 	}
+ 	if (step == 17) {
+ 		step13_compute(4);	/* 64 threads: probe the local id */

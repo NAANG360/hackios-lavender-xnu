@@ -1,0 +1,35 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 0bf92c9..4e94deb 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1232,7 +1232,7 @@ step13_compute(int mode)
+ 	vm_offset_t sh_va = 0;
+ 	uint64_t sh_pa = 0, out_pa = mode ? rptr_pa + 0x240 : fence_pa + 0x40;
+ 	uint64_t in_pa = rptr_pa + 0x200;
+-	uint32_t want = mode ? 0x11bcdf00u : SHADER_OUT_VALUE;
++	uint32_t want = mode == 2 ? 0x00abcdefu : mode ? 0x11bcdf00u : SHADER_OUT_VALUE;
+ 	volatile uint32_t *out = (volatile uint32_t *)(rptr_va + (mode ? 0x240 : 0x140));
+ 	volatile uint32_t *in = (volatile uint32_t *)(rptr_va + 0x200);
+ 	uint32_t *sh;
+@@ -1278,6 +1278,12 @@ step13_compute(int mode)
+ 		sh[21] = 0xc0c61100u;
+ 		sh[23] = 0x00000500u;
+ 		sh[25] = 0x03000000u;					/* end */
++		if (mode == 2) {
++			/* copy only: drop the add, the store waits for the load with (sy) */
++			sh[16] = 0;
++			sh[17] = 0x00000500u;
++			sh[21] = 0xd0c61100u;
++		}
+ 		*in = 0x00abcdefu;
+ 		flush_dcache64((addr64_t)(in_pa & ~63ull), 64, TRUE);
+ 	}
+@@ -1481,7 +1487,7 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 		step13_compute(0);
+ 	}
+ 	if (step >= 14) {
+-		step13_compute(1);
++		step13_compute(step == 14 ? 2 : 1);	/* 14: ldg+stg copy, 15: ldg+add+stg */
+ 	}
+ 	printf("LAVGPU: ladder finished\n");
+ }

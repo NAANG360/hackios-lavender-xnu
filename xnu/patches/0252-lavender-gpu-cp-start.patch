@@ -1,0 +1,168 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index 5ee752e..47029f5 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -870,6 +870,153 @@ step10_ucode_ring(void)
+ 	    rd(gpu, A5_CP_RB_WPTR));
+ }
+ 
++/*
++ * Step 11: start the command processor. Behaviour reference: Linux a5xx
++ * hw_init / me_init / flush (no code taken). Minimal subset: 64-bit address
++ * modes, secure-video block off, CP queue thresholds, un-halt PFP/ME, then
++ * packets through the ring: CP_ME_INIT, then CP_SET_SECURE_MODE(0), then a
++ * CP_MEM_WRITE to a fence word that the CPU reads back. Every submission is
++ * announced and the ladder stops at the first one the CP does not consume.
++ */
++#define A5_RBBM_INT_0_MASK      (0x0038u * 4)
++#define A5_CP_ROQ_THRESH_1      (0x081fu * 4)
++#define A5_CP_ROQ_THRESH_2      (0x0820u * 4)
++#define A5_CP_MEQ_THRESHOLDS    (0x0825u * 4)
++#define A5_CP_MERCIU_SIZE       (0x0826u * 4)
++#define A5_CP_CHICKEN_DBG       (0x0833u * 4)
++#define A5_CP_ADDR_MODE_CNTL    (0x0860u * 4)
++#define A5_SECVID_TSB_BASE_LO   (0xf800u * 4)
++#define A5_SECVID_TSB_SIZE      (0xf802u * 4)
++#define A5_SECVID_TSB_CNTL      (0xf803u * 4)
++#define A5_SECVID_TSB_ADDR_MODE (0xf810u * 4)
++#define RB_NO_UPDATE            (1u << 27)
++
++#define CP_NOP                  16u
++#define CP_ME_INIT              72u
++#define CP_MEM_WRITE            61u
++#define CP_SET_SECURE_MODE      102u
++
++static uint32_t ring_wptr;
++
++/* Odd parity bit of val, as the PM4 type 7 header wants it. */
++static uint32_t
++pm4_parity(uint32_t val)
++{
++	val ^= val >> 16;
++	val ^= val >> 8;
++	val ^= val >> 4;
++	return (0x9669u >> (val & 0xf)) & 1u;
++}
++
++static void
++ring_put(uint32_t v)
++{
++	((volatile uint32_t *)ring_va)[ring_wptr] = v;
++	ring_wptr = (ring_wptr + 1) % (RING_BYTES / 4);
++}
++
++static void
++ring_pkt7(uint32_t opcode, uint32_t cnt)
++{
++	ring_put(0x70000000u | (cnt & 0x3fff) | (pm4_parity(cnt) << 15) |
++	    ((opcode & 0x7f) << 16) | (pm4_parity(opcode) << 23));
++}
++
++/* Publish the packets and wait for the CP read pointer to catch up. */
++static int
++ring_submit(const char *what)
++{
++	uint32_t rptr = 0;
++
++	flush_dcache64((addr64_t)ring_pa, RING_BYTES, TRUE);
++	wr(gpu, A5_CP_RB_WPTR, ring_wptr);
++	for (int i = 0; i < 300; i++) {
++		rptr = rd(gpu, A5_CP_RB_RPTR);
++		if (rptr == ring_wptr) {
++			printf("LAVGPU: %s consumed: RPTR %u WPTR %u after %d ms\n",
++			    what, rptr, ring_wptr, i * 10);
++			return 0;
++		}
++		lav_wait(10);
++	}
++	printf("LAVGPU: %s NOT consumed: RPTR %u WPTR %u, RBBM_STATUS %08x INT_0 "
++	    "%08x AHB_ERR %08x\n", what, rptr, ring_wptr, rd(gpu, A5_RBBM_STATUS),
++	    rd(gpu, A5_RBBM_INT_0_STATUS), rd(gpu, A5_RBBM_AHB_ERR_STATUS));
++	return -1;
++}
++
++static void
++step11_cp_start(void)
++{
++	volatile uint32_t *fence;
++
++	if (ring_va == 0 || ring_pa == 0) {
++		printf("LAVGPU: step 11 needs the ring of step 10\n");
++		return;
++	}
++	lav_announce("step 11: WRITE the CP/RBBM setup registers");
++	wr(gpu, A5_SECVID_TSB_CNTL, 0);
++	wr(gpu, A5_SECVID_TSB_BASE_LO, 0);
++	wr(gpu, A5_SECVID_TSB_BASE_LO + 4, 0);
++	wr(gpu, A5_SECVID_TSB_SIZE, 0);
++	wr(gpu, A5_CP_ADDR_MODE_CNTL, 1);
++	wr(gpu, A5_SECVID_TSB_ADDR_MODE, 1);
++	wr(gpu, A5_CP_MEQ_THRESHOLDS, 0x40);
++	wr(gpu, A5_CP_MERCIU_SIZE, 0x400);
++	wr(gpu, A5_CP_ROQ_THRESH_2, 0x80000060);
++	wr(gpu, A5_CP_ROQ_THRESH_1, 0x40201b16);
++	wr(gpu, A5_CP_CHICKEN_DBG, 0x02000000);
++	wr(gpu, A5_RBBM_INT_0_MASK, 0);
++	wr(gpu, A5_CP_RB_CNTL, 12u | (2u << 8) | RB_NO_UPDATE);
++	printf("LAVGPU: RB_CNTL %08x CP_ADDR_MODE %08x\n", rd(gpu, A5_CP_RB_CNTL),
++	    rd(gpu, A5_CP_ADDR_MODE_CNTL));
++
++	lav_announce("step 11: clear the PFP/ME halt");
++	wr(gpu, A5_CP_PFP_ME_CNTL, 0);
++	lav_wait(50);
++	printf("LAVGPU: CP_PFP_ME_CNTL %08x RBBM_STATUS %08x RPTR %u WPTR %u\n",
++	    rd(gpu, A5_CP_PFP_ME_CNTL), rd(gpu, A5_RBBM_STATUS),
++	    rd(gpu, A5_CP_RB_RPTR), rd(gpu, A5_CP_RB_WPTR));
++
++	lav_announce("step 11: submit CP_ME_INIT");
++	ring_pkt7(CP_ME_INIT, 8);
++	ring_put(0x0000002f);	/* max context */
++	ring_put(0x00000003);	/* multiple hardware contexts */
++	ring_put(0x20000000);	/* error detection */
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);		/* no microcode workarounds (a512) */
++	ring_put(0);
++	ring_put(0);
++	if (ring_submit("ME_INIT") != 0) {
++		return;
++	}
++
++	lav_announce("step 11: submit CP_SET_SECURE_MODE(0)");
++	ring_pkt7(CP_SET_SECURE_MODE, 1);
++	ring_put(0);
++	if (ring_submit("SET_SECURE_MODE") != 0) {
++		return;
++	}
++	printf("LAVGPU: SECVID_TRUST_CNTL now %08x RBBM_STATUS %08x\n",
++	    rd(gpu, A5_RBBM_SECVID_TRUST), rd(gpu, A5_RBBM_STATUS));
++
++	lav_announce("step 11: submit CP_MEM_WRITE (fence word)");
++	fence = (volatile uint32_t *)(rptr_va + 0x100);
++	*fence = 0;
++	flush_dcache64((addr64_t)fence_pa, 64, TRUE);
++	ring_pkt7(CP_MEM_WRITE, 3);
++	ring_put((uint32_t)fence_pa);
++	ring_put((uint32_t)(fence_pa >> 32));
++	ring_put(0xcafe0001u);
++	if (ring_submit("MEM_WRITE") != 0) {
++		return;
++	}
++	flush_dcache64((addr64_t)fence_pa, 64, TRUE);
++	printf("LAVGPU: fence word %08x (%s)\n", *fence,
++	    *fence == 0xcafe0001u ? "CP WROTE IT" : "not written");
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -924,6 +1071,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step >= 10) {
+ 		step10_ucode_ring();
+ 	}
++	if (step >= 11) {
++		step11_cp_start();
++	}
+ 	printf("LAVGPU: ladder finished\n");
+ }
+ 

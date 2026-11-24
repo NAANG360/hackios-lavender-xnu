@@ -1,0 +1,36 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index 4aa2d21..8ded648 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -19,6 +19,15 @@
+  * byte stores; lavaudprobe=1 also reads the carve-out first and prints the
+  * read/copy point every 256 KiB, and lavaudcopy=0 skips the copy entirely to
+  * test whether the bootloader/TZ left the firmware preloaded.
++ * Device log (0508b kernel, lavaud=5 with lavaudcopy=0): AUTH_AND_RESET
++ * returned 0/0 and the ADSP started (Q6SS out of reset, SMP2P 443 and GLINK
++ * 478/480 published). The next boot (lavaud=6, lavaudforce=1, copy still off)
++ * got `AUTH_AND_RESET ret 0xffffffc3`: the running ADSP had modified the
++ * carve-out (0x1df0000 changed from 00000000 to ffffffff) and TrustZone
++ * refused the stale image. A copy is therefore required on every boot after
++ * the first, but the copy path then wedged in flush_dcache64() after B22;
++ * 0508c drops that flush (the carve-out is Device/VM_WIMG_IO and the byte
++ * stores bypass the cache).
+  *
+  *   lavaud=1        run the read-only probe (A0)
+  *   lavaud=2        also power up the LPASS ADSP domain if the bootloader
+@@ -1338,8 +1347,13 @@ audio_pas_load(void)
+ 			    "not authenticating\n", err, copy.bad);
+ 			return;
+ 		}
+-		flush_dcache64((addr64_t)range.start, range.end - range.start,
+-		    TRUE);
++		/*
++		 * The carve-out is mapped Device-nGnRnE (VM_WIMG_IO); the byte
++		 * stores bypass the cache, so no cache maintenance is needed.
++		 * Do NOT flush_dcache64() this range: it is no-map, so
++		 * phystokv_range() can return a zero-length run and spin (the
++		 * lavaud=4 copy boot wedged here after loading B22).
++		 */
+ 	}
+ 
+ 	audio_announce("SCM PIL AUTH_AND_RESET (start the ADSP)");

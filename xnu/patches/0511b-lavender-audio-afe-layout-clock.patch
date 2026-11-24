@@ -1,0 +1,123 @@
+diff --git a/bsd/dev/lavender_audio.c b/bsd/dev/lavender_audio.c
+index c0fc75e..75ba782 100644
+--- a/bsd/dev/lavender_audio.c
++++ b/bsd/dev/lavender_audio.c
+@@ -311,8 +311,12 @@ struct smp2p_entry {
+ #define APR_SVC_AFE                    4u
+ #define AFE_PORT_CMD_SET_PARAM_V2      0x000100EFu
+ #define AFE_PORT_CMD_DEVICE_START      0x000100E5u
++#define AFE_SVC_CMD_SET_PARAM          0x000100F3u
+ #define AFE_MODULE_AUDIO_DEV_INTERFACE 0x0001020Cu
+ #define AFE_PARAM_ID_I2S_CONFIG        0x0001020Du
++#define AFE_MODULE_CLOCK_SET           0x0001028Fu
++#define AFE_PARAM_ID_CLOCK_SET         0x00010290u
++#define AFE_CLK_INT4_MI2S_IBIT         0x00000113u
+ #define AFE_PORT_INT4_MI2S_RX          0x1036u
+ 
+ struct glink_msg {
+@@ -347,6 +351,15 @@ struct afe_i2s_cfg {
+ 	uint16_t data_format, reserved;
+ } __attribute__((packed));
+ 
++/* AFE_PARAM_ID_CLOCK_SET payload. */
++struct afe_clock_set {
++	uint32_t version;
++	uint32_t id;
++	uint32_t hz;
++	uint16_t attribute, root;
++	uint32_t enable;
++} __attribute__((packed));
++
+ /* SMEM's remote spinlock: TCSR mutex, lock 3 (vendor smem.c/hwspinlock). */
+ #define TCSR_MUTEX_PA           0x01f40000u
+ #define TCSR_MUTEX_SIZE         0x00004000u
+@@ -2283,6 +2296,16 @@ glink_rx_one(void)
+ 			    "opcode %08x token %u len %u\n", a->src_svc,
+ 			    a->src_domain, a->dest_svc, a->dest_domain,
+ 			    a->opcode, a->token, len);
++			if (a->opcode == 0x000110E8u &&
++			    len >= sizeof(*a) + 8) {
++				const uint8_t *p =
++				    (const uint8_t *)(const void *)buf +
++				    sizeof(*a);
++
++				printf("SWEET AUDIO: APR basic rsp opcode "
++				    "%08x status %u\n", audio_le32(p),
++				    audio_le32(p + 4));
++			}
+ 		} else {
+ 			printf("SWEET AUDIO: glink rx data len %u (no APR)\n",
+ 			    len);
+@@ -2411,8 +2434,16 @@ audio_glink_apr(void)
+ static void
+ audio_afe_port(void)
+ {
++	struct {
++		uint32_t payload_size;
++		uint32_t mem[3];
++		uint32_t module, param;
++		uint16_t size, reserved;
++		struct afe_clock_set clk;
++	} __attribute__((packed)) clk_pkt;
+ 	struct {
+ 		uint16_t port_id, payload_size;
++		uint32_t mem[3];
+ 		uint32_t module, param;
+ 		uint16_t size, reserved;
+ 		struct afe_i2s_cfg cfg;
+@@ -2425,13 +2456,35 @@ audio_afe_port(void)
+ 	if (audio_step < 10) {
+ 		return;
+ 	}
+-	audio_announce("AFE INT4_MI2S_RX (0x1036) I2S config and start");
++	audio_announce("AFE INT4_MI2S_RX (0x1036) clock, I2S config and start");
++
++	/* The MI2S bit clock: 48 kHz * 16 bits * 2 channels = 1.536 MHz. */
++	memset(&clk_pkt, 0, sizeof(clk_pkt));
++	clk_pkt.payload_size = 12 + sizeof(clk_pkt.clk);
++	clk_pkt.module = AFE_MODULE_CLOCK_SET;
++	clk_pkt.param = AFE_PARAM_ID_CLOCK_SET;
++	clk_pkt.size = sizeof(clk_pkt.clk);
++	clk_pkt.clk.version = 1;
++	clk_pkt.clk.id = AFE_CLK_INT4_MI2S_IBIT;
++	clk_pkt.clk.hz = 48000 * 16 * 2;
++	clk_pkt.clk.attribute = 4;      /* INVERT_COUPLE_NO */
++	clk_pkt.clk.root = 0;
++	clk_pkt.clk.enable = 1;
++	(void)glink_send_apr_pkt(APR_SVC_AFE, AFE_SVC_CMD_SET_PARAM, &clk_pkt,
++	    sizeof(clk_pkt), 2);
++	for (ms = 0; ms < 1000; ms += 10) {
++		while (glink_rx_one()) {
++		}
++		audio_wait(10);
++	}
++	printf("SWEET AUDIO: AFE MI2S clock 0x113 at %u Hz sent\n", 1536000u);
++
+ 	memset(&pkt, 0, sizeof(pkt));
+ 	pkt.port_id = AFE_PORT_INT4_MI2S_RX;
+ 	pkt.module = AFE_MODULE_AUDIO_DEV_INTERFACE;
+ 	pkt.param = AFE_PARAM_ID_I2S_CONFIG;
+ 	pkt.size = sizeof(pkt.cfg);
+-	pkt.payload_size = sizeof(pkt) - 4;
++	pkt.payload_size = 12 + sizeof(pkt.cfg);
+ 	pkt.cfg.version = 1;
+ 	pkt.cfg.bit_width = 16;
+ 	pkt.cfg.channel_mode = 1;       /* AFE_PORT_I2S_SD0 */
+@@ -2440,7 +2493,7 @@ audio_afe_port(void)
+ 	pkt.cfg.sample_rate = 48000;
+ 
+ 	if (!glink_send_apr_pkt(APR_SVC_AFE, AFE_PORT_CMD_SET_PARAM_V2,
+-	    &pkt, sizeof(pkt), 2)) {
++	    &pkt, sizeof(pkt), 3)) {
+ 		printf("SWEET AUDIO: AFE config not sent\n");
+ 		return;
+ 	}
+@@ -2452,7 +2505,7 @@ audio_afe_port(void)
+ 	printf("SWEET AUDIO: AFE 0x1036 I2S config sent (16-bit 48k SD0)\n");
+ 
+ 	if (!glink_send_apr_pkt(APR_SVC_AFE, AFE_PORT_CMD_DEVICE_START,
+-	    &start, sizeof(start), 3)) {
++	    &start, sizeof(start), 4)) {
+ 		printf("SWEET AUDIO: AFE start not sent\n");
+ 		return;
+ 	}

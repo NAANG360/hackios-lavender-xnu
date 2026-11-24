@@ -1,0 +1,135 @@
+diff --git a/bsd/dev/lavender_gpu.c b/bsd/dev/lavender_gpu.c
+index af8e200..79f8a28 100644
+--- a/bsd/dev/lavender_gpu.c
++++ b/bsd/dev/lavender_gpu.c
+@@ -1494,6 +1494,120 @@ recover:
+ 	}
+ }
+ 
++/*
++ * Step 18 (M4.0): a 2D blit through the A5xx 2D core (RB_2D_*, CP_BLIT), the
++ * path Mesa's fd5 blitter takes for buffer copies: a 64 byte R8 linear
++ * "image" of one row is copied src -> dst, then compared by the CPU. Register
++ * values come from a5xx.xml / adreno_pm4.xml / adreno_common.xml; the order is
++ * the one fd5's emit_setup and emit_blit_buffer use (behaviour reference only).
++ */
++#define CP_SET_RENDER_MODE      0x6cu
++#define CP_BLIT                 0x2cu
++
++static void
++step18_blit2d(void)
++{
++	uint64_t src_pa = rptr_pa + 0x800, dst_pa = rptr_pa + 0x900;
++	volatile uint8_t *src = (volatile uint8_t *)(rptr_va + 0x800);
++	volatile uint8_t *dst = (volatile uint8_t *)(rptr_va + 0x900);
++	uint32_t good = 0;
++
++	if (ring_va == 0 || ring_pa == 0) {
++		printf("LAVGPU: step 18 needs steps 10-12\n");
++		return;
++	}
++	for (uint32_t i = 0; i < 64; i++) {
++		src[i] = (uint8_t)(i * 3 + 1);
++		dst[i] = 0xee;
++	}
++	flush_dcache64((addr64_t)src_pa, 64, TRUE);
++	flush_dcache64((addr64_t)dst_pa, 64, TRUE);
++
++	lav_announce("step 18: submit a 2D blit (64 byte copy)");
++	/* emit_setup */
++	ring_reg(0xe141u, 0x8);				/* RB_RENDER_CNTL */
++	ring_reg(0x2100u, 0x86000000u);			/* RB_2D_BLIT_CNTL: ROP_COPY, UNORM8, bit 31 */
++	ring_reg(0x2180u, 0x86000000u);			/* GRAS_2D_BLIT_CNTL */
++	ring_reg(0x2184u, 0x9);				/* UNKNOWN_2184 */
++	ring_reg(0xe140u, 1u << 17);			/* RB_CNTL: BYPASS */
++	ring_reg(0x0cc6u, 1u << 1);			/* RB_MODE_CNTL: highest bank bit 14 - 13 */
++	ring_reg(R_SP_MODE_CNTL, 0xc);			/* constant demotion | 8 */
++	ring_reg(R_TPL1_MODE_CNTL, 0x244u | (1u << 7));
++	ring_reg(R_HLSQ_MODE_CNTL, 0x2);
++	ring_reg(0xe000u, 0x181);			/* GRAS_CL_CNTL */
++	/* emit_blit_buffer */
++	ring_pkt7(CP_SET_RENDER_MODE, 1);
++	ring_put(5);					/* BLIT2D */
++	ring_pkt4(0x2107u, 9);				/* RB_2D_SRC_INFO .. */
++	ring_put(0x3);					/* R8_UNORM, linear, WZYX */
++	ring_put((uint32_t)src_pa);
++	ring_put((uint32_t)(src_pa >> 32));
++	ring_put(1u | (2u << 16));			/* pitch 64 >> 6, array pitch 128 >> 6 */
++	for (int i = 0; i < 5; i++) {
++		ring_put(0);
++	}
++	ring_reg(0x2181u, 0x3);				/* GRAS_2D_SRC_INFO */
++	ring_pkt4(0x2110u, 9);				/* RB_2D_DST_INFO .. */
++	ring_put(0x3);
++	ring_put((uint32_t)dst_pa);
++	ring_put((uint32_t)(dst_pa >> 32));
++	ring_put(1u | (2u << 16));
++	for (int i = 0; i < 5; i++) {
++		ring_put(0);
++	}
++	ring_reg(0x2182u, 0x3);				/* GRAS_2D_DST_INFO */
++	ring_pkt4(0x2000u, 5);				/* TPL1_A2D_SRC_TEXTURE_INFO .. */
++	ring_put(0x3);
++	ring_put(64u | (1u << 15));			/* width 64, height 1 */
++	ring_put((uint32_t)src_pa);
++	ring_put((uint32_t)(src_pa >> 32));
++	ring_put(1u << 9);				/* pitch 64 >> 6, at bit 9 */
++	ring_reg(0x2040u, 0x3u << 3);			/* SP_A2D_OUTPUT_INFO: float, R8_UNORM */
++	ring_pkt7(CP_BLIT, 5);
++	ring_put(3);					/* BLIT_OP_SCALE */
++	ring_put(0);					/* SRC_X1, SRC_Y1 */
++	ring_put(63);					/* SRC_X2, SRC_Y2 */
++	ring_put(0);					/* DST_X1, DST_Y1 */
++	ring_put(63);					/* DST_X2, DST_Y2 */
++	ring_pkt7(CP_SET_RENDER_MODE, 1);
++	ring_put(8);					/* END2D */
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	ring_pkt4(R_UCHE_INVALIDATE_MIN, 5);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0);
++	ring_put(0x12);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	ring_pkt7(CP_EVENT_WRITE, 4);
++	ring_put(0x4u | (1u << 30));			/* CACHE_FLUSH_TS */
++	ring_put((uint32_t)(fence_pa + 0xc0));
++	ring_put((uint32_t)((fence_pa + 0xc0) >> 32));
++	ring_put(0x1234u);
++	ring_pkt7(CP_WAIT_FOR_IDLE, 0);
++	if (ring_submit("2D blit") != 0) {
++		printf("LAVGPU: the CP did not consume the 2D blit\n");
++		return;
++	}
++	for (int i = 0; i < 100; i++) {
++		lav_wait(5);
++		flush_dcache64((addr64_t)dst_pa, 64, TRUE);
++		good = 0;
++		for (uint32_t t = 0; t < 64; t++) {
++			good += dst[t] == (uint8_t)(t * 3 + 1);
++		}
++		if (good == 64 || i == 99) {
++			break;
++		}
++	}
++	printf("LAVGPU: 2D blit: %u of 64 bytes copied%s, RBBM_STATUS %08x\n", good,
++	    good == 64 ? " (ALL CORRECT)" : "", rd(gpu, A5_RBBM_STATUS));
++	if (good != 64) {
++		printf("LAVGPU: dst %02x %02x %02x %02x %02x %02x %02x %02x (src starts 01 04 07 0a ..)\n",
++		    dst[0], dst[1], dst[2], dst[3], dst[4], dst[5], dst[6], dst[7]);
++	}
++}
++
+ static void
+ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ {
+@@ -1560,6 +1674,9 @@ lavender_gpu_thread(__unused void *arg, __unused wait_result_t wr_)
+ 	if (step == 14 || step == 16) {
+ 		step13_compute(step == 14 ? 2 : 3);	/* 14: ldg+stg copy, 16: copy of a GPU-written word */
+ 	}
++	if (step >= 18) {
++		step18_blit2d();
++	}
+ 	if (step == 17) {
+ 		step13_compute(4);	/* 64 threads: probe the local id */
+ 		step13_compute(5);	/* 64 threads: out[tid] = in[tid] + K */
