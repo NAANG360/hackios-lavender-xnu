@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build the SWEET iOS root: one case-sensitive HFS+ image holding an iOS OS
-# root filesystem plus its cryptexes, for the userdata partition (rd=ufsroot0).
+# root filesystem plus its cryptexes, for the Lavender userdata partition (rd=emmcroot0).
 #
 #   mkiosroot.sh OS.dmg SYSTEMOS.dmg APPOS.dmg OUT.img [SIZE]     (SIZE default 16G)
 #

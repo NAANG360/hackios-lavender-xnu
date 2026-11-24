@@ -14,6 +14,9 @@
  */
 #include <stdint.h>
 #include "mmu.h"
+#ifdef BOARD_LAVENDER
+#include "lavender_granule.h"
+#endif
 
 #define PG_SHIFT	14
 #define PG_SIZE		(1UL << PG_SHIFT)		/* 16K */
@@ -75,6 +78,11 @@ static void zero_table(uint64_t *t)
 
 int mmu_enable(struct mmu_info *info)
 {
+#ifdef BOARD_LAVENDER
+	/* Defense in depth: never program the 16 KiB regime on an unsupported CPU. */
+	if (!lavender_tgran16_supported(rsr("id_aa64mmfr0_el1")))
+		return -3;
+#endif
 	uintptr_t img_lo = (uintptr_t)_head & ~(PG_SIZE - 1);
 	uintptr_t img_hi = ((uintptr_t)_end + PG_SIZE - 1) & ~(PG_SIZE - 1);
 	uintptr_t pool = ((uintptr_t)pt_pool + PG_SIZE - 1) & ~(PG_SIZE - 1);

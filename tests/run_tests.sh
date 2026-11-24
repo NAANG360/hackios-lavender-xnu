@@ -59,6 +59,13 @@ case "$OUT" in
 	*)  "./$OUT/test_santoni_touch_stub" ;;
 esac
 
+echo "== Lavender 16 KiB translation-granule guard =="
+"$CC" -O2 -Wall -Wextra -Werror -Ishim tests/test_lavender_granule.c -o "$OUT/test_lavender_granule"
+case "$OUT" in
+	/*) "$OUT/test_lavender_granule" ;;
+	*)  "./$OUT/test_lavender_granule" ;;
+esac
+
 echo "== unified diff structure (all xnu/patches) =="
 python3 tests/test_mkadt_product.py
 python3 tests/test_mkadt_interrupts.py

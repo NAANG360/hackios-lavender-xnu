@@ -11,6 +11,9 @@
 #include "console.h"
 #include "fdt.h"
 #include "loader.h"
+#ifdef BOARD_LAVENDER
+#include "lavender_granule.h"
+#endif
 
 #define BOOT_LINE_LENGTH	608
 #define PAGE_16K		0x4000UL
@@ -148,6 +151,20 @@ static uintptr_t adt_walk_fix_cpus(uintptr_t base, uintptr_t off, uintptr_t tota
 const char *loader_boot(uintptr_t dtb)
 {
 	uint64_t rd_start, rd_end;
+
+#ifdef BOARD_LAVENDER
+	/* LIOS hardening: XNU's Lavender page-table regime requires 16 KiB
+	 * translation granules. Fail closed before parsing/copying a payload. */
+	uint64_t mmfr0, platform_mpidr;
+	__asm__ volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(mmfr0));
+	__asm__ volatile("mrs %0, mpidr_el1" : "=r"(platform_mpidr));
+	uint64_t tgran16 = (mmfr0 >> 20) & 0xf;
+	con_hex("BOOT MPIDR", platform_mpidr & 0xffffff);
+	con_hex("MMFR0", mmfr0);
+	con_hex("TGRAN16", tgran16);
+	if (!lavender_tgran16_supported(mmfr0))
+		return "16K granule unsupported; refusing XNU jump";
+#endif
 	uintptr_t emb = ((uintptr_t)_shim_end + 0xfff) & ~0xfffUL;
 
 	/*

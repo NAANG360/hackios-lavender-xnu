@@ -52,6 +52,11 @@ FB_W, FB_H = BOARDS[DEFAULT_BOARD]['panel_w'], BOARDS[DEFAULT_BOARD]['panel_h']
 FB_STRIDE = FB_W * 4
 FB_SIZE = FB_W * FB_H * 4
 TIMEBASE = 19200000
+I2C0, I2C0_SIZE = 0x0C175000, 0x600
+I2C0_IRQ_SPEC = (0, 0x5F, 4)
+I2C0_INPUT_HZ, I2C0_OUTPUT_HZ = 0x124F800, 0x61A80
+TLMM, TLMM_SIZE = 0x03000000, 0xC00000
+NVT_I2C_ADDRESS, NVT_IRQ_GPIO, NVT_RESET_GPIO = 0x62, 67, 66
 VTIMER_INTID = 19
 # QEMU virt (-M virt,gic-version=3 -cpu cortex-a76): GICD/GICR and the generic timer's CNTFRQ
 QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE = 0x08000000, 0x080a0000, 62500000
@@ -148,8 +153,9 @@ def build(seed=None, qemu=False, native=False, board=DEFAULT_BOARD, product_adt=
     cpus = node('cpus', [ph(), ('#address-cells', u32(1)),
                          ('#size-cells', u32(0))], cpu_nodes)
 
+    gic_phandle = next(phandle)
     gic = node('gic', [
-        ph(),
+        ('AAPL,phandle', u32(gic_phandle)),
         ('compatible', cstr('arm,gic-v3')),
         # pexpert/arm/pe_identify_machine.c::pe_arm_map_interrupt_controller
         # finds this exact value; an FDT-style empty boolean does not match.
@@ -164,14 +170,7 @@ def build(seed=None, qemu=False, native=False, board=DEFAULT_BOARD, product_adt=
         ('compatible', cstr('arm,armv7-timer-mem')),
         ('reg', u64(TIMER_FRAME - SOC_BASE, TIMER_FRAME_SIZE)),
     ])]
-    arm_io = node('arm-io', [
-        ph(),
-        ('device_type', cstr('sweet-io')),
-        ('compatible', cstr('sweet-io') + cstr('arm-io')),
-        ('#address-cells', u32(2)),
-        ('#size-cells', u32(2)),
-        ('ranges', u64(0, SOC_BASE, 0x100000000 - SOC_BASE)),
-    ], [gic, *timer_nodes,
+    arm_io_children = [gic, *timer_nodes,
         node('wdt', [ph(), ('no-pmu', u32(1))]),
         node('wlan', [
             ph(),
@@ -184,7 +183,47 @@ def build(seed=None, qemu=False, native=False, board=DEFAULT_BOARD, product_adt=
             ('compatible', cstr('sweet,display')),
             ('canvas-width', u32(fb_w if native else 1125)),
             ('canvas-height', u32(fb_h if native else 2436)),
-        ])])
+        ])]
+    if board == 'lavender':
+        arm_io_children.extend([
+            node('tlmm', [
+                ph(),
+                ('device_type', cstr('gpio-controller')),
+                ('compatible', cstr('qcom,sdm660-pinctrl')),
+                ('reg', u64(TLMM - SOC_BASE, TLMM_SIZE)),
+            ]),
+            node('i2c0', [
+                ph(),
+                ('device_type', cstr('i2c-controller')),
+                ('compatible', cstr('qcom,i2c-msm-v2')),
+                ('reg', u64(I2C0 - SOC_BASE, I2C0_SIZE)),
+                ('reg-names', cstr('qup_phys_addr')),
+                ('interrupts', u32(*I2C0_IRQ_SPEC)),
+                ('interrupt-parent', u32(gic_phandle)),
+                ('interrupt-names', cstr('qup_irq')),
+                ('qcom,clk-freq-in', u32(I2C0_INPUT_HZ)),
+                ('qcom,clk-freq-out', u32(I2C0_OUTPUT_HZ)),
+                ('clock-names', cstr('iface_clk') + cstr('core_clk')),
+                ('status', cstr('ok')),
+            ], [
+                node('novatek-touchscreen', [
+                    ph(),
+                    ('device_type', cstr('touchscreen')),
+                    ('compatible', cstr('novatek,NVT-ts')),
+                    ('reg', u32(NVT_I2C_ADDRESS)),
+                    ('lavender,irq-gpio-number', u32(NVT_IRQ_GPIO)),
+                    ('lavender,reset-gpio-number', u32(NVT_RESET_GPIO)),
+                ]),
+            ]),
+        ])
+    arm_io = node('arm-io', [
+        ph(),
+        ('device_type', cstr('sweet-io')),
+        ('compatible', cstr('sweet-io') + cstr('arm-io')),
+        ('#address-cells', u32(2)),
+        ('#size-cells', u32(2)),
+        ('ranges', u64(0, SOC_BASE, 0x100000000 - SOC_BASE)),
+    ], arm_io_children)
 
     fbcon = node('sweet-fbcon', [
         ph(),
@@ -223,6 +262,21 @@ def build(seed=None, qemu=False, native=False, board=DEFAULT_BOARD, product_adt=
         product_props = [(k, cstr('sRGB') if k == 'artwork-display-gamut' else v) for k, v in product_props]
     product = [node('product', [ph()] + product_props)] if product_props else []
 
+    root_children = [chosen, defaults, cpus, arm_io, fbcon, buttons, sdhci]
+    if board == 'lavender':
+        root_children.append(node('soc', [
+            ph(),
+            ('compatible', cstr('simple-bus')),
+            ('#address-cells', u32(2)),
+            ('#size-cells', u32(2)),
+            ('ranges', b''),
+        ], [
+            node('rpm-glink', [
+                ph(),
+                ('compatible', cstr('qcom,glink-rpm')),
+                ('status', cstr('ok')),
+            ]),
+        ]))
     return node('device-tree', [
         ph(),
         ('compatible', cstr('D22AP') + cstr('iPhone10,3') + cstr('xiaomi,' + cfg['name']) + cstr('xiaomi,sweet') + cstr('qcom,' + cfg['soc']) + cstr('AppleARM')),
@@ -232,7 +286,7 @@ def build(seed=None, qemu=False, native=False, board=DEFAULT_BOARD, product_adt=
         ('manufacturer', cstr('Apple Inc.')),
         ('#address-cells', u32(2)),
         ('#size-cells', u32(2)),
-    ], [chosen, defaults, cpus, arm_io, fbcon, buttons, sdhci] + product)
+    ], root_children + product)
 
 
 if __name__ == '__main__':
