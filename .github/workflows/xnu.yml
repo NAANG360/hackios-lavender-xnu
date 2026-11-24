@@ -320,7 +320,7 @@ jobs:
           KERNEL_BIN="$(find out -maxdepth 1 -type f -name 'kernel.*' ! -name '*.dSYM' ! -name '*.unstripped' | head -1)"
           test -n "$KERNEL_BIN"
           file "$KERNEL_BIN" | grep -q 'Mach-O 64-bit.*arm64'
-          (cd out && shasum -a 256 kernel.* > SHA256SUMS)
+          (cd out && shasum -a 256 "$(basename "$KERNEL_BIN")" > SHA256SUMS)
 
       - uses: actions/upload-artifact@v4
         if: success()
