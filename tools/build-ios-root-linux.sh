@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IPSW="$(realpath "${1:?usage: build-ios-root-linux.sh iPhone10,3_16.7.16.ipsw OUTDIR}")"
+IPSW="$(realpath "${1:?usage: build-ios-root-linux.sh iPhone10,3_16.7.16.ipsw OUTDIR [SIZE_MIB]}")"
 OUT="$(mkdir -p "${2:?output directory required}" && cd "$2" && pwd)"
+SIZE_MIB="${3:-22208}"
+LOGICAL_BYTES=$((SIZE_MIB * 1024 * 1024))
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EXTRACT="$OUT/extracted"
 RAW="$OUT/ios16-root.img"
@@ -35,7 +37,7 @@ rm -f "$IPSW"
 df -h "$OUT"
 
 test ! -e "$RAW" || { echo "refusing to overwrite $RAW" >&2; exit 1; }
-sudo bash "$ROOT/tools/mkiosroot.sh" "$OS_DMG" "$SYS_DMG" "$APP_DMG" "$RAW" 16G
+sudo bash "$ROOT/tools/mkiosroot.sh" "$OS_DMG" "$SYS_DMG" "$APP_DMG" "$RAW" "${SIZE_MIB}M"
 rm -rf "$EXTRACT"
 
 # Apply the tested first-boot/data-migration changes used by the
@@ -48,20 +50,20 @@ sudo umount "$MNT"
 sudo fsck.hfsplus -f -n "$RAW"
 
 # Android sparse format is the flashable representation for the userdata
-# partition; keep the filesystem's logical size at exactly 16 GiB.
+# partition; validate logical size matches SIZE_MIB.
 img2simg "$RAW" "$SPARSE" 4096
 simg_dump "$SPARSE" > "$OUT/ios16-root.sparse.txt"
-python3 - "$SPARSE" <<'PY'
+python3 - "$SPARSE" "$LOGICAL_BYTES" <<'PY'
 import os, struct, sys
-path = sys.argv[1]
+path, expected_logical = sys.argv[1], int(sys.argv[2])
 with open(path, "rb") as f:
     h = f.read(28)
     if len(h) != 28: raise SystemExit("short Android sparse header")
     magic, major, minor, fh, ch, blk, total, chunk_count, checksum = struct.unpack("<IHHHHIIII", h)
     if magic != 0xed26ff3a or major != 1 or fh < 28 or ch < 12 or blk != 4096:
         raise SystemExit("invalid Android sparse image header")
-    if total * blk != 16 * 1024**3:
-        raise SystemExit(f"wrong logical userdata image size: {total * blk}")
+    if total * blk != expected_logical:
+        raise SystemExit(f"wrong logical userdata image size: {total * blk} != {expected_logical}")
     f.seek(0, os.SEEK_END)
     size = f.tell()
     f.seek(fh)
@@ -95,16 +97,16 @@ ZST_SHA="$(sha256sum "$SPARSE_ZST" | awk '{print $1}')"
 ZST_SIZE="$(stat -c%s "$SPARSE_ZST")"
 rm -f "$SPARSE"
 
-python3 - "$OUT/root-manifest.json" "$RAW_SHA" "$SPARSE_SHA" "$SPARSE_SIZE" "$ZST_SHA" "$ZST_SIZE" <<'PY'
+python3 - "$OUT/root-manifest.json" "$RAW_SHA" "$SPARSE_SHA" "$SPARSE_SIZE" "$ZST_SHA" "$ZST_SIZE" "$LOGICAL_BYTES" <<'PY'
 import json, sys
-path, raw_sha, sparse_sha, sparse_size, zst_sha, zst_size = sys.argv[1:]
+path, raw_sha, sparse_sha, sparse_size, zst_sha, zst_size, logical_bytes = sys.argv[1:]
 m = {
     "schema": 2,
     "device": "Xiaomi Redmi Note 7 / 7S",
     "codename": "lavender",
     "userland": "iOS 16.7.16 (20H392), iPhone10,3",
     "filesystem": "HFSX (case-sensitive, journaled HFS+)",
-    "logical_size_bytes": 17179869184,
+    "logical_size_bytes": int(logical_bytes),
     "partition_target": "userdata",
     "xnu_root_device": "emmcroot0",
     "image": "ios16-root.simg.zst",
@@ -126,4 +128,4 @@ PY
   printf '%s  ios16-root.simg.zst\n' "$ZST_SHA"
   printf '# uncompressed sparse SHA-256: %s  ios16-root.simg\n' "$SPARSE_SHA"
 } > "$OUT/ROOT-SHA256SUMS"
-echo "iOS userdata root image ready: $ZST_SIZE bytes compressed ($SPARSE_SIZE bytes sparse, 17179869184 bytes logical)"
+echo "iOS userdata root image ready: $ZST_SIZE bytes compressed ($SPARSE_SIZE bytes sparse, $LOGICAL_BYTES bytes logical)"

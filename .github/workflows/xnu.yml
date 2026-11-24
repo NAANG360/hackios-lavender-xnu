@@ -46,6 +46,10 @@ on:
         type: boolean
         required: false
         default: true
+      userdata_size_mib:
+        description: "Logical HFSX size in MiB (22208 MiB = 21.69 GiB fits 32 GB lavender userdata with 64 MiB headroom)"
+        required: false
+        default: "22208"
       rootfs_source_run_id:
         description: "Reuse lavender-ios-rootfs artifact from a previous successful workflow run"
         required: false
@@ -559,7 +563,7 @@ jobs:
       - name: Build and validate HFSX userdata image
         run: |
           set -euo pipefail
-          bash tools/build-ios-root-linux.sh "$IPSW_PATH" "$RUNNER_TEMP/ios-root"
+          bash tools/build-ios-root-linux.sh "$IPSW_PATH" "$RUNNER_TEMP/ios-root" "${{ inputs.userdata_size_mib || '22208' }}"
           test -s "$RUNNER_TEMP/ios-root/ios16-root.simg.zst"
           test -s "$RUNNER_TEMP/ios-root/root-manifest.json"
           cat "$RUNNER_TEMP/ios-root/root-manifest.json"
@@ -623,7 +627,7 @@ jobs:
           mkdir -p dist
           test -s dist/iosboot.img
           test -s dist/iosboot-quiet.img
-          test -s dist/ios16-root.simg.zst.zst
+          test -s dist/ios16-root.simg.zst
           test -s dist/root-manifest.json
           (
             cd dist
@@ -700,7 +704,7 @@ jobs:
           echo "### Complete Lavender iOS install payload" >> "$GITHUB_STEP_SUMMARY"
           echo "| File | Size | SHA-256 |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | ---: | --- |" >> "$GITHUB_STEP_SUMMARY"
-          for f in dist/iosboot*.img dist/ios16-root.simg.zst.zst; do
+          for f in dist/iosboot*.img dist/ios16-root.simg.zst; do
             echo "| $(basename "$f") | $(stat -c%s "$f") B | $(sha256sum "$f" | cut -d' ' -f1) |" >> "$GITHUB_STEP_SUMMARY"
           done
 
