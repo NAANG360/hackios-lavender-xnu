@@ -6,7 +6,7 @@ on:
       mesa_ref:
         description: "Mesa git tag/branch to build freedreno a5xx from"
         required: false
-        default: "mesa-25.0.5"
+        default: "mesa-24.3.4"
   push:
     branches: [main, integration/lavender-ios16-base]
     paths:
@@ -30,7 +30,7 @@ jobs:
       - name: Clone Mesa and apply sweetgl patch
         run: |
           set -euo pipefail
-          MESA_REF="${{ inputs.mesa_ref || 'mesa-25.0.5' }}"
+          MESA_REF="${{ inputs.mesa_ref || 'mesa-24.3.4' }}"
           mkdir -p research
           git clone --depth 1 --branch "$MESA_REF" https://gitlab.freedesktop.org/mesa/mesa.git research/mesa
           cd research/mesa
