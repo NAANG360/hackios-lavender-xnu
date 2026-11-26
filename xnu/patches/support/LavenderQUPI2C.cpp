@@ -109,6 +109,7 @@ private:
     IOReturn fResult=kIOReturnSuccess; uint32_t fEvent=0;
 };
 OSDefineMetaClassAndStructors(LavenderQUPI2C,IOService);
+static LavenderQUPI2C *gLavenderQUPI2C=nullptr;
 IOService *LavenderQUPI2C::probe(IOService *p,SInt32 *score){
     int enabled=0;
     if(!PE_parse_boot_argn("lavenderqup",&enabled,sizeof(enabled))||!enabled)return nullptr;
@@ -300,6 +301,7 @@ bool LavenderQUPI2C::start(IOService *p){
     setProperty("LavenderQUPI2CControllerInitialized",kOSBooleanTrue);
     setProperty("LavenderQUPI2CPinsConfigured",kOSBooleanTrue);
     setProperty("LavenderI2CTransferFunction",LAVENDER_I2C_TRANSFER_FUNCTION);
+    gLavenderQUPI2C=this;
     IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,this);
     registerService();
     IOLog("LAVENDER QUP: BLSP1 QUP1 controller initialized at 0x%llx; GPIO2/3 blsp_i2c1 configured; tagged FIFO/BLOCK provider published\n",(unsigned long long)LAVENDER_QUP_I2C_BASE);
@@ -316,7 +318,7 @@ void LavenderQUPI2C::releaseResources(void){
     if(fGCCMap){fGCCMap->release();fGCCMap=nullptr;fGCC=nullptr;}
     if(fQUPMap){fQUPMap->release();fQUPMap=nullptr;fQUP=nullptr;}
 }
-void LavenderQUPI2C::stop(IOService *p){IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,nullptr);if(fQUP)setState(QUP_STATE_RESET);releaseResources();super::stop(p);}
+void LavenderQUPI2C::stop(IOService *p){if(gLavenderQUPI2C==this)gLavenderQUPI2C=nullptr;IOService::publishResource(LAVENDER_I2C_TRANSFER_FUNCTION,nullptr);if(fQUP)setState(QUP_STATE_RESET);releaseResources();super::stop(p);}
 void LavenderQUPI2C::irqAction(OSObject *o,IOInterruptEventSource *,int){LavenderQUPI2C *s=OSDynamicCast(LavenderQUPI2C,o);if(s)s->handleIRQ();}
 void LavenderQUPI2C::handleIRQ(void){
     if(!fQUP||!fLock)return;
@@ -486,6 +488,23 @@ unlock:
     }
 done:
     if(out)IOFree(out,z.outputBytes+4);if(in)IOFree(in,z.inputBytes+4);return result;
+}
+extern "C" int lavender_qup_i2c_available(void);
+extern "C" int lavender_qup_i2c_write(uint8_t addr,const uint8_t *data,uint32_t len);
+extern "C" int lavender_qup_i2c_read_reg(uint8_t addr,uint8_t reg,uint8_t *buf,uint32_t len);
+extern "C" int lavender_qup_i2c_available(void){return gLavenderQUPI2C!=nullptr?1:0;}
+extern "C" int lavender_qup_i2c_write(uint8_t addr,const uint8_t *data,uint32_t len){
+    LavenderQUPI2C *qup=gLavenderQUPI2C;
+    if(!qup||!data||len==0||len>255)return -1;
+    LavenderI2CMessage m={addr,0,len,const_cast<uint8_t *>(data)};
+    return qup->transfer(&m,1,100)==kIOReturnSuccess?0:-1;
+}
+extern "C" int lavender_qup_i2c_read_reg(uint8_t addr,uint8_t reg,uint8_t *buf,uint32_t len){
+    LavenderQUPI2C *qup=gLavenderQUPI2C;
+    if(!qup||!buf||len==0||len>255)return -1;
+    uint8_t r=reg;
+    LavenderI2CMessage m[2]={{addr,0,1,&r},{addr,LAVENDER_I2C_MESSAGE_READ,len,buf}};
+    return qup->transfer(m,2,100)==kIOReturnSuccess?0:-1;
 }
 extern "C" void lavender_register_qup_i2c_driver(void);
 extern "C" void lavender_register_qup_i2c_driver(void){

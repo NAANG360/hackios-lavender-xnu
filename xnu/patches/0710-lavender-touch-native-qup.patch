@@ -1,0 +1,63 @@
+From: port_ios lavender
+Subject: [PATCH 0710] lavender: wire Novatek touch I2C reads/writes to native LavenderQUPI2C with bit-bang fallback
+
+When lavenderqup=1 is active and LavenderQUPI2C has obtained its RPM vdd_dig
+LOW_SVS vote and initialized BLSP1 QUP1, route Novatek NT36672A xdata and
+firmware reads through hardware QUP1 I2C (~0.3-1.5 ms, zero CPU spin) instead
+of bit-banged GPIO2/3 (~14-65 ms). Early boot probe and lavenderqup=0 boots
+stay on the proven bit-banged path automatically.
+
+diff --git a/bsd/dev/santoni_touch.c b/bsd/dev/santoni_touch.c
+--- a/bsd/dev/santoni_touch.c
++++ b/bsd/dev/santoni_touch.c
+@@ -849,11 +849,33 @@
+ #define NVT_XDATA_BUF	0x21C00u
+ #define NVT_XDATA_FWINFO	0x78u
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++extern int lavender_qup_i2c_available(void);
++extern int lavender_qup_i2c_write(uint8_t addr, const uint8_t *data, uint32_t len);
++extern int lavender_qup_i2c_read_reg(uint8_t addr, uint8_t reg, uint8_t *buf, uint32_t len);
++static int touch_qup_logged;
++#endif
++
+ static int
+ nvt_set_xdata(uint8_t addr, uint32_t xaddr)
+ {
+ 	int ok = 1;
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (lavender_qup_i2c_available()) {
++		uint8_t cmd[3] = {
++			0xff,
++			(uint8_t)((xaddr >> 16) & 0xff),
++			(uint8_t)((xaddr >> 8) & 0xff),
++		};
++		if (!touch_qup_logged) {
++			touch_qup_logged = 1;
++			printf("WHYRED TOUCH: switched to native QUP1 hardware I2C\n");
++		}
++		return lavender_qup_i2c_write(addr, cmd, sizeof(cmd)) == 0 ? 0 : EIO;
++	}
++#endif
++
+ 	i2c_start();
+ 	ok &= i2c_write((uint8_t)(addr << 1));
+ 	ok &= i2c_write(0xff);
+@@ -867,6 +889,16 @@
+ nvt_read_fw(uint8_t addr, uint8_t reg, uint8_t *buf, int len)
+ {
+ 	int i, ok = 1;
++
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (lavender_qup_i2c_available()) {
++		if (!touch_qup_logged) {
++			touch_qup_logged = 1;
++			printf("WHYRED TOUCH: switched to native QUP1 hardware I2C\n");
++		}
++		return lavender_qup_i2c_read_reg(addr, reg, buf, (uint32_t)len) == 0 ? 0 : EIO;
++	}
++#endif
+ 
+ 	i2c_start();
+ 	ok &= i2c_write((uint8_t)(addr << 1));

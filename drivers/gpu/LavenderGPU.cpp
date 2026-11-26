@@ -60,6 +60,12 @@ enum {
 #define LAV_GMEM_BASE   0x00100000ull
 #define LAV_MAX_FREQ    585000000ull
 #define CP_INDIRECT_BUF 0x3fu
+
+struct lav_bo {
+	IOMemoryDescriptor *    mem;
+	IOMemoryMap *           map;
+	uint64_t                addr;
+};
 #define LAV_BUFFER_MAX  (16ull << 20)
 #define LAV_SUBMIT_MAX  16384           /* bytes of PM4 words in one stream */
 
@@ -165,9 +171,7 @@ class LavenderGPUUserClient : public IOUserClient
 	OSDeclareDefaultStructors(LavenderGPUUserClient);
 
 	task_t                          fTask;
-	IOMemoryDescriptor *            fMemory[LAV_BUFFERS];   /* handle n is fMemory[n - 1] */
-	IOMemoryMap *                   fMap[LAV_BUFFERS];      /* optional user mapping (sel 10) */
-	uint64_t                        fAddress[LAV_BUFFERS];
+	struct lav_bo *                 fBos;   /* heap-allocated LAV_BUFFERS slots (keeps class <= 16 KiB) */
 
 	IOReturn bufferNew(struct lav_buf_new * request);
 	IOReturn bufferFree(uint32_t handle);
@@ -196,6 +200,11 @@ LavenderGPUUserClient::initWithTask(task_t owningTask, void * securityID, UInt32
 		return false;
 	}
 	fTask = owningTask;
+	fBos = (struct lav_bo *)IOMalloc(LAV_BUFFERS * sizeof(struct lav_bo));
+	if (fBos == NULL) {
+		return false;
+	}
+	bzero(fBos, LAV_BUFFERS * sizeof(struct lav_bo));
 	return true;
 }
 
@@ -203,15 +212,19 @@ IOReturn
 LavenderGPUUserClient::clientClose(void)
 {
 	IOLockLock(gLavLock);
-	for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
-		if (fMap[i] != NULL) {
-			fMap[i]->release();
-			fMap[i] = NULL;
+	if (fBos != NULL) {
+		for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
+			if (fBos[i].map != NULL) {
+				fBos[i].map->release();
+				fBos[i].map = NULL;
+			}
+			if (fBos[i].mem != NULL) {
+				fBos[i].mem->release();
+				fBos[i].mem = NULL;
+			}
 		}
-		if (fMemory[i] != NULL) {
-			fMemory[i]->release();
-			fMemory[i] = NULL;
-		}
+		IOFree(fBos, LAV_BUFFERS * sizeof(struct lav_bo));
+		fBos = NULL;
 	}
 	IOLockUnlock(gLavLock);
 	if (!isInactive()) {
@@ -226,9 +239,9 @@ LavenderGPUUserClient::clientMemoryForType(UInt32 type, IOOptionBits * options, 
 	IOReturn ret = kIOReturnBadArgument;
 
 	IOLockLock(gLavLock);
-	if (type >= 1 && type <= LAV_BUFFERS && fMemory[type - 1] != NULL) {
-		fMemory[type - 1]->retain();
-		*memory = fMemory[type - 1];
+	if (fBos != NULL && type >= 1 && type <= LAV_BUFFERS && fBos[type - 1].mem != NULL) {
+		fBos[type - 1].mem->retain();
+		*memory = fBos[type - 1].mem;
 		*options = 0;
 		ret = kIOReturnSuccess;
 	}
@@ -255,10 +268,12 @@ LavenderGPUUserClient::bufferNew(struct lav_buf_new * request)
 		return kIOReturnNoMemory;
 	}
 	IOLockLock(gLavLock);
-	for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
-		if (fMemory[i] == NULL) {
-			slot = i;
-			break;
+	if (fBos != NULL) {
+		for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
+			if (fBos[i].mem == NULL) {
+				slot = i;
+				break;
+			}
 		}
 	}
 	if (slot == LAV_BUFFERS) {
@@ -266,10 +281,11 @@ LavenderGPUUserClient::bufferNew(struct lav_buf_new * request)
 		memory->release();
 		return kIOReturnNoResources;
 	}
-	fMemory[slot] = memory;
-	fAddress[slot] = memory->getPhysicalSegment(0, NULL, kIOMemoryMapperNone);
+	fBos[slot].mem = memory;
+	fBos[slot].map = NULL;
+	fBos[slot].addr = memory->getPhysicalSegment(0, NULL, kIOMemoryMapperNone);
 	request->handle = slot + 1;
-	request->address = fAddress[slot];
+	request->address = fBos[slot].addr;
 	request->size = size;
 	IOLockUnlock(gLavLock);
 	IOLog("LavenderGPU: buffer %u: pa %llx size %llu\n", request->handle, request->address, size);
@@ -282,13 +298,14 @@ LavenderGPUUserClient::bufferFree(uint32_t handle)
 	IOReturn ret = kIOReturnBadArgument;
 
 	IOLockLock(gLavLock);
-	if (handle >= 1 && handle <= LAV_BUFFERS && fMemory[handle - 1] != NULL) {
-		if (fMap[handle - 1] != NULL) {
-			fMap[handle - 1]->release();
-			fMap[handle - 1] = NULL;
+	if (fBos != NULL && handle >= 1 && handle <= LAV_BUFFERS && fBos[handle - 1].mem != NULL) {
+		if (fBos[handle - 1].map != NULL) {
+			fBos[handle - 1].map->release();
+			fBos[handle - 1].map = NULL;
 		}
-		fMemory[handle - 1]->release();
-		fMemory[handle - 1] = NULL;
+		fBos[handle - 1].mem->release();
+		fBos[handle - 1].mem = NULL;
+		fBos[handle - 1].addr = 0;
 		ret = kIOReturnSuccess;
 	}
 	IOLockUnlock(gLavLock);
@@ -363,9 +380,9 @@ LavenderGPUUserClient::submitBuf(const struct lav_submit_buf * request, struct l
 		return kIOReturnNoMemory;
 	}
 	IOLockLock(gLavLock);
-	if (request->handle >= 1 && request->handle <= LAV_BUFFERS && fMemory[request->handle - 1] != NULL &&
-	    (uint64_t)request->offset + size <= fMemory[request->handle - 1]->getLength()) {
-		if (fMemory[request->handle - 1]->readBytes(request->offset, words, size) == size) {
+	if (fBos != NULL && request->handle >= 1 && request->handle <= LAV_BUFFERS && fBos[request->handle - 1].mem != NULL &&
+	    (uint64_t)request->offset + size <= fBos[request->handle - 1].mem->getLength()) {
+		if (fBos[request->handle - 1].mem->readBytes(request->offset, words, size) == size) {
 			ret = kIOReturnSuccess;
 		} else {
 			ret = kIOReturnVMError;
@@ -393,14 +410,14 @@ LavenderGPUUserClient::gemNew(uint64_t size, uint64_t * outHandle, uint64_t * ou
 	if (ret != kIOReturnSuccess) {
 		return ret;
 	}
-	IOMemoryMap * map = fMemory[bn.handle - 1]->createMappingInTask(fTask, 0,
+	IOMemoryMap * map = fBos[bn.handle - 1].mem->createMappingInTask(fTask, 0,
 	    kIOMapAnywhere | kIOMapWriteCombineCache);
 	if (map == NULL) {
 		bufferFree(bn.handle);
 		return kIOReturnVMError;
 	}
 	IOLockLock(gLavLock);
-	fMap[bn.handle - 1] = map;
+	fBos[bn.handle - 1].map = map;
 	IOLockUnlock(gLavLock);
 	*outHandle = bn.handle;
 	*outIova = bn.address;
@@ -426,10 +443,12 @@ LavenderGPUUserClient::importSurface(uint32_t surfaceId, uint64_t * outHandle, u
 	}
 	uint32_t slot = LAV_BUFFERS;
 	IOLockLock(gLavLock);
-	for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
-		if (fMemory[i] == NULL) {
-			slot = i;
-			break;
+	if (fBos != NULL) {
+		for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
+			if (fBos[i].mem == NULL) {
+				slot = i;
+				break;
+			}
 		}
 	}
 	if (slot == LAV_BUFFERS) {
@@ -438,8 +457,9 @@ LavenderGPUUserClient::importSurface(uint32_t surfaceId, uint64_t * outHandle, u
 		return kIOReturnNoResources;
 	}
 	surf->memory->retain();
-	fMemory[slot] = surf->memory;
-	fAddress[slot] = pa;
+	fBos[slot].mem = surf->memory;
+	fBos[slot].map = NULL;
+	fBos[slot].addr = pa;
 	IOLockUnlock(gLavLock);
 	surf->release();
 	*outHandle = slot + 1;
@@ -656,7 +676,7 @@ LavenderGPUUserClient::selfTest(void)
 	if (ret != kIOReturnSuccess || bn.handle == 0) {
 		return false;
 	}
-	words = (volatile uint32_t *)((IOBufferMemoryDescriptor *)fMemory[bn.handle - 1])->getBytesNoCopy();
+	words = (volatile uint32_t *)((IOBufferMemoryDescriptor *)fBos[bn.handle - 1].mem)->getBytesNoCopy();
 
 	stream[0] = lav_pkt7(61, 3);                    /* CP_MEM_WRITE: address, then the words */
 	stream[1] = (uint32_t)bn.address;

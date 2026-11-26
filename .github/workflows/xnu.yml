@@ -377,7 +377,7 @@ jobs:
           # via the user's existing ROM installer. No recovery partition is used.
           # The iOS HFSX root is still expected at emmcroot0; this artifact does
           # not contain or flash a root filesystem.
-          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4 lavenderrpm=1 lavenderqup=0 sweetusb=2 lavgpu=30"
+          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4 lavenderrpm=1 sweetusb=2 lavgpu=30"
           FB_TEST="${{ inputs.fb_test_pattern || 'off' }}"
           FB_ARG=""
           FB_VERIFY="--reject sweetfbtest=1"
@@ -413,7 +413,7 @@ jobs:
               --require rd=emmcroot0 --require emmcrw=1 --require rootrw=1 \
               --require cs_enforcement_disable=1 \
               --require unentitled_ios_sim_launch=1 \
-              --require launchd_unsecure_cache=1 --require cpus=4 --require lavenderrpm=1 --require lavenderqup=0 $FB_VERIFY
+              --require launchd_unsecure_cache=1 --require cpus=4 --require lavenderrpm=1 $FB_VERIFY
             python3 tools/payload_cmdline.py --image "dist/$output_name" --reject 'ignition_level='
             if [ "$NOCONSOLE" = 1 ]; then
               python3 tools/payload_cmdline.py --image "dist/$output_name" --require sweetfb_noconsole=1
@@ -424,9 +424,9 @@ jobs:
 
           # Preferred image: visible verbose boot text over the existing Apple
           # boot mark, with the persistent log ring and detailed CS diagnostics.
-          build_image iosboot.img "sweetlog=1" "" 1
-          # Smaller/less noisy fallback for repeated boots.
-          build_image iosboot-quiet.img "" "" 1
+          build_image iosboot.img "sweetlog=1 lavenderqup=1" "" 1
+          # Smaller/less noisy fallback for repeated boots (bit-bang touch fallback).
+          build_image iosboot-quiet.img "lavenderqup=0" "" 1
 
           python3 - <<'PY'
           import hashlib, json, os
