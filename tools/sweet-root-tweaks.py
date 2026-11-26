@@ -67,8 +67,15 @@ def launchd(root):
     removed = [k for k, j in jobs.items() if j.get('Label') == 'com.apple.CommCenter']
     for k in removed:
         del jobs[k]
+    sweetgl_injected = False
+    if os.path.exists(os.path.join(root, 'usr/lib/sweetgl.dylib')):
+        for job in jobs.values():
+            if job.get('Label') == 'com.apple.backboardd':
+                env = job.setdefault('EnvironmentVariables', {})
+                env['DYLD_INSERT_LIBRARIES'] = '/usr/lib/sweetgl.dylib'
+                sweetgl_injected = True
     save(path, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
-    print(f'launchd.plist: {renamed} _PanicOnCrash renamed, {len(removed)} CommCenter jobs removed')
+    print(f'launchd.plist: {renamed} _PanicOnCrash renamed, {len(removed)} CommCenter jobs removed, sweetgl={sweetgl_injected}')
 
 
 def containers(root):

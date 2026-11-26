@@ -1,0 +1,90 @@
+name: sweetgl (Adreno 512 freedreno + EAGL)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_ref:
+        description: "Mesa git tag/branch to build freedreno a5xx from"
+        required: false
+        default: "mesa-25.0.5"
+  push:
+    branches: [main, integration/lavender-ios16-base]
+    paths:
+      - "tools/sweetgl/**"
+      - ".github/workflows/sweetgl.yml"
+
+jobs:
+  build-sweetgl:
+    name: Build sweetgl.dylib (iOS 16 arm64 / Adreno 512)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          brew install meson ninja bison flex
+          python3 -m pip install --break-system-packages mako pyyaml packaging
+
+      - name: Clone Mesa and apply sweetgl patch
+        run: |
+          set -euo pipefail
+          MESA_REF="${{ inputs.mesa_ref || 'mesa-25.0.5' }}"
+          mkdir -p research
+          git clone --depth 1 --branch "$MESA_REF" https://gitlab.freedesktop.org/mesa/mesa.git research/mesa
+          cd research/mesa
+          if ! git apply ../../tools/sweetgl/mesa.patch; then
+            echo "Standard git apply had fuzz; retrying with --3way / fuzzy patch"
+            patch -p1 -F 3 < ../../tools/sweetgl/mesa.patch
+          fi
+
+      - name: Generate iOS arm64 Meson cross-file from Xcode SDK
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun -sdk iphoneos --show-sdk-path)
+          CLANG=$(xcrun --find clang)
+          CLANGXX=$(xcrun --find clang++)
+          AR=$(xcrun --find ar)
+          STRIP=$(xcrun --find strip)
+          INC="$PWD/tools/sweetgl/include"
+          cat > tools/sweetgl/ios-cross.txt <<EOF
+          [binaries]
+          c = ['$CLANG', '-arch', 'arm64', '-isysroot', '$SDK', '-miphoneos-version-min=16.0']
+          cpp = ['$CLANGXX', '-arch', 'arm64', '-isysroot', '$SDK', '-miphoneos-version-min=16.0']
+          objc = ['$CLANG', '-arch', 'arm64', '-isysroot', '$SDK', '-miphoneos-version-min=16.0']
+          ar = '$AR'
+          strip = '$STRIP'
+          pkg-config = 'false'
+
+          [built-in options]
+          c_args = ['-I$INC']
+          cpp_args = ['-I$INC']
+
+          [host_machine]
+          system = 'darwin'
+          subsystem = 'ios'
+          cpu_family = 'aarch64'
+          cpu = 'arm64'
+          endian = 'little'
+          EOF
+          cat tools/sweetgl/ios-cross.txt
+
+      - name: Configure and build sweetgl.dylib
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PATH"
+          sh tools/sweetgl/mesa-setup.sh
+          sh tools/sweetgl/build.sh
+          ls -lh tools/sweetgl/out/sweetgl.dylib
+          file tools/sweetgl/out/sweetgl.dylib
+          shasum -a 256 tools/sweetgl/out/sweetgl.dylib > tools/sweetgl/out/SHA256SUMS
+
+      - name: Upload sweetgl.dylib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavender-sweetgl-a512
+          path: |
+            tools/sweetgl/out/sweetgl.dylib
+            tools/sweetgl/out/SHA256SUMS
+          retention-days: 30
