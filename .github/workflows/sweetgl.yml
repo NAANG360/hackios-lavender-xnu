@@ -16,7 +16,7 @@ on:
 jobs:
   build-sweetgl:
     name: Build sweetgl.dylib (iOS 16 arm64 / Adreno 512)
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -73,11 +73,24 @@ jobs:
       - name: Configure and build sweetgl.dylib
         run: |
           set -euo pipefail
-          export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PATH"
+          export PATH="/usr/local/opt/bison/bin:/usr/local/opt/flex/bin:/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PATH"
           sh tools/sweetgl/mesa-setup.sh
           sh tools/sweetgl/build.sh
           ls -lh tools/sweetgl/out/sweetgl.dylib
           file tools/sweetgl/out/sweetgl.dylib
+          cat > tools/sweetgl/out/SpringBoard.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>Jindo</key>
+          	<dict>
+          		<key>Enabled</key>
+          		<false/>
+          	</dict>
+          </dict>
+          </plist>
+          EOF
           shasum -a 256 tools/sweetgl/out/sweetgl.dylib > tools/sweetgl/out/SHA256SUMS
 
       - name: Upload sweetgl.dylib artifact
@@ -86,5 +99,6 @@ jobs:
           name: lavender-sweetgl-a512
           path: |
             tools/sweetgl/out/sweetgl.dylib
+            tools/sweetgl/out/SpringBoard.plist
             tools/sweetgl/out/SHA256SUMS
           retention-days: 30
