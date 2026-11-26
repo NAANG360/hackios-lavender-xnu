@@ -122,6 +122,19 @@ def audio(root):
         print('StartRecorderServer off', os.path.relpath(conf, root))
 
 
+
+def status_bar_jindo(root):
+    """Disable SpringBoard/Jindo feature flag so UIKit uses FixedSplit instead of the red rdar:45025538 bar."""
+    d = os.path.join(root, 'private/var/preferences/FeatureFlags/Domain')
+    os.makedirs(d, exist_ok=True)
+    os.chown(d, 0, 0)
+    os.chmod(d, 0o755)
+    p = os.path.join(d, 'SpringBoard.plist')
+    data = load(p) if os.path.exists(p) else {}
+    data['Jindo'] = {'Enabled': False}
+    save(p, data, 0, 0, 0o644, plistlib.FMT_XML)
+    print('featureflag SpringBoard/Jindo=false', p)
+
 def main():
     if len(sys.argv) != 2 or not os.path.isdir(os.path.join(sys.argv[1], 'System/Library/xpc')):
         sys.exit(__doc__)
@@ -130,6 +143,7 @@ def main():
     containers(root)
     activation(root)
     audio(root)
+    status_bar_jindo(root)
     merge_pref(root, 'com.apple.migration', {
         'LastSystemVersion': BUILD,
         'DMUserDataDisposition': {'SyntheticDidUpgrade': False, 'buildVersion': BUILD}})

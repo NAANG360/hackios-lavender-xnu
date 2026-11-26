@@ -28,6 +28,7 @@
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <mach/vm_param.h>
 #include <sys/systm.h>
+#include "SweetSurface.h"
 
 extern "C" {
 int lavender_gpu_service_ready(void);
@@ -43,9 +44,22 @@ enum {
 	kLavSubmit      = 3,
 	kLavSubmitBuf   = 4,
 	kLavMetal       = 5,
+	/* msm DRM / sweetgl-compatible selectors (10..16) */
+	kLavGemNew      = 10,
+	kLavGemClose    = 11,
+	kLavImportSurf  = 12,
+	kLavGemSubmit   = 13,
+	kLavWaitFence   = 14,
+	kLavGetParam    = 15,
+	kLavCpuPrep     = 16,
 };
 
-#define LAV_BUFFERS     64
+#define LAV_BUFFERS     1024
+#define LAV_CHIP_ID     0x05010200u     /* Adreno 512 (a512) */
+#define LAV_GMEM_SIZE   0x00080000u     /* 512 KiB GMEM */
+#define LAV_GMEM_BASE   0x00100000ull
+#define LAV_MAX_FREQ    585000000ull
+#define CP_INDIRECT_BUF 0x3fu
 #define LAV_BUFFER_MAX  (16ull << 20)
 #define LAV_SUBMIT_MAX  16384           /* bytes of PM4 words in one stream */
 
@@ -151,11 +165,15 @@ class LavenderGPUUserClient : public IOUserClient
 	OSDeclareDefaultStructors(LavenderGPUUserClient);
 
 	task_t                          fTask;
-	IOBufferMemoryDescriptor *      fMemory[LAV_BUFFERS];   /* handle n is fMemory[n - 1] */
+	IOMemoryDescriptor *            fMemory[LAV_BUFFERS];   /* handle n is fMemory[n - 1] */
+	IOMemoryMap *                   fMap[LAV_BUFFERS];      /* optional user mapping (sel 10) */
 	uint64_t                        fAddress[LAV_BUFFERS];
 
 	IOReturn bufferNew(struct lav_buf_new * request);
 	IOReturn bufferFree(uint32_t handle);
+	IOReturn gemNew(uint64_t size, uint64_t * outHandle, uint64_t * outIova, uint64_t * outMap);
+	IOReturn importSurface(uint32_t surfaceId, uint64_t * outHandle, uint64_t * outIova, uint64_t * outSize);
+	IOReturn gemSubmit(IOExternalMethodArguments * args, uint64_t * outSeq);
 	IOReturn submit(IOExternalMethodArguments * args, struct lav_submit_out * out);
 	IOReturn submitBuf(const struct lav_submit_buf * request, struct lav_submit_out * out);
 	IOReturn run(uint32_t * words, size_t size, struct lav_submit_out * out);
@@ -186,6 +204,10 @@ LavenderGPUUserClient::clientClose(void)
 {
 	IOLockLock(gLavLock);
 	for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
+		if (fMap[i] != NULL) {
+			fMap[i]->release();
+			fMap[i] = NULL;
+		}
 		if (fMemory[i] != NULL) {
 			fMemory[i]->release();
 			fMemory[i] = NULL;
@@ -261,6 +283,10 @@ LavenderGPUUserClient::bufferFree(uint32_t handle)
 
 	IOLockLock(gLavLock);
 	if (handle >= 1 && handle <= LAV_BUFFERS && fMemory[handle - 1] != NULL) {
+		if (fMap[handle - 1] != NULL) {
+			fMap[handle - 1]->release();
+			fMap[handle - 1] = NULL;
+		}
 		fMemory[handle - 1]->release();
 		fMemory[handle - 1] = NULL;
 		ret = kIOReturnSuccess;
@@ -353,6 +379,108 @@ LavenderGPUUserClient::submitBuf(const struct lav_submit_buf * request, struct l
 	return run(words, size, out);
 }
 
+static uint32_t lav_pkt7(uint32_t opcode, uint32_t count);
+
+IOReturn
+LavenderGPUUserClient::gemNew(uint64_t size, uint64_t * outHandle, uint64_t * outIova, uint64_t * outMap)
+{
+	struct lav_buf_new bn;
+	IOReturn ret;
+
+	bzero(&bn, sizeof(bn));
+	bn.size = size;
+	ret = bufferNew(&bn);
+	if (ret != kIOReturnSuccess) {
+		return ret;
+	}
+	IOMemoryMap * map = fMemory[bn.handle - 1]->createMappingInTask(fTask, 0,
+	    kIOMapAnywhere | kIOMapWriteCombineCache);
+	if (map == NULL) {
+		bufferFree(bn.handle);
+		return kIOReturnVMError;
+	}
+	IOLockLock(gLavLock);
+	fMap[bn.handle - 1] = map;
+	IOLockUnlock(gLavLock);
+	*outHandle = bn.handle;
+	*outIova = bn.address;
+	*outMap = (uint64_t)map->getAddress();
+	return kIOReturnSuccess;
+}
+
+IOReturn
+LavenderGPUUserClient::importSurface(uint32_t surfaceId, uint64_t * outHandle, uint64_t * outIova, uint64_t * outSize)
+{
+	SweetSurface * surf = sweet_surface_copy(surfaceId);
+	if (surf == NULL || surf->memory == NULL) {
+		if (surf != NULL) {
+			surf->release();
+		}
+		return kIOReturnNotFound;
+	}
+	uint64_t pa = surf->memory->getPhysicalSegment(0, NULL, kIOMemoryMapperNone);
+	uint64_t sz = surf->allocSize ? (uint64_t)surf->allocSize : (uint64_t)surf->memory->getLength();
+	if (pa == 0 || pa >= 0x100000000ULL) {
+		surf->release();
+		return kIOReturnUnsupported;
+	}
+	uint32_t slot = LAV_BUFFERS;
+	IOLockLock(gLavLock);
+	for (uint32_t i = 0; i < LAV_BUFFERS; i++) {
+		if (fMemory[i] == NULL) {
+			slot = i;
+			break;
+		}
+	}
+	if (slot == LAV_BUFFERS) {
+		IOLockUnlock(gLavLock);
+		surf->release();
+		return kIOReturnNoResources;
+	}
+	surf->memory->retain();
+	fMemory[slot] = surf->memory;
+	fAddress[slot] = pa;
+	IOLockUnlock(gLavLock);
+	surf->release();
+	*outHandle = slot + 1;
+	*outIova = pa;
+	*outSize = sz;
+	return kIOReturnSuccess;
+}
+
+IOReturn
+LavenderGPUUserClient::gemSubmit(IOExternalMethodArguments * args, uint64_t * outSeq)
+{
+	const uint8_t * buf = (const uint8_t *)args->structureInput;
+	size_t size = args->structureInputSize;
+	if (buf == NULL || size < 8) {
+		return kIOReturnBadArgument;
+	}
+	uint32_t nib = ((const uint32_t *)buf)[0];
+	if (nib == 0 || nib > 256 || size < 8 + (size_t)nib * 16) {
+		return kIOReturnBadArgument;
+	}
+	size_t pktBytes = (size_t)nib * 16;
+	uint32_t * words = (uint32_t *)IOMalloc(pktBytes);
+	if (words == NULL) {
+		return kIOReturnNoMemory;
+	}
+	const uint32_t * ib = (const uint32_t *)(buf + 8);
+	for (uint32_t i = 0; i < nib; i++) {
+		words[i * 4 + 0] = lav_pkt7(CP_INDIRECT_BUF, 3);
+		words[i * 4 + 1] = ib[i * 4 + 0];
+		words[i * 4 + 2] = ib[i * 4 + 1];
+		words[i * 4 + 3] = ib[i * 4 + 2];
+	}
+	struct lav_submit_out out;
+	bzero(&out, sizeof(out));
+	IOReturn ret = run(words, pktBytes, &out);
+	if (ret == kIOReturnSuccess) {
+		*outSeq = out.fence;
+	}
+	return ret;
+}
+
 IOReturn
 LavenderGPUUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments * args,
     IOExternalMethodDispatch * dispatch, OSObject * target, void * reference)
@@ -413,6 +541,55 @@ LavenderGPUUserClient::externalMethod(uint32_t selector, IOExternalMethodArgumen
 			return kIOReturnBadArgument;
 		}
 		ret = lavMetalSet(*(const uint32_t *)args->structureInput);
+		break;
+	case kLavGemNew:
+		if (args->scalarInputCount < 1 || args->scalarOutputCount < 3) {
+			return kIOReturnBadArgument;
+		}
+		ret = gemNew(args->scalarInput[0], &args->scalarOutput[0],
+		    &args->scalarOutput[1], &args->scalarOutput[2]);
+		args->scalarOutputCount = 3;
+		break;
+	case kLavGemClose:
+		if (args->scalarInputCount < 1) {
+			return kIOReturnBadArgument;
+		}
+		ret = bufferFree((uint32_t)args->scalarInput[0]);
+		break;
+	case kLavImportSurf:
+		if (args->scalarInputCount < 1 || args->scalarOutputCount < 3) {
+			return kIOReturnBadArgument;
+		}
+		ret = importSurface((uint32_t)args->scalarInput[0], &args->scalarOutput[0],
+		    &args->scalarOutput[1], &args->scalarOutput[2]);
+		args->scalarOutputCount = 3;
+		break;
+	case kLavGemSubmit:
+		if (!lavender_gpu_service_ready()) {
+			return kIOReturnNotReady;
+		}
+		if (args->scalarOutputCount < 1) {
+			return kIOReturnBadArgument;
+		}
+		ret = gemSubmit(args, &args->scalarOutput[0]);
+		args->scalarOutputCount = 1;
+		break;
+	case kLavWaitFence:
+		ret = kIOReturnSuccess;
+		break;
+	case kLavGetParam:
+		if (args->scalarOutputCount < 5) {
+			return kIOReturnBadArgument;
+		}
+		args->scalarOutput[0] = LAV_CHIP_ID;
+		args->scalarOutput[1] = LAV_GMEM_SIZE;
+		args->scalarOutput[2] = LAV_GMEM_BASE;
+		args->scalarOutput[3] = LAV_MAX_FREQ;
+		args->scalarOutput[4] = 0;
+		args->scalarOutputCount = 5;
+		break;
+	case kLavCpuPrep:
+		ret = kIOReturnSuccess;
 		break;
 	default:
 		IOLog("LavenderGPU: request %u is not known here\n", selector);
@@ -479,7 +656,7 @@ LavenderGPUUserClient::selfTest(void)
 	if (ret != kIOReturnSuccess || bn.handle == 0) {
 		return false;
 	}
-	words = (volatile uint32_t *)fMemory[bn.handle - 1]->getBytesNoCopy();
+	words = (volatile uint32_t *)((IOBufferMemoryDescriptor *)fMemory[bn.handle - 1])->getBytesNoCopy();
 
 	stream[0] = lav_pkt7(61, 3);                    /* CP_MEM_WRITE: address, then the words */
 	stream[1] = (uint32_t)bn.address;

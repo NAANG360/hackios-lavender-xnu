@@ -377,7 +377,7 @@ jobs:
           # via the user's existing ROM installer. No recovery partition is used.
           # The iOS HFSX root is still expected at emmcroot0; this artifact does
           # not contain or flash a root filesystem.
-          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4 lavenderrpm=1 lavenderqup=0"
+          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4 lavenderrpm=1 lavenderqup=0 sweetusb=2 lavgpu=30"
           FB_TEST="${{ inputs.fb_test_pattern || 'off' }}"
           FB_ARG=""
           FB_VERIFY="--reject sweetfbtest=1"
@@ -387,7 +387,7 @@ jobs:
           fi
           COMMON="$COMMON $FB_ARG sweetrtc=$(date +%s)"
 
-          PANEL="${{ inputs.panel_console || 'text' }}"
+          PANEL="${{ inputs.panel_console || 'hidden' }}"
           NOCONSOLE=0
           if [ "$PANEL" = "hidden" ]; then NOCONSOLE=1; fi
 
@@ -424,7 +424,7 @@ jobs:
 
           # Preferred image: visible verbose boot text over the existing Apple
           # boot mark, with the persistent log ring and detailed CS diagnostics.
-          build_image iosboot.img "sweetlog=1 cs_debug=2" "-enable_kprintf_spam" 0
+          build_image iosboot.img "sweetlog=1" "" 1
           # Smaller/less noisy fallback for repeated boots.
           build_image iosboot-quiet.img "" "" 1
 

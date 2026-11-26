@@ -40,6 +40,14 @@ int fdt_chosen_u64(uintptr_t fdt, const char *prop, uint64_t *out)
 	return 0;
 }
 
+int fdt_memory_ceiling(uintptr_t fdt, uint64_t phys_base, uint64_t *out_end)
+{
+	(void)fdt;
+	(void)phys_base;
+	(void)out_end;
+	return 0;
+}
+
 #define BOOT_LINE_LENGTH	608
 #define PAGE_16K		0x4000UL
 

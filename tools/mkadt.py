@@ -68,12 +68,28 @@ QEMU_VTIMER_INTID = 27
 D22AP_ADT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../research/ipsw-x/d22ap.adt')
 
 
+def d22ap_product_fallback():
+    """Minimal D22AP /product properties when research/ipsw-x/d22ap.adt is absent in CI.
+    Prevents IODeviceTree:/product -> none stalls in backboardd, SpringBoard, and MobileGestalt."""
+    return [
+        ('product-name', b'iPhone10,3\0'),
+        ('product-description', b'iPhone X\0'),
+        ('artwork-scale-factor', struct.pack('<I', 3)),
+        ('artwork-device-subtype', struct.pack('<I', 2436)),
+        ('artwork-display-gamut', b'sRGB\0'),
+        ('graphics-featureset-class', b'MTL1,2\0'),
+        ('graphics-featureset-fallbacks', b'MTL1,2\0'),
+        ('home-button-type', struct.pack('<I', 2)),
+        ('oled-display', struct.pack('<I', 0)),
+    ]
+
+
 def d22ap_product(path=D22AP_ADT):
     """/product properties of the real D22AP tree, without the syscfg
     placeholders iBoot would fill in (flag bit set) and the node bookkeeping."""
     if not os.path.exists(path):
-        print(f'warning: {path} missing, no /product node', file=sys.stderr)
-        return None
+        print(f'info: {path} missing, using built-in D22AP /product fallback', file=sys.stderr)
+        return d22ap_product_fallback()
     root, _ = adt.parse(open(path, 'rb').read())
     for c in root.children:
         if dict((k, v) for k, f, v in c.props).get('name') == b'product\0':

@@ -148,6 +148,66 @@ static uintptr_t adt_walk_fix_cpus(uintptr_t base, uintptr_t off, uintptr_t tota
 	return off;
 }
 
+/*
+ * Update /chosen/dram-size in-place inside the copied ADT when dynamic FDT RAM
+ * detection expands mem_size beyond the payload's conservative 1 GiB default.
+ */
+static uintptr_t adt_walk_fix_dram(uintptr_t base, uintptr_t off, uintptr_t total_size, uint64_t dram_size)
+{
+	if (off + 8 > total_size)
+		return total_size;
+
+	volatile const uint32_t *hdr = (volatile const uint32_t *)(base + off);
+	uint32_t nprops = hdr[0];
+	uint32_t nchildren = hdr[1];
+	off += 8;
+
+	if (nprops > 256 || nchildren > 256)
+		return total_size;
+
+	int is_chosen = 0;
+	uintptr_t dram_sz_off = 0;
+
+	for (uint32_t i = 0; i < nprops; i++) {
+		if (off + 36 > total_size)
+			return total_size;
+
+		volatile const char *pname = (volatile const char *)(base + off);
+		volatile const uint32_t *psize = (volatile const uint32_t *)(base + off + 32);
+		uint32_t ln = *psize & 0x7fffffff;
+		uintptr_t val_off = off + 36;
+		uint32_t padded_ln = (ln + 3) & ~3;
+
+		if (val_off + padded_ln > total_size)
+			return total_size;
+
+		if (pname[0] == 'n' && pname[1] == 'a' && pname[2] == 'm' && pname[3] == 'e' && pname[4] == '\0') {
+			volatile const char *v = (volatile const char *)(base + val_off);
+			if (ln >= 7 && v[0] == 'c' && v[1] == 'h' && v[2] == 'o' &&
+			    v[3] == 's' && v[4] == 'e' && v[5] == 'n' && v[6] == '\0')
+				is_chosen = 1;
+		} else if (pname[0] == 'd' && pname[1] == 'r' && pname[2] == 'a' && pname[3] == 'm' &&
+		           pname[4] == '-' && pname[5] == 's' && pname[6] == 'i' && pname[7] == 'z' &&
+		           pname[8] == 'e' && pname[9] == '\0') {
+			if (ln >= 8)
+				dram_sz_off = val_off;
+		}
+
+		off += 36 + padded_ln;
+	}
+
+	if (is_chosen && dram_sz_off) {
+		volatile uint32_t *dst = (volatile uint32_t *)(base + dram_sz_off);
+		dst[0] = (uint32_t)dram_size;
+		dst[1] = (uint32_t)(dram_size >> 32);
+	}
+
+	for (uint32_t i = 0; i < nchildren; i++) {
+		off = adt_walk_fix_dram(base, off, total_size, dram_size);
+	}
+	return off;
+}
+
 const char *loader_boot(uintptr_t dtb)
 {
 	uint64_t rd_start, rd_end;
@@ -207,19 +267,32 @@ const char *loader_boot(uintptr_t dtb)
 	if (p->nsegs > 32)
 		return "too many segments";
 
+	uint64_t mem_size = p->mem_size;
+	uint64_t fdt_ceil = 0;
+	if (fdt_memory_ceiling(dtb, p->phys_base, &fdt_ceil) && fdt_ceil > p->phys_base) {
+		/* Align down to 32 MiB (16 KiB L2 block); never exceed 6 GiB sanity cap. */
+		uint64_t avail = (fdt_ceil - p->phys_base) & ~((32ULL << 20) - 1);
+		if (avail > (6ULL << 30))
+			avail = 6ULL << 30;
+		if (avail > mem_size) {
+			mem_size = avail;
+			con_hex2("DRAM", "ceil=", (uint32_t)(fdt_ceil >> 20), "mib=", (uint32_t)(mem_size >> 20));
+		}
+	}
+
 	uint64_t pa_of_va_base = p->phys_base - p->virt_base;	/* pa = va + this */
-	con_hex2("PHYS", "base=", p->phys_base, "size=", p->mem_size);
+	con_hex2("PHYS", "base=", p->phys_base, "size=", mem_size);
 	con_hex("VIRT", p->virt_base);
 	con_hex("ENTRY", p->entry_va);
 
 	/* The payload must not overlap where the kernel goes. */
-	if (rd_end > p->phys_base && rd_start < p->phys_base + p->mem_size)
+	if (rd_end > p->phys_base && rd_start < p->phys_base + mem_size)
 		return "ramdisk overlaps kernel memory";
 
 	for (uint32_t i = 0; i < p->nsegs; i++) {
 		const struct payload_seg *s = &p->segs[i];
 		uintptr_t dst = s->vmaddr + pa_of_va_base;
-		if (dst < p->phys_base || dst + s->vmsize > p->phys_base + p->mem_size)
+		if (dst < p->phys_base || dst + s->vmsize > p->phys_base + mem_size)
 			return "segment outside physical memory";
 		copy64(dst, rd_start + s->file_off, s->file_size);
 		if (s->vmsize > s->file_size)
@@ -239,10 +312,12 @@ const char *loader_boot(uintptr_t dtb)
 	uint32_t boot_phys = 0x100;
 #endif
 	adt_walk_fix_cpus(adt_pa, 0, p->adt_size, boot_phys);
+	if (mem_size != p->mem_size)
+		adt_walk_fix_dram(adt_pa, 0, p->adt_size, mem_size);
 	con_hex2("BOOT_CPU", "mpidr=", boot_phys, "adt=", adt_pa);
 	uintptr_t ba_pa = (adt_pa + p->adt_size + PAGE_16K - 1) & ~(PAGE_16K - 1);
 	uintptr_t top = ba_pa + PAGE_16K;
-	if (top > p->phys_base + p->mem_size)
+	if (top > p->phys_base + mem_size)
 		return "kernel data exceeds physical memory";
 
 	zero64(ba_pa, PAGE_16K);
@@ -251,7 +326,7 @@ const char *loader_boot(uintptr_t dtb)
 	ba->Version = 2;
 	ba->virtBase = p->virt_base;
 	ba->physBase = p->phys_base;
-	ba->memSize = p->mem_size;
+	ba->memSize = mem_size;
 	ba->topOfKernelData = top;
 	ba->Video.v_baseAddr = FB_BASE;
 	ba->Video.v_display = 1;
@@ -263,7 +338,7 @@ const char *loader_boot(uintptr_t dtb)
 	ba->deviceTreeLength = (uint32_t)p->adt_size;
 	for (int i = 0; i < BOOT_LINE_LENGTH; i++)
 		ba->CommandLine[i] = p->cmdline[i];
-	ba->memSizeActual = p->mem_size;
+	ba->memSizeActual = mem_size;
 	con_hex2("BOOTARG", "pa=", ba_pa, "top=", top);
 
 	uintptr_t entry_pa = p->entry_va + pa_of_va_base;
