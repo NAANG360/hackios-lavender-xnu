@@ -275,8 +275,9 @@ const char *loader_boot(uintptr_t dtb)
 		 * 4 GiB for Qualcomm's dynamic secure_region/qseecom/adsp XPU carve-outs and
 		 * staying inside the 32-bit DRAM bank & Adreno 512 identity map).
 		 */
-		if (fdt_ceil > 0xF0000000ULL)
-			fdt_ceil = 0xF0000000ULL;
+		/* Stop strictly below lavender's 0xE7950000-0xFE7FFFFF reserved region (/proc/iomem). */
+		if (fdt_ceil > 0xE6000000ULL)
+			fdt_ceil = 0xE6000000ULL;
 		uint64_t avail = (fdt_ceil - p->phys_base) & ~((32ULL << 20) - 1);
 		if (avail > mem_size) {
 			mem_size = avail;
