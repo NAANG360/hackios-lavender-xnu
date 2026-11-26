@@ -118,6 +118,17 @@ int fdt_memory_ceiling(uintptr_t fdt, uint64_t phys_base, uint64_t *out_end)
 	uint64_t best_end = 0;
 	uint64_t rsv_clamp = ~0ULL;
 
+	/* Honor FDT header memreserve entries above phys_base. */
+	uintptr_t rsvmap = fdt + be32(fdt + 16);
+	for (int i = 0; i < 64; i++) {
+		uint64_t rbase = be64(rsvmap + (uintptr_t)i * 16);
+		uint64_t rsz = be64(rsvmap + (uintptr_t)i * 16 + 8);
+		if (rbase == 0 && rsz == 0)
+			break;
+		if (rsz && rbase >= phys_base && rbase < rsv_clamp)
+			rsv_clamp = rbase;
+	}
+
 	/* Per-child state for /reserved-memory children */
 	int child_nomap = 0;
 	uintptr_t child_reg = 0;

@@ -14,4 +14,4 @@ meson setup ../mesa-ios --cross-file "$R/tools/sweetgl/ios-cross.txt" \
 	-Dvalgrind=disabled -Dlibunwind=disabled -Dlmsensors=disabled \
 	-Dbuild-tests=false -Dshader-cache=disabled -Dperfetto=false \
 	-Dgallium-va=disabled -Dgallium-rusticl=false -Dtools= \
-	-Dhtml-docs=disabled -Ddisplay-info=disabled -Dteflon=false "$@"
+	-Dhtml-docs=disabled -Dteflon=false "$@"

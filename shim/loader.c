@@ -270,10 +270,14 @@ const char *loader_boot(uintptr_t dtb)
 	uint64_t mem_size = p->mem_size;
 	uint64_t fdt_ceil = 0;
 	if (fdt_memory_ceiling(dtb, p->phys_base, &fdt_ceil) && fdt_ceil > p->phys_base) {
-		/* Align down to 32 MiB (16 KiB L2 block); never exceed 6 GiB sanity cap. */
+		/*
+		 * Keep kernel-managed RAM strictly below 0xF0000000 (leaving 256 MiB below
+		 * 4 GiB for Qualcomm's dynamic secure_region/qseecom/adsp XPU carve-outs and
+		 * staying inside the 32-bit DRAM bank & Adreno 512 identity map).
+		 */
+		if (fdt_ceil > 0xF0000000ULL)
+			fdt_ceil = 0xF0000000ULL;
 		uint64_t avail = (fdt_ceil - p->phys_base) & ~((32ULL << 20) - 1);
-		if (avail > (6ULL << 30))
-			avail = 6ULL << 30;
 		if (avail > mem_size) {
 			mem_size = avail;
 			con_hex2("DRAM", "ceil=", (uint32_t)(fdt_ceil >> 20), "mib=", (uint32_t)(mem_size >> 20));
