@@ -268,22 +268,10 @@ const char *loader_boot(uintptr_t dtb)
 		return "too many segments";
 
 	uint64_t mem_size = p->mem_size;
-	uint64_t fdt_ceil = 0;
-	if (fdt_memory_ceiling(dtb, p->phys_base, &fdt_ceil) && fdt_ceil > p->phys_base) {
-		/*
-		 * Keep kernel-managed RAM strictly below 0xF0000000 (leaving 256 MiB below
-		 * 4 GiB for Qualcomm's dynamic secure_region/qseecom/adsp XPU carve-outs and
-		 * staying inside the 32-bit DRAM bank & Adreno 512 identity map).
-		 */
-		/* Stop strictly below lavender's 0xE7950000-0xFE7FFFFF reserved region (/proc/iomem). */
-		if (fdt_ceil > 0xE6000000ULL)
-			fdt_ceil = 0xE6000000ULL;
-		uint64_t avail = (fdt_ceil - p->phys_base) & ~((32ULL << 20) - 1);
-		if (avail > mem_size) {
-			mem_size = avail;
-			con_hex2("DRAM", "ceil=", (uint32_t)(fdt_ceil >> 20), "mib=", (uint32_t)(mem_size >> 20));
-		}
-	}
+	/* Keep the proven 1 GiB contiguous span (0xA0000000-0xE0000000) from payload/ADT;
+	 * expanding above 0xE0000000 trips SDM660 SError on 3 GB lavender units. */
+	(void)dtb;
+	(void)adt_walk_fix_dram;
 
 	uint64_t pa_of_va_base = p->phys_base - p->virt_base;	/* pa = va + this */
 	con_hex2("PHYS", "base=", p->phys_base, "size=", mem_size);
