@@ -381,7 +381,7 @@ jobs:
           # via the user's existing ROM installer. No recovery partition is used.
           # The iOS HFSX root is still expected at emmcroot0; this artifact does
           # not contain or flash a root filesystem.
-          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4 lavenderrpm=1 sweetusb=2 lavgpu=30"
+          COMMON="emmcrw=1 rootrw=1 cs_enforcement_disable=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 wdt=-1 wdt_test=no_user_checkin cpus=4 lavenderrpm=1 sweetusb=2 lavgpu=30 sweetouchi2c=1 sweetouchwait=0"
           FB_TEST="${{ inputs.fb_test_pattern || 'off' }}"
           FB_ARG=""
           FB_VERIFY="--reject sweetfbtest=1"
