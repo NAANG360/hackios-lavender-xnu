@@ -38,6 +38,15 @@ jobs:
             echo "Standard git apply had fuzz; retrying with --3way / fuzzy patch"
             patch -p1 -F 3 < ../../tools/sweetgl/mesa.patch
           fi
+          # Darwin has no ELF build_id; stub ir3_disk_cache.c since shader-cache=disabled
+          cat > src/freedreno/ir3/ir3_disk_cache.c <<'EOF'
+          #include "ir3_compiler.h"
+          #include "ir3_shader.h"
+          void ir3_disk_cache_init(struct ir3_compiler *compiler) { (void)compiler; }
+          void ir3_disk_cache_init_shader_key(struct ir3_compiler *compiler, struct ir3_shader *shader) { (void)compiler; (void)shader; }
+          bool ir3_disk_cache_retrieve(struct ir3_shader *shader, struct ir3_shader_variant *v) { (void)shader; (void)v; return false; }
+          void ir3_disk_cache_store(struct ir3_shader *shader, struct ir3_shader_variant *v) { (void)shader; (void)v; }
+          EOF
 
       - name: Generate iOS arm64 Meson cross-file from Xcode SDK
         run: |
