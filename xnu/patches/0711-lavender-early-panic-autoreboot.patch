@@ -1,23 +1,31 @@
 From: port_ios lavender
-Subject: [PATCH 0711] lavender: auto-reboot 15 s after SWEET EARLY PANIC via PSCI_SYSTEM_RESET
+Subject: [PATCH 0711] lavender: auto-reboot 15 s after SWEET EARLY PANIC via SDM660 WDT (0x17817000) + PSCI
 
-On Redmi Note 7 units with a broken power button, an infinite wfe() halt in
-sweet_early_panic() traps the device on the panic screen until the battery
-drains. Wait 15 seconds using CNTPCT_EL0/CNTFRQ_EL0 (enough time to read or
-photograph the panic message) and then issue PSCI_SYSTEM_RESET (0x84000009)
-via SMC so the board reboots cleanly even before MMIO/timers/keys are up.
+Port the proven reset_now() path from lavender_guardian.c: arm the non-secure
+SDM660 APSS watchdog (QCOM_WDT_BASE 0x17817000, BITE_TIME=1, EN=1, RST=1)
+BEFORE calling PSCI_FEATURES/PSCI_SYSTEM_RESET so the handset resets reliably
+even when PSCI SMC hangs or is unsupported.
 
 diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
-index 7929b75..c8a003d 100644
+index 7929b75..fe12568 100644
 --- a/osfmk/arm64/sweet_early.c
 +++ b/osfmk/arm64/sweet_early.c
-@@ -187,7 +187,34 @@ sweet_early_panic(const char *fmt, va_list *args)
+@@ -10,6 +10,8 @@
+ #if defined(SWEET)
+ #include <stdint.h>
+ #include <kern/misc_protos.h>
++#include <vm/vm_kern.h>
++extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+ 
+ #if defined(LAVENDER)
+ static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)0x9d400000;
+@@ -187,7 +189,55 @@ sweet_early_panic(const char *fmt, va_list *args)
  	va_end(copy);
  	sweet_early_putc('\n');
  	__asm__ volatile("dsb sy" ::: "memory");
 -#if defined(ARM64_BOARD_CONFIG_SANTONI) || defined(SANTONI) || defined(ARM64_BOARD_CONFIG_LAVENDER) || defined(LAVENDER)
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER) || defined(LAVENDER)
-+	sweet_early_string("\nLAVENDER: auto-rebooting in 15s (PSCI_SYSTEM_RESET)...\n");
++	sweet_early_string("\nLAVENDER: auto-rebooting in 15s (SDM660 WDT+PSCI)...\n");
 +	__asm__ volatile("dsb sy" ::: "memory");
 +	{
 +		uint64_t freq = 0, start = 0, cur = 0;
@@ -30,15 +38,36 @@ index 7929b75..c8a003d 100644
 +		do {
 +			__asm__ volatile("isb; mrs %0, cntpct_el0" : "=r"(cur));
 +		} while (cur < deadline);
-+		register uint64_t x0 __asm__("x0") = 0x84000009ULL; /* PSCI_SYSTEM_RESET */
-+		register uint64_t x1 __asm__("x1") = 0;
++		/* Proven lavender_guardian.c reset_now(): arm non-secure SDM660 WDT bite BEFORE PSCI. */
++		vm_offset_t wdt = ml_io_map(0x17817000ULL, 0x1000ULL);
++		if (wdt != 0) {
++			*(volatile uint32_t *)(wdt + 0x08u) = 0u;
++			*(volatile uint32_t *)(wdt + 0x14u) = 1u;
++			__asm__ volatile("dsb sy" ::: "memory");
++			*(volatile uint32_t *)(wdt + 0x08u) = 1u;
++			*(volatile uint32_t *)(wdt + 0x04u) = 1u;
++			__asm__ volatile("dsb sy; isb" ::: "memory");
++		}
++		register uint64_t x0 __asm__("x0") = 0x8400000aULL; /* PSCI_FEATURES */
++		register uint64_t x1 __asm__("x1") = 0x84000009ULL; /* PSCI_SYSTEM_RESET */
 +		register uint64_t x2 __asm__("x2") = 0;
 +		register uint64_t x3 __asm__("x3") = 0;
-+		__asm__ volatile("dsb sy; smc #0"
++		__asm__ volatile("smc #0"
 +		    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
 +		    :
 +		    : "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11",
 +		      "x12", "x13", "x14", "x15", "x16", "x17", "memory");
++		if ((int64_t)x0 >= 0) {
++			x0 = 0x84000009ULL;
++			x1 = 0;
++			x2 = 0;
++			x3 = 0;
++			__asm__ volatile("dsb sy; isb; smc #0"
++			    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
++			    :
++			    : "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11",
++			      "x12", "x13", "x14", "x15", "x16", "x17", "memory");
++		}
 +	}
 +	for (;;) {
 +		__asm__ volatile("wfe");
