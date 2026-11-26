@@ -21,20 +21,20 @@ index b42b53f..bd05797 100644
  	(void)arg;
  	(void)result;
  	for (;;) {
-@@ -180,6 +183,44 @@ keys_thread(void *arg, wait_result_t result)
+@@ -180,6 +183,35 @@ keys_thread(void *arg, wait_result_t result)
  				sweet_hid_key(k, state[k]);
  			}
  		}
 +#if defined(ARM64_BOARD_CONFIG_LAVENDER)
 +		/*
 +		 * Broken-power-button support on lavender:
-+		 *   - Hold Vol+ + Vol- for ~3 s (150 x 20 ms) -> drop SDM660 PSHOLD (0x010ac000) to reboot.
++		 *   - Hold Vol+ + Vol- for ~3 s (150 x 20 ms) -> arm SDM660 APSS WDT (0x17817000) bite=1.
 +		 *   - Quick tap Vol+ + Vol- (< 3 s) -> inject virtual Power button (key 0) to wake/lock.
 +		 */
 +		if (state[1] && state[2]) {
 +			combo_ticks++;
 +			if (combo_ticks == 150u) {
-+				printf("SWEET KEYS: Vol+ + Vol- held 3 s -> SDM660 WDT+PSCI reset\n");
++				printf("SWEET KEYS: Vol+ + Vol- held 3 s -> SDM660 WDT bite reset\n");
 +				vm_offset_t wdt = ml_io_map(0x17817000u, 0x1000u);
 +				if (wdt != 0) {
 +					*(volatile uint32_t *)(wdt + 0x08u) = 0u;
@@ -42,16 +42,7 @@ index b42b53f..bd05797 100644
 +					__asm__ volatile("dsb sy" ::: "memory");
 +					*(volatile uint32_t *)(wdt + 0x08u) = 1u;
 +					*(volatile uint32_t *)(wdt + 0x04u) = 1u;
-+					__asm__ volatile("dsb sy; isb" ::: "memory");
-+				}
-+				register uint64_t x0 __asm__("x0") = 0x8400000aULL;
-+				register uint64_t x1 __asm__("x1") = 0x84000009ULL;
-+				register uint64_t x2 __asm__("x2") = 0;
-+				register uint64_t x3 __asm__("x3") = 0;
-+				__asm__ volatile("smc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) :: "x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17","memory");
-+				if ((int64_t)x0 >= 0) {
-+					x0 = 0x84000009ULL; x1 = 0; x2 = 0; x3 = 0;
-+					__asm__ volatile("dsb sy; isb; smc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) :: "x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17","memory");
++					__asm__ volatile("dsb sy" ::: "memory");
 +				}
 +			}
 +		} else if (combo_ticks > 0u) {

@@ -5,7 +5,9 @@ H=$(cd "$(dirname "$0")" && pwd)
 R=$H/../..
 M=$R/research/mesa
 B=$R/research/mesa-ios
-(cd "$B" && ninja)
+TARGETS=$(cd "$B" && ninja -t targets all | awk -F: '$1 ~ /^src\/(mesa|gallium|freedreno|compiler|mapi|util|c11)\/.*\.a$/ && $1 !~ /test|mock/ {print $1}' | sort -u)
+test -n "$TARGETS" || { echo "no Mesa static archive targets found in $B" >&2; exit 1; }
+(cd "$B" && ninja $TARGETS)
 O=$H/out
 mkdir -p "$O"
 ARCHIVE_DIRS="src/mesa src/gallium src/freedreno src/compiler src/mapi src/util src/c11"
