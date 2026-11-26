@@ -20,12 +20,15 @@ diff --git a/src/freedreno/meson.build b/src/freedreno/meson.build
 index e8f01b8..a6c37f9 100644
 --- a/src/freedreno/meson.build
 +++ b/src/freedreno/meson.build
-@@ -22,7 +22,7 @@ subdir('ir2')
+@@ -22,7 +22,10 @@ subdir('ir2')
  subdir('ir3')
  subdir('fdl')
  
 -if system_has_kms_drm
 +if system_has_kms_drm or host_machine.system() == 'darwin'
++  if not is_variable('libvdrm')
++    libvdrm = []
++  endif
    subdir('drm')
  endif
  
