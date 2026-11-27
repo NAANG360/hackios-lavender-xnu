@@ -1,0 +1,72 @@
+From: port_ios lavender
+Subject: [PATCH 0708] lavender: wall-clock 3s Vol+ + Vol- WDT + PSCI_SYSTEM_RESET reboot and tap-to-wake
+
+For Redmi Note 7 units with a broken power button:
+- Holding Volume Up + Volume Down for 3 real wall-clock seconds (measured via
+  cntpct_el0 / cntfrq_el0, immune to scheduler/log drift) arms the SDM660 APSS
+  WDT (0x17817000) and invokes PSCI_SYSTEM_RESET (0x84000009) via SMC.
+- Quick-tapping Volume Up + Volume Down (< 3 s) injects a virtual Power/Side
+  button HID event (key 0 down/up) so iOS can wake or lock the display.
+
+diff --git a/bsd/dev/sweet_keys.c b/bsd/dev/sweet_keys.c
+index b42b53f..c92a41e 100644
+--- a/bsd/dev/sweet_keys.c
++++ b/bsd/dev/sweet_keys.c
+@@ -156,6 +156,9 @@ keys_thread(void *arg, wait_result_t result)
+ {
+ 	int state[3] = {0, 0, 0};
+ 	unsigned errors = 0;
++#if defined(ARM64_BOARD_CONFIG_LAVENDER) && defined(__aarch64__)
++	uint64_t combo_start = 0;
++#endif
+ 	(void)arg;
+ 	(void)result;
+ 	for (;;) {
+@@ -180,6 +183,49 @@ keys_thread(void *arg, wait_result_t result)
+ 				sweet_hid_key(k, state[k]);
+ 			}
+ 		}
++#if defined(ARM64_BOARD_CONFIG_LAVENDER) && defined(__aarch64__)
++		/*
++		 * Broken-power-button support on lavender:
++		 *   - Hold Vol+ + Vol- for 3 real seconds (cntpct_el0) -> WDT bite + PSCI_SYSTEM_RESET.
++		 *   - Quick tap Vol+ + Vol- (< 3 s) -> inject virtual Power button (key 0) to wake/lock.
++		 */
++		if (state[1] && state[2]) {
++			uint64_t now = 0, freq = 0;
++			__asm__ volatile("isb; mrs %0, cntpct_el0" : "=r"(now));
++			__asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
++			if (combo_start == 0) {
++				combo_start = now;
++			} else if (freq != 0 && (now - combo_start) >= freq * 3ULL) {
++				printf("SWEET KEYS: Vol+ + Vol- held 3 s -> WDT + PSCI_SYSTEM_RESET\n");
++				vm_offset_t wdt = ml_io_map(0x17817000u, 0x1000u);
++				if (wdt != 0) {
++					*(volatile uint32_t *)(wdt + 0x08u) = 0u;
++					*(volatile uint32_t *)(wdt + 0x14u) = 1u;
++					__asm__ volatile("dsb sy" ::: "memory");
++					*(volatile uint32_t *)(wdt + 0x08u) = 1u;
++					*(volatile uint32_t *)(wdt + 0x04u) = 1u;
++					__asm__ volatile("dsb sy; isb" ::: "memory");
++				}
++				register uint64_t x0 __asm__("x0") = 0x84000009ULL; /* PSCI_SYSTEM_RESET */
++				register uint64_t x1 __asm__("x1") = 0;
++				register uint64_t x2 __asm__("x2") = 0;
++				register uint64_t x3 __asm__("x3") = 0;
++				__asm__ volatile("smc #0"
++				    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
++				    :
++				    : "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11",
++				      "x12", "x13", "x14", "x15", "x16", "x17", "memory");
++				combo_start = now;
++			}
++		} else if (combo_start != 0) {
++			printf("SWEET KEYS: Vol+ + Vol- tap -> virtual Power wake/lock\n");
++			sweet_hid_key(0, 1);
++			sweet_hid_key(0, 0);
++			combo_start = 0;
++		}
++#endif
+ 		keys_wait();
+ 	}
+ }
