@@ -9,7 +9,7 @@ meson setup ../mesa-ios --cross-file "$R/tools/sweetgl/ios-cross.txt" \
 	--buildtype=release -Db_ndebug=true -Ddefault_library=static \
 	-Dplatforms= -Degl=disabled -Dglx=disabled -Dgbm=disabled \
 	-Dgallium-drivers=freedreno -Dvulkan-drivers= -Dfreedreno-kmds=msm \
-	-Dllvm=disabled -Dgles1=disabled -Dgles2=enabled -Dopengl=true \
+	-Dllvm=disabled -Dgles1=disabled -Dgles2=enabled -Dopengl=true -Dshared-glapi=disabled \
 	-Dzstd=disabled -Dzlib=disabled -Dexpat=disabled -Dxmlconfig=disabled \
 	-Dvalgrind=disabled -Dlibunwind=disabled -Dlmsensors=disabled \
 	-Dbuild-tests=false -Dshader-cache=disabled -Dperfetto=false \
