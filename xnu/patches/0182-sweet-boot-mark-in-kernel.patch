@@ -501,7 +501,7 @@ index 778da15..7ead5ff 100644
 +	 * panel and 0067 mutes it at the first swap).
 +	 */
 +	int quiet = 0;
-+	if (PE_parse_boot_argn("sweetfb_noconsole", &quiet, sizeof(quiet)) && quiet != 0) {
++	if (PE_parse_boot_argn("sweetfb_noconsole", &quiet, sizeof(quiet)) && quiet == 1) {
 +		sweet_draw_apple_logo(fPixels, fWidth, fHeight, fRowBytes);
 +		sweet_console_muted = 1;
 +		IOLog("SWEET FB: boot mark drawn, console muted until iOS presents\n");

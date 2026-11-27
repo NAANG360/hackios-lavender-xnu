@@ -389,7 +389,7 @@ jobs:
 
           PANEL="${{ inputs.panel_console || 'text' }}"
           NOCONSOLE=0
-          if [ "$PANEL" = "hidden" ]; then NOCONSOLE=1; fi
+          if [ "$PANEL" = "hidden" ]; then NOCONSOLE=1; else COMMON="$COMMON sweetfb_noconsole=2"; fi
 
           mkdir -p dist
           build_image() { # output_name diagnostic_args kprintf_spam mute
