@@ -5,13 +5,19 @@ H=$(cd "$(dirname "$0")" && pwd)
 R=$H/../..
 M=$R/research/mesa
 B=$R/research/mesa-ios
-TARGETS=$(cd "$B" && ninja -t targets all | awk -F: '$1 ~ /^src\/(mesa|gallium|freedreno|compiler|mapi|util|c11)\/.*\.a$/ && $1 !~ /test|mock/ {print $1}' | sort -u)
+TARGETS=$(cd "$B" && ninja -t targets all | awk -F: '($1 ~ /^src\/(mesa|gallium|freedreno|compiler|mapi|util|c11)\/.*\.a$/ || $1 ~ /^src\/mapi\/shared-glapi\/libglapi.*\.dylib$/) && $1 !~ /test|mock/ {print $1}' | sort -u)
 test -n "$TARGETS" || { echo "no Mesa static archive targets found in $B" >&2; exit 1; }
 (cd "$B" && ninja $TARGETS)
 O=$H/out
 mkdir -p "$O"
+GLAPI_OBJS=$(find "$B/src/mapi/shared-glapi" -name '*.o' | sort)
+if [ -n "$GLAPI_OBJS" ]; then
+	rm -f "$O/libshared_glapi_static.a"
+	$(xcrun --find ar) rcs "$O/libshared_glapi_static.a" $GLAPI_OBJS
+fi
 ARCHIVE_DIRS="src/mesa src/gallium src/freedreno src/compiler src/mapi src/util src/c11"
 LIBS=""
+[ -f "$O/libshared_glapi_static.a" ] && LIBS="$O/libshared_glapi_static.a"
 for d in $ARCHIVE_DIRS; do
 	if [ -d "$B/$d" ]; then
 		for a in $(find "$B/$d" -name '*.a' | sort); do
