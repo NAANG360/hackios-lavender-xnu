@@ -22,7 +22,7 @@ index b42b53f..c92a41e 100644
  	(void)arg;
  	(void)result;
  	for (;;) {
-@@ -180,6 +183,49 @@ keys_thread(void *arg, wait_result_t result)
+@@ -180,6 +183,47 @@ keys_thread(void *arg, wait_result_t result)
  				sweet_hid_key(k, state[k]);
  			}
  		}

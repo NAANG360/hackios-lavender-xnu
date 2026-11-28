@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IPSW="$(realpath "${1:?usage: build-ios-root-linux.sh iPhone10,3_16.7.16.ipsw OUTDIR [SIZE_MIB]}")"
+IPSW="$(realpath "${1:?usage: build-ios-root-linux.sh iPhone10,3_16.7.16.ipsw OUTDIR [SIZE_MIB] [SWEETGL_DYLIB]}")"
 OUT="$(mkdir -p "${2:?output directory required}" && cd "$2" && pwd)"
 SIZE_MIB="${3:-22208}"
+SWEETGL_DYLIB="${4:-${SWEETGL_DYLIB:-}}"
 LOGICAL_BYTES=$((SIZE_MIB * 1024 * 1024))
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EXTRACT="$OUT/extracted"
@@ -44,6 +45,24 @@ rm -rf "$EXTRACT"
 # reference lock-screen build, then cleanly verify the journaled HFSX volume.
 sudo mkdir -p "$MNT"
 sudo mount -t hfsplus -o loop,force "$RAW" "$MNT"
+SWEETGL_SHA=""
+SWEETGL_SIZE="0"
+if [ -n "$SWEETGL_DYLIB" ]; then
+  test -s "$SWEETGL_DYLIB" || { echo "SWEETGL_DYLIB missing or empty: $SWEETGL_DYLIB" >&2; sudo umount "$MNT"; exit 1; }
+  sudo mkdir -p "$MNT/usr/lib"
+  sudo install -m 0755 -o 0 -g 0 "$SWEETGL_DYLIB" "$MNT/usr/lib/sweetgl.dylib"
+  SWEETGL_SHA="$(sha256sum "$SWEETGL_DYLIB" | awk '{print $1}')"
+  SWEETGL_SIZE="$(stat -c%s "$SWEETGL_DYLIB")"
+  echo "Installed /usr/lib/sweetgl.dylib ($SWEETGL_SIZE bytes, sha256=$SWEETGL_SHA)"
+fi
+if [ -d "$ROOT/resources/gpu-firmware" ]; then
+  sudo mkdir -p "$MNT/usr/share/firmware/lavender/gpu"
+  for f in a512_zap.mdt a512_zap.b02 a530_pm4.fw a530_pfp.fw; do
+    test -s "$ROOT/resources/gpu-firmware/$f" || { echo "missing GPU firmware blob: $ROOT/resources/gpu-firmware/$f" >&2; sudo umount "$MNT"; exit 1; }
+    sudo install -m 0644 -o 0 -g 0 "$ROOT/resources/gpu-firmware/$f" "$MNT/usr/share/firmware/lavender/gpu/$f"
+  done
+  ls -lh "$MNT/usr/share/firmware/lavender/gpu/"
+fi
 sudo python3 "$ROOT/tools/sweet-root-tweaks.py" "$MNT"
 sync
 sudo umount "$MNT"
@@ -97,9 +116,9 @@ ZST_SHA="$(sha256sum "$SPARSE_ZST" | awk '{print $1}')"
 ZST_SIZE="$(stat -c%s "$SPARSE_ZST")"
 rm -f "$SPARSE"
 
-python3 - "$OUT/root-manifest.json" "$RAW_SHA" "$SPARSE_SHA" "$SPARSE_SIZE" "$ZST_SHA" "$ZST_SIZE" "$LOGICAL_BYTES" <<'PY'
+python3 - "$OUT/root-manifest.json" "$RAW_SHA" "$SPARSE_SHA" "$SPARSE_SIZE" "$ZST_SHA" "$ZST_SIZE" "$LOGICAL_BYTES" "$SWEETGL_SHA" "$SWEETGL_SIZE" <<'PY'
 import json, sys
-path, raw_sha, sparse_sha, sparse_size, zst_sha, zst_size, logical_bytes = sys.argv[1:]
+path, raw_sha, sparse_sha, sparse_size, zst_sha, zst_size, logical_bytes, sweetgl_sha, sweetgl_size = sys.argv[1:]
 m = {
     "schema": 2,
     "device": "Xiaomi Redmi Note 7 / 7S",
@@ -119,6 +138,9 @@ m = {
     "raw_hfsx_sha256": raw_sha,
     "source_ipsw_sha256": "ece1194f7e233e9109c5790a8d23a4564a10a254e15ec5b09978a343265568fb",
     "first_boot_tweaks": "sweet-root-tweaks.py (reference lock-screen profile)",
+    "sweetgl_bundled": bool(sweetgl_sha),
+    "sweetgl_sha256": sweetgl_sha or None,
+    "sweetgl_size_bytes": int(sweetgl_size) if sweetgl_sha else 0,
 }
 with open(path, "w") as f:
     json.dump(m, f, indent=2)
