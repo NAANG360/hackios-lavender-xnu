@@ -212,9 +212,16 @@ const char *loader_boot(uintptr_t dtb)
 	con_hex("VIRT", p->virt_base);
 	con_hex("ENTRY", p->entry_va);
 
-	/* The payload must not overlap where the kernel goes. */
-	if (rd_end > p->phys_base && rd_start < p->phys_base + p->mem_size)
+	/* The payload must not overlap where the kernel, ADT, and boot_args are written. */
+	uintptr_t adt_pa_chk = p->kernel_end + pa_of_va_base;
+	uintptr_t ba_pa_chk = (adt_pa_chk + p->adt_size + PAGE_16K - 1) & ~(PAGE_16K - 1);
+	uintptr_t top_chk = ba_pa_chk + PAGE_16K;
+	if (rd_end > p->phys_base && rd_start < top_chk)
 		return "ramdisk overlaps kernel memory";
+#ifdef BOARD_LAVENDER
+	if (p->phys_base < 0x85600000UL && top_chk > 0x85600000UL)
+		return "kernel data crosses Qualcomm reserved hole";
+#endif
 
 	for (uint32_t i = 0; i < p->nsegs; i++) {
 		const struct payload_seg *s = &p->segs[i];

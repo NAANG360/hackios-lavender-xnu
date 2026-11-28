@@ -10,9 +10,10 @@ import hashlib, os, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adt  # noqa: E402
 
-# Kernel-managed RAM: strictly above Qualcomm XPU carve-outs and splash framebuffer (0x9d400000)
-PHYS_BASE = 0xa0000000
-MEM_SIZE = 0x40000000  # 1 GiB safe budget across 3GB/4GB/6GB RAM models
+# Dual-bank lavender 3GB+ span: lower [0x40000000, 0x85600000) + upper [0xA0400000, 0xE6000000).
+# XNU patch 0711 keeps Qualcomm's reserved carve-out [0x85600000, 0xA0400000) unmapped & skipped.
+PHYS_BASE = 0x40000000
+MEM_SIZE = 0xa6000000  # 2656 MiB span -> 2226 MiB (~2.17 GiB) usable after 430 MiB carve-out hole
 # /arm-io children are relative to this; it must not be 0 (serial_init bails)
 SOC_BASE = 0x01000000
 

@@ -1,0 +1,174 @@
+From: port_ios lavender
+Subject: [PATCH 0711] lavender: dual-bank 2.17 GiB RAM with unmapped Qualcomm carve-out hole [0x85600000, 0xA0400000)
+
+Exposes both SDM660 lavender DRAM banks ([0x40000000, 0x85600000) lower and
+[0xA0400000, 0xE6000000) upper, ~2,226 MiB / 2.17 GiB usable) while safely
+excluding Qualcomm's reserved carve-out [0x85600000, 0xA0400000) (wlan_msa_guard,
+TZ/Hyp removed_regions, modem/ADSP/CDSP firmware, live splash framebuffer
+0x9D400000, and pstore):
+- start.s: cap early 32 MiB L2 bootstrap tables at 0x84000000 (strictly below
+  0x85600000) so Cortex-A73 speculative prefetch cannot touch TZ/XPU.
+- arm_vm_init.c: split arm_vm_physmap_slide() around [0x85600000, 0xA0400000)
+  so the hole has zero physmap PTEs, and subtract the 430 MiB hole from
+  sane_size, max_mem, and max_mem_actual.
+- pmap_data.h: exclude [0x85600000, 0xA0400000) from pa_valid() so FB_BASE
+  (0x9D400000) and carve-outs remain non-managed I/O without tripping
+  pmap_panic_dev_wimg_on_managed.
+- pmap.c: subtract the hole in initialize_ram_ranges() and skip it in
+  pmap_next_page().
+
+diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
+index 00568d3..7630487 100644
+--- a/osfmk/arm/pmap/pmap.c
++++ b/osfmk/arm/pmap/pmap.c
+@@ -2589,6 +2589,11 @@ pmap_is_bad_ram(__unused ppnum_t ppn)
+  * Initialize the count of available pages. No lock needed here,
+  * as this code is called while kernel boot up is single threaded.
+  */
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#define LAV_PMAP_HOLE_START 0x85600000ULL
++#define LAV_PMAP_HOLE_END   0xA0400000ULL
++#endif
++
+ static void
+ initialize_ram_ranges(void)
+ {
+@@ -2599,6 +2604,13 @@ initialize_ram_ranges(void)
+ 	assert(first == (first & ~PAGE_MASK));
+ 	assert(end == (end & ~PAGE_MASK));
+ 	avail_page_count = atop(end - first);
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (first < LAV_PMAP_HOLE_END && end > LAV_PMAP_HOLE_START) {
++		pmap_paddr_t h_lo = first > LAV_PMAP_HOLE_START ? first : LAV_PMAP_HOLE_START;
++		pmap_paddr_t h_hi = end < LAV_PMAP_HOLE_END ? end : LAV_PMAP_HOLE_END;
++		avail_page_count -= atop(h_hi - h_lo);
++	}
++#endif
+ 
+ 	need_ram_ranges_init = false;
+ }
+@@ -2641,6 +2653,11 @@ pmap_next_page(
+ 		initialize_ram_ranges();
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (first_avail >= LAV_PMAP_HOLE_START && first_avail < LAV_PMAP_HOLE_END) {
++		first_avail = LAV_PMAP_HOLE_END;
++	}
++#endif
+ 
+ 	if (first_avail != avail_end) {
+ 		*pnum = (ppnum_t)atop(first_avail);
+diff --git a/osfmk/arm/pmap/pmap_data.h b/osfmk/arm/pmap/pmap_data.h
+index 2883f63..3243d16 100644
+--- a/osfmk/arm/pmap/pmap_data.h
++++ b/osfmk/arm/pmap/pmap_data.h
+@@ -74,6 +74,11 @@ extern pmap_paddr_t vm_first_phys, vm_last_phys;
+ static inline bool
+ pa_valid(pmap_paddr_t pa)
+ {
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (pa >= 0x85600000ULL && pa < 0xA0400000ULL) {
++		return false;
++	}
++#endif
+ 	return (pa >= vm_first_phys) && (pa < vm_last_phys);
+ }
+ 
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+index 65ff160..8ead650 100644
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -1587,6 +1587,12 @@ arm_vm_physmap_init(boot_args *args)
+ 
+ #else
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++#define LAV_RAM_HOLE_START 0x85600000ULL
++#define LAV_RAM_HOLE_END   0xA0400000ULL
++#define LAV_RAM_HOLE_SIZE  (LAV_RAM_HOLE_END - LAV_RAM_HOLE_START)
++#endif
++
+ static void
+ arm_vm_physmap_init(boot_args *args)
+ {
+@@ -1600,8 +1606,20 @@ arm_vm_physmap_init(boot_args *args)
+ 	arm_vm_page_granular_RWNX(end_kern, phystokv(args->topOfKernelData) - end_kern,
+ 	    ARM64_GRANULE_ALLOW_BLOCK | ARM64_GRANULE_ALLOW_HINT); /* Device Tree (if not locked down), RAM Disk (if present), bootArgs */
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (args->topOfKernelData < LAV_RAM_HOLE_START && real_avail_end > LAV_RAM_HOLE_END) {
++		arm_vm_physmap_slide(temp_ptov_table, (args->topOfKernelData - gPhysBase + gVirtBase),
++		    LAV_RAM_HOLE_START - args->topOfKernelData, AP_RWNA, ARM64_GRANULE_ALLOW_BLOCK | ARM64_GRANULE_ALLOW_HINT);
++		arm_vm_physmap_slide(temp_ptov_table, (LAV_RAM_HOLE_END - gPhysBase + gVirtBase),
++		    real_avail_end - LAV_RAM_HOLE_END, AP_RWNA, ARM64_GRANULE_ALLOW_BLOCK | ARM64_GRANULE_ALLOW_HINT);
++	} else {
++		arm_vm_physmap_slide(temp_ptov_table, (args->topOfKernelData - gPhysBase + gVirtBase),
++		    real_avail_end - args->topOfKernelData, AP_RWNA, ARM64_GRANULE_ALLOW_BLOCK | ARM64_GRANULE_ALLOW_HINT);
++	}
++#else
+ 	arm_vm_physmap_slide(temp_ptov_table, (args->topOfKernelData - gPhysBase + gVirtBase),
+ 	    real_avail_end - args->topOfKernelData, AP_RWNA, ARM64_GRANULE_ALLOW_BLOCK | ARM64_GRANULE_ALLOW_HINT); // rest of physmem
++#endif
+ 
+ 	assert((temp_ptov_table[ptov_index - 1].va + temp_ptov_table[ptov_index - 1].len) <= physmap_end);
+ 
+@@ -2269,8 +2287,17 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 		flush_mmu_tlb();
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	uint64_t lav_hole_bytes = (gPhysBase < LAV_RAM_HOLE_START && avail_end > LAV_RAM_HOLE_END) ? LAV_RAM_HOLE_SIZE : 0ULL;
++	sane_size = mem_size - lav_hole_bytes - (avail_start - gPhysBase);
++	max_mem = mem_size - lav_hole_bytes;
++	if (max_mem_actual > lav_hole_bytes) {
++		max_mem_actual -= lav_hole_bytes;
++	}
++#else
+ 	sane_size = mem_size - (avail_start - gPhysBase);
+ 	max_mem = mem_size;
++#endif
+ 	vm_kernel_slid_base = segLOWESTTEXT;
+ 	// vm_kernel_slide is set by arm_init()->arm_slide_rebase_and_sign_image()
+ 	vm_kernel_stext = segTEXTB;
+@@ -2437,6 +2464,12 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 	 */
+ 	avail_start = (avail_start + PAGE_MASK) & ~PAGE_MASK;
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	if (gPhysBase < LAV_RAM_HOLE_START && avail_end > LAV_RAM_HOLE_END) {
++		assert(avail_start <= LAV_RAM_HOLE_START);
++	}
++#endif
++
+ #if XNU_MONITOR
+ 	pmap_static_allocations_done();
+ #endif
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index ca337f1..4d3d385 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -618,6 +618,23 @@ Lkernelcache_base_found:
+ 	add		x3, x1, PGBYTES
+ 	mov		x2, x3
+ 
++#if defined(ARM64_BOARD_CONFIG_LAVENDER)
++	/*
++	 * Never map Qualcomm's reserved carve-out [0x85600000, 0xA0400000) in the
++	 * 32 MiB L2 bootstrap tables: cap the early bootstrap map at 0x84000000
++	 * (the last 32 MiB boundary strictly below 0x85600000) so the Cortex-A73
++	 * prefetcher cannot speculatively read TrustZone/XPU memory.
++	 */
++	MOV64	x10, 0x84000000
++	cmp		x23, x10
++	b.hs	Llav_boot_cap_done
++	add		x11, x23, x24
++	cmp		x11, x10
++	b.ls	Llav_boot_cap_done
++	sub		x24, x10, x23
++Llav_boot_cap_done:
++#endif
++
+ 	/*
+ 	 * Setup the V=P bootstrap mapping
+ 	 * x5 - total number of L2 entries to allocate

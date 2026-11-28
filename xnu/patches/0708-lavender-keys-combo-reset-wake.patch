@@ -34,8 +34,8 @@ index b42b53f..c92a41e 100644
 +		 */
 +		if (state[1] && state[2]) {
 +			uint64_t now = 0, freq = 0;
-+			__asm__ volatile("isb; mrs %0, cntpct_el0" : "=r"(now));
-+			__asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
++			asm volatile("isb; mrs %0, cntpct_el0" : "=r"(now));
++			asm volatile("mrs %0, cntfrq_el0" : "=r"(freq));
 +			if (combo_start == 0) {
 +				combo_start = now;
 +			} else if (freq != 0 && (now - combo_start) >= freq * 3ULL) {
@@ -44,16 +44,16 @@ index b42b53f..c92a41e 100644
 +				if (wdt != 0) {
 +					*(volatile uint32_t *)(wdt + 0x08u) = 0u;
 +					*(volatile uint32_t *)(wdt + 0x14u) = 1u;
-+					__asm__ volatile("dsb sy" ::: "memory");
++					asm volatile("dsb sy" ::: "memory");
 +					*(volatile uint32_t *)(wdt + 0x08u) = 1u;
 +					*(volatile uint32_t *)(wdt + 0x04u) = 1u;
-+					__asm__ volatile("dsb sy; isb" ::: "memory");
++					asm volatile("dsb sy; isb" ::: "memory");
 +				}
-+				register uint64_t x0 __asm__("x0") = 0x84000009ULL; /* PSCI_SYSTEM_RESET */
-+				register uint64_t x1 __asm__("x1") = 0;
-+				register uint64_t x2 __asm__("x2") = 0;
-+				register uint64_t x3 __asm__("x3") = 0;
-+				__asm__ volatile("smc #0"
++				register uint64_t x0 asm("x0") = 0x84000009ULL; /* PSCI_SYSTEM_RESET */
++				register uint64_t x1 asm("x1") = 0;
++				register uint64_t x2 asm("x2") = 0;
++				register uint64_t x3 asm("x3") = 0;
++				asm volatile("smc #0"
 +				    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3)
 +				    :
 +				    : "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11",
